@@ -1,8 +1,8 @@
-<p style="text-align:center">
+<p align = "center">
   <img src="post.png" width="300">
 </p>
 
-<div align="center">
+<div align = "center">
 <h1>ECLIA</h1>
 I <em>remember</em> u.
 </div>
