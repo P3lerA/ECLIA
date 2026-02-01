@@ -1,0 +1,6 @@
+# global lf
+* text=auto eol=lf
+
+# Windows batch
+*.bat text eol=crlf
+*.cmd text eol=crlf
