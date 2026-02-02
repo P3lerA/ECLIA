@@ -1,0 +1,17 @@
+:root{
+  --bg:#f6f7f8;
+  --surface:#ffffff;
+  --surface-2:#fbfbfc;
+  --text:#0b0b0c;
+  --muted:#6b7280;
+  --line:rgba(17,24,39,.10);
+  --line-2:rgba(17,24,39,.06);
+  --shadow: 0 1px 0 rgba(17,24,39,.04), 0 18px 40px rgba(17,24,39,.08);
+  --radius:16px;
+
+  --accent: linear-gradient(90deg,#ff4d4d 0%,#ffb84d 28%,#fff27a 46%,#a7ff7a 70%,#50e6d6 100%);
+  --accent-soft: linear-gradient(90deg,rgba(255,77,77,.18),rgba(255,184,77,.14),rgba(255,242,122,.12),rgba(167,255,122,.12),rgba(80,230,214,.14));
+
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+}
