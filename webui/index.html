@@ -1,54 +1,13 @@
 <!doctype html>
-<html lang="zh">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LLM Console</title>
+    <title>webui</title>
   </head>
   <body>
-    <div id="app">
-      <header>
-        <h1>LLM Console</h1>
-        <div class="row">
-          <label>
-            Model
-            <select id="modelSelect"></select>
-          </label>
-
-          <label>
-            Temperature
-            <input id="temp" type="number" min="0" max="2" step="0.1" value="0.7" />
-          </label>
-
-          <label>
-            Max tokens
-            <input id="maxTokens" type="number" min="1" max="8192" step="1" value="256" />
-          </label>
-
-          <label class="checkbox">
-            <input id="jsonMode" type="checkbox" />
-            JSON mode
-          </label>
-
-          <button id="clearBtn">Clear</button>
-        </div>
-      </header>
-
-      <main>
-        <div id="chat"></div>
-
-        <div class="composer">
-          <textarea id="input" rows="4" placeholder="Enter Prompt..."></textarea>
-          <div class="row">
-            <button id="sendBtn">Send</button>
-            <button id="debugBtn" class="ghost">LastReaction</button>
-          </div>
-        </div>
-
-        <pre id="debug" class="hidden"></pre>
-      </main>
-    </div>
-
-    <script type="module" src="/main.js"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
