@@ -83,7 +83,7 @@ void main() {
 
   // Slow breathing: no translation, just a gentle morph in place.
   // (Two waves to avoid looking perfectly periodic.)
-  float breath = 0.5 * sin(t * 0.35) + 0.5 * sin(t * 0.22 + 1.7);
+  float breath = 0.5 * sin(t * 0.30) + 0.5 * sin(t * 0.19 + 1.7);
 
   // Domain warp: makes it feel more topographic.
   float w1 = fbm(p * 0.9 + 12.3);
@@ -100,7 +100,7 @@ void main() {
   h += breath * 0.03;
 
   // Local micro-breathing (keeps it organic, but still gentle).
-  h += sin(t * 0.35 + phase * 6.2831853) * 0.012;
+  h += sin(t * 0.30 + phase * 6.2831853) * 0.012;
 
   // Contour density: higher = denser lines.
   float k = 11.0;

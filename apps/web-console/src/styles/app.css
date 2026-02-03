@@ -51,6 +51,7 @@ body{
 
 /* Brand: black base text + angled gradient highlight (inspired by your reference) */
 .brand{
+  font-family: "Rubik", var(--sans);
   font-weight: 900;
   letter-spacing: .18em;
   font-style: italic;
@@ -98,6 +99,7 @@ body{
 }
 .brand-lg{ font-size: 48px; }
 .brand-sm{ font-size: 18px; }
+.brand-md{ font-size: 22px; }
 
 /* Buttons & inputs */
 .btn{
@@ -117,6 +119,21 @@ body{
   letter-spacing: .12em;
   font-weight: 700;
 }
+
+/* Menu trigger hover (a bit more expressive than the default button hover) */
+.btn.menu,
+.btn.icon.menuicon{
+  transition: transform var(--motion-2) var(--ease-standard), border-color var(--motion-2) var(--ease-standard), background var(--motion-2) var(--ease-standard);
+}
+.btn.menu:hover,
+.btn.icon.menuicon:hover{
+  border-color: rgba(17,24,39,.18);
+  transform: translateY(-1px);
+}
+.btn.menu:active,
+.btn.icon.menuicon:active{
+  transform: translateY(0);
+}
 .btn.icon{
   width: 44px;
   height: 44px;
@@ -133,17 +150,14 @@ body{
 .btn.subtle:hover{ background: #f9fafb; }
 
 .btn.icon.send{
-  position: relative;
-  overflow: hidden;
+  /* Flat send button (no gradient/glass) */
   border-color: rgba(17,24,39,.14);
+  background: var(--surface);
+  box-shadow: none;
 }
 .btn.icon.send::before{
-  content:"";
-  position:absolute;
-  inset:0;
-  background: var(--accent-soft);
-  opacity: .85;
-  pointer-events:none;
+  content: none;
+  display: none;
 }
 
 .select{
@@ -191,23 +205,17 @@ body{
   height: 44px;
   border-radius: 999px;
   border: 1px solid rgba(17,24,39,.14);
-  background: var(--surface-2);
+  background: var(--surface);
   cursor: pointer;
-  position: relative;
-  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: none;
 }
 .prompt-send::before{
-  content:"";
-  position:absolute;
-  inset:0;
-  background: var(--accent-soft);
-  opacity: .85;
-  pointer-events:none;
+  content: none;
+  display: none;
 }
-.prompt-send > *{ position: relative; }
 .landing-hint{
   font-size: 12px;
   color: var(--muted);
@@ -217,6 +225,12 @@ body{
 
 /* Chat view */
 .chatview{
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.chatview-content{
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -247,7 +261,7 @@ body{
 .message-list{
   height: 100%;
   overflow: auto;
-  padding: 8px 4px;
+  padding: 8px 4px 132px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -339,7 +353,7 @@ body{
 
 /* Composer */
 .composer-chat{
-  padding: 14px 0 0;
+  padding: 0;
 }
 .inputrow{
   display: flex;
@@ -364,6 +378,27 @@ textarea:focus{
   box-shadow: 0 0 0 3px rgba(17,24,39,.06);
 }
 .actions{ display: flex; gap: 8px; }
+
+/* Composer dock (fixed): prevents messages from pushing the composer off-screen. */
+.composerDock{
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 16px;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  padding: 0 18px;
+  pointer-events: none;
+}
+.composerDock-inner{
+  width: min(980px, 100%);
+  pointer-events: auto;
+}
+@media (max-width: 520px){
+  .composerDock{ bottom: 12px; }
+}
+
 
 /* Menu Sheet (modal bottom sheet) — flat, no glass effect */
 .menusheet-overlay{
@@ -495,8 +530,10 @@ textarea:focus{
 }
 .settings-head-title{
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  height: 44px;
 }
 .settings-title{
   font-weight: 750;

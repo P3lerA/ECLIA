@@ -4,11 +4,11 @@
 
 :root{
   /* Durations */
-  --motion-1: 90ms;
-  --motion-2: 140ms;
-  --motion-3: 220ms;
-  --motion-4: 320ms;
-  --motion-5: 520ms;
+  --motion-1: 105ms;
+  --motion-2: 160ms;
+  --motion-3: 250ms;
+  --motion-4: 370ms;
+  --motion-5: 600ms;
 
   /* Easing */
   --ease-standard: cubic-bezier(.2, 0, 0, 1);
@@ -24,11 +24,11 @@
 
 @media (prefers-reduced-motion: reduce){
   :root{
-    --motion-1: 1ms;
-    --motion-2: 1ms;
-    --motion-3: 1ms;
-    --motion-4: 1ms;
-    --motion-5: 1ms;
+    --motion-1: 105ms;
+    --motion-2: 160ms;
+    --motion-3: 250ms;
+    --motion-4: 370ms;
+    --motion-5: 600ms;
   }
 }
 
@@ -44,7 +44,7 @@
   }
   to{
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: none;
   }
 }
 @keyframes k-page-in{
@@ -54,7 +54,7 @@
   }
   to{
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: none;
   }
 }
 @keyframes k-sheet-in{
@@ -64,7 +64,7 @@
   }
   to{
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: none;
   }
 }
 @keyframes k-sheet-out{
@@ -86,6 +86,18 @@
   to{ opacity: 0; }
 }
 
+
+@keyframes k-dock-in{
+  from{
+    opacity: 0;
+    transform: translateY(-18vh);
+  }
+  to{
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* Utility classes */
 .motion-page{
   animation: k-page-in var(--motion-4) var(--ease-enter) both;
@@ -105,6 +117,9 @@
 
 .motion-sheet[data-motion="enter"]{ animation: k-sheet-in var(--motion-3) var(--ease-enter) both; }
 .motion-sheet[data-motion="exit"]{ animation: k-sheet-out var(--motion-2) var(--ease-exit) both; }
+
+/* Composer docking */
+.motion-dock[data-motion="enter"]{ animation: k-dock-in var(--motion-4) var(--ease-enter) both; }
 
 /* Micro-interactions (safe properties only) */
 .btn,
@@ -142,7 +157,8 @@ textarea,
   .motion-item,
   .motion-msg,
   .motion-overlay,
-  .motion-sheet{
+  .motion-sheet,
+  .motion-dock{
     animation: none !important;
   }
   .btn,

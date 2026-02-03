@@ -13,6 +13,13 @@ function AppInner() {
   const messages = state.messagesBySession[state.activeSessionId] ?? [];
   const isLanding = messages.length === 0;
 
+  // Detect Landing → Chat transition to trigger one-shot docking animation.
+  const prevIsLandingRef = React.useRef(isLanding);
+  const dockFromLanding = prevIsLandingRef.current && !isLanding;
+  React.useEffect(() => {
+    prevIsLandingRef.current = isLanding;
+  }, [isLanding]);
+
   const [menuOpen, setMenuOpen] = React.useState(false);
 
   return (
@@ -25,7 +32,7 @@ function AppInner() {
         ) : isLanding ? (
           <LandingView onOpenMenu={() => setMenuOpen(true)} />
         ) : (
-          <ChatView onOpenMenu={() => setMenuOpen(true)} />
+          <ChatView onOpenMenu={() => setMenuOpen(true)} dockFromLanding={dockFromLanding} />
         )}
       </div>
 

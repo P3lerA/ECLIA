@@ -30,7 +30,7 @@ export function ChatComposer({ onOpenMenu }: { onOpenMenu: () => void }) {
         />
 
         <div className="actions">
-          <button className="btn icon" onClick={onOpenMenu} aria-label="Menu">
+          <button className="btn icon menuicon" onClick={onOpenMenu} aria-label="Menu">
             ☰
           </button>
           <button className="btn icon send" onClick={() => void send()} aria-label="Send">

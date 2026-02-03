@@ -36,11 +36,11 @@ Respect user preference:
 Tokens live in `src/styles/motion.css` as CSS variables.
 
 ### Durations
-- `--motion-1`: 90ms  (micro feedback: hover/press)
-- `--motion-2`: 140ms (fast UI)
-- `--motion-3`: 220ms (default enter)
-- `--motion-4`: 320ms (page transitions)
-- `--motion-5`: 520ms (slow/ambient emphasis)
+- `--motion-1`: 105ms  (micro feedback: hover/press)
+- `--motion-2`: 160ms (fast UI)
+- `--motion-3`: 250ms (default enter)
+- `--motion-4`: 370ms (page transitions)
+- `--motion-5`: 600ms (slow/ambient emphasis)
 
 ### Easing curves
 - `--ease-standard`: general UI motion
@@ -62,6 +62,12 @@ Use small offsets (screen-space):
 Use `motion-page` on the top-level container.
 - Fade + slight rise
 - Duration `--motion-4`
+
+### Composer docking (Chat)
+Keep the composer fixed to the viewport to avoid layout push from growing message history.
+- Use a fixed `composerDock` wrapper
+- Animate entry once when transitioning from Landing → Chat (`motion-dock`)
+- Reserve space in the scroll area (bottom padding) so messages are not hidden behind the composer
 
 ### Bottom sheet (Menu)
 Use `usePresence(open)` to keep the sheet mounted during exit animation.
@@ -129,3 +135,8 @@ This keeps the system extensible: new components only need to opt into the state
 - Animate layout-heavy properties by default
 - Run expensive per-frame checks
 - Add multiple competing animations on the same element
+
+
+## Implementation note
+
+- Animations that use `transform` should end at `transform: none` (not `translateY(0) scale(1)`) to avoid accidentally creating a containing block that breaks `position: fixed` descendants.

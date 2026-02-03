@@ -19,7 +19,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           ←
         </button>
         <div className="settings-head-title">
-          <div className="brand brand-sm" data-text="ECLIA">
+          <div className="brand brand-md" data-text="ECLIA">
             ECLIA
           </div>
           <div className="settings-title">Settings</div>
