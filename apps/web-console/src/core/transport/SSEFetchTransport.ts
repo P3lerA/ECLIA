@@ -3,8 +3,8 @@ import type { ChatEvent, ChatEventHandlers, ChatRequest } from "../types";
 import { parseSSE } from "./sseParser";
 
 /**
- * 使用 fetch 读 `text/event-stream`（SSE）并解析事件。
- * 好处：可以 POST（EventSource 只能 GET），也更容易携带 body。
+ * Reads `text/event-stream` (SSE) via fetch() and parses events.
+ * Why fetch: we can POST (EventSource is GET-only) and include a request body easily.
  */
 export class SSEFetchTransport implements ChatTransport {
   private ac: AbortController | null = null;
@@ -51,8 +51,8 @@ export class SSEFetchTransport implements ChatTransport {
       buffer = rest;
 
       for (const e of events) {
-        // 我们约定服务端 event 名就是 ChatEvent.type
-        // data 是 JSON
+        // Convention: server `event:` name matches ChatEvent.type
+        // `data:` is JSON
         let payload: any = null;
         try {
           payload = e.data ? JSON.parse(e.data) : {};

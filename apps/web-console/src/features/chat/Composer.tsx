@@ -42,7 +42,7 @@ export function Composer() {
 
     setText("");
 
-    // slash commands（非常简陋，但够用）
+    // slash commands (very simple, but fine for a prototype)
     if (trimmed === "/clear") {
       dispatch({ type: "messages/clear", sessionId: state.activeSessionId });
       pushLog("events", "command", "clear messages");
@@ -57,9 +57,9 @@ export function Composer() {
             type: "text",
             text:
               "Commands:\n" +
-              "- /help  显示帮助\n" +
-              "- /clear 清空当前会话\n\n" +
-              "Transport: mock / sse（右上角切换）"
+              "- /help  show help\n" +
+              "- /clear clear current session\n\n" +
+              "Transport: mock / sse (switch in Settings)"
           }
         ]
       });
@@ -68,7 +68,7 @@ export function Composer() {
 
     addUserMessage(trimmed);
 
-    // 新请求打断旧请求
+    // Abort any in-flight request before sending a new one
     acRef.current?.abort();
     runtime.transports.get(state.transport).abort?.();
 
@@ -165,7 +165,7 @@ export function Composer() {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="输入内容，Enter 发送；Shift+Enter 换行。支持 /help /clear"
+          placeholder="Type a message… Enter to send · Shift+Enter for newline · /help /clear"
         />
         <button className="btn send" onClick={() => void send()}>
           <span>Send</span>
@@ -173,7 +173,7 @@ export function Composer() {
       </div>
 
       <div className="hint">
-        这是前端壳：把 transport 换成你的后端即可接入真实模型、工具、记忆与 RAG。
+        This is a frontend shell: swap the transport to your backend to plug in real models, tools, memory, and RAG.
       </div>
     </footer>
   );

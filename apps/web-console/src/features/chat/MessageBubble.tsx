@@ -9,7 +9,7 @@ export function MessageBubble({ msg }: { msg: Message }) {
   const dotClass = msg.role === "assistant" ? "dot accent" : "dot";
 
   return (
-    <div className={"msg " + msg.role}>
+    <div className={"msg motion-msg " + msg.role}>
       <div className="bubble">
         <div className="role">
           <span className={dotClass} />

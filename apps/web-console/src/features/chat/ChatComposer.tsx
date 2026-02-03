@@ -26,7 +26,7 @@ export function ChatComposer({ onOpenMenu }: { onOpenMenu: () => void }) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="输入内容，Enter 发送；Shift+Enter 换行。支持 /help /clear /new"
+          placeholder="Type a message…  Enter to send · Shift+Enter for newline · /help /clear /new"
         />
 
         <div className="actions">

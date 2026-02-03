@@ -14,7 +14,7 @@ export class MockTransport implements ChatTransport {
   };
 
   async streamChat(req: ChatRequest, handlers: any, signal?: AbortSignal) {
-    // 绑一个内部 AbortController，支持 UI “新请求打断旧请求”
+    // Use an internal AbortController so the UI can cancel in-flight requests.
     this.abort();
     this.ac = new AbortController();
 
@@ -26,9 +26,12 @@ export class MockTransport implements ChatTransport {
     onEvent({ type: "meta", at: Date.now(), sessionId: req.sessionId, model: req.model });
 
     const chunks = [
-      "好的。这个前端壳的关键点只有两个：\n\n1) Message = blocks（可插拔渲染）\n2) 后端输出 = event stream（Transport 可替换）\n",
-      "你现在看到的是 mock transport：它在前端本地用定时器模拟逐段输出。\n",
-      "接你的真实后端时，把 transport 换成 SSE / fetch stream / WebSocket 即可。"
+      `Got it. This console shell has two core ideas:
+
+1) Message = blocks (pluggable rendering)
+2) Backend output = event stream (Transport is swappable)`,
+      `You\'re currently seeing the mock transport: it simulates streaming output with a timer in the browser.`,
+      `When you wire up a real backend, replace the transport with SSE / fetch streaming / WebSocket.`
     ];
 
     for (const c of chunks) {

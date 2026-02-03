@@ -10,21 +10,23 @@ export function makeInitialState(): AppState {
   const t = Date.now();
 
   return {
+    page: "console",
+
     model: "local/ollama",
     transport: "mock",
 
     sessions: [
       { id: "s1", title: "New session", meta: nowMeta("just now"), createdAt: t },
-      { id: "s2", title: "工具调用：浏览器自动化", meta: nowMeta("yesterday"), createdAt: t - 86400000 },
-      { id: "s3", title: "Prompt 试验：JSON Schema", meta: nowMeta("last week"), createdAt: t - 7 * 86400000 }
+      { id: "s2", title: "Tool call: Browser automation", meta: nowMeta("yesterday"), createdAt: t - 86400000 },
+      { id: "s3", title: "Prompt experiment: JSON Schema", meta: nowMeta("last week"), createdAt: t - 7 * 86400000 }
     ],
     activeSessionId: "s1",
 
     messagesBySession: {
-      // s1 初始为空：显示 Landing 视图（居中输入框 + MENU）
+      // s1 starts empty: Landing view (center prompt + MENU)
       s1: [],
 
-      // s2 做一个示例会话，方便你直接看 chat UI
+      // s2 is a sample conversation so you can instantly see the chat UI
       s2: [
         {
           id: "m21",
@@ -34,9 +36,11 @@ export function makeInitialState(): AppState {
             {
               type: "text",
               text:
-                "这是一个示例会话。\n\n" +
-                "这个项目的核心是：Message = blocks + Transport 事件流。\n" +
-                "UI 只负责渲染与交互，能力靠后端/插件注入。"
+                "This is a sample session.\n\n" +
+                "This console is built around two ideas:\n" +
+                "- Message = blocks (pluggable rendering)\n" +
+                "- Backend output = event stream (Transport is swappable)\n\n" +
+                "The UI stays simple; capabilities come from backends and plugins."
             }
           ]
         },
@@ -44,7 +48,7 @@ export function makeInitialState(): AppState {
           id: "m22",
           role: "user",
           createdAt: t - 86400000 + 2000,
-          blocks: [{ type: "text", text: "把 MENU 做成底部弹出，并且可以切换历史 session。" }]
+          blocks: [{ type: "text", text: "Make MENU a bottom sheet and allow switching past sessions." }]
         },
         {
           id: "m23",
@@ -60,11 +64,19 @@ export function makeInitialState(): AppState {
     },
 
     plugins: [
-      { id: "sessions", name: "Session Sync", enabled: true, description: "会话持久化到后端" },
-      { id: "tools", name: "Tools Runtime", enabled: true, description: "允许 tool_call / tool_result 事件" },
-      { id: "rag", name: "RAG", enabled: false, description: "检索增强（引用/召回）" },
-      { id: "trace", name: "Tracing", enabled: false, description: "事件追踪与可观测性" }
+      { id: "sessions", name: "Session Sync", enabled: true, description: "Persist sessions to the backend" },
+      { id: "tools", name: "Tools Runtime", enabled: true, description: "Enable tool_call / tool_result events" },
+      { id: "rag", name: "RAG", enabled: false, description: "Retrieval augmentation (citations/recall)" },
+      { id: "trace", name: "Tracing", enabled: false, description: "Observability and event tracing" }
     ],
+
+    settings: {
+      staticContourFallback: true
+    },
+
+    gpu: {
+      available: null
+    },
 
     inspectorTab: "events",
     logsByTab: {

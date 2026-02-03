@@ -1,12 +1,12 @@
 /**
- * 极简 SSE 解析器：
- * - 按 \n\n 分割 event block
- * - 识别 event: / data:
- * - data 可以多行，按 \n join
+ * Minimal SSE parser:
+ * - Split event blocks by \n\n
+ * - Recognize event: / data:
+ * - Support multi-line data (joined by \n)
  *
- * 注意：这是“够用的版本”，真实生产里可以更严格地处理：
- * - retry/id/comment 行
- * - \r\n 兼容
+ * Note: this is a "good-enough" parser. In production you may want to handle:
+ * - retry/id/comment lines
+ * - CRLF (\r\n) compatibility
  */
 export function parseSSE(input: string): {
   events: Array<{ event: string | null; data: string }>;
@@ -15,7 +15,7 @@ export function parseSSE(input: string): {
   const normalized = input.replace(/\r\n/g, "\n");
   const parts = normalized.split("\n\n");
 
-  // 最后一段可能是不完整 block，留到下一轮
+  // The last chunk may be an incomplete block; keep it for the next read.
   const rest = parts.pop() ?? "";
 
   const events: Array<{ event: string | null; data: string }> = [];

@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>ECLIA Logo</title>
+
+    <!-- Google Fonts: Rubik (rounded-ish, tech-friendly) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:ital,wght@0,800;0,900;1,800;1,900&display=swap" rel="stylesheet">
+
+
+    <style>
+      :root{
+        /* Change font here. Keep a solid fallback stack. */
+        --eclia-font: "Nunito Sans", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+        /* Background for preview (set to transparent for PNG export if needed) */
+        --page-bg: #f6f7f8;
+
+        /* Accent (slightly more vivid) */
+        --accent: linear-gradient(90deg,#ff2f2f 0%,#ffab1a 28%,#fff066 46%,#7dff5a 70%,#22ead9 100%);
+        --accent-opacity: .96;
+
+        /* Depth */
+        --shadow-hi: 0 1px 0 rgba(255,255,255,0.78);
+        --shadow-lo: 0 10px 18px rgba(0,0,0,0.14);
+
+        /* Fine tune */
+        --letter-space: .18em;
+        --skew: -12deg; /* italic feel */
+      }
+
+      html, body { height: 100%; }
+
+      body{
+        margin:0;
+        display:grid;
+        place-items:center;
+        background: var(--page-bg);
+        font-family: var(--eclia-font);
+      }
+
+      /* If you want transparent background for PNG export */
+      body[data-bg="transparent"]{
+        background: transparent;
+      }
+
+      /* A fixed root so Playwright can screenshot just the logo area */
+      #logo{
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        gap:18px;
+        padding: 36px 44px;
+      }
+
+      .logo{
+        font-weight: 900;
+        letter-spacing: var(--letter-space);
+        font-style: italic;
+        transform: skewX(var(--skew));
+        color: #0a0a0b;
+        position: relative;
+        line-height: 1;
+        white-space: nowrap;
+        font-size: 64px;
+
+        /* Subtle 3D depth */
+        text-shadow: var(--shadow-hi), var(--shadow-lo);
+      }
+
+      /* A soft “shadow layer” slightly below */
+      .logo::before{
+        content: attr(data-text);
+        position: absolute;
+        inset: 0;
+        color: rgba(0,0,0,0.16);
+        transform: translate(0, 1.7px);
+        filter: blur(0.65px);
+        opacity: .42;
+        pointer-events: none;
+      }
+
+      /* Accent slice */
+      .logo::after{
+        content: attr(data-text);
+        position: absolute;
+        inset: 0;
+        background: var(--accent);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        opacity: var(--accent-opacity);
+
+        /* The diagonal “cut” */
+        -webkit-mask-image: linear-gradient(-18deg,
+          rgba(0,0,0,1) 0%,
+          rgba(0,0,0,1) 38%,
+          rgba(0,0,0,0) 39%,
+          rgba(0,0,0,0) 62%,
+          rgba(0,0,0,1) 63%,
+          rgba(0,0,0,1) 100%);
+        mask-image: linear-gradient(-18deg,
+          rgba(0,0,0,1) 0%,
+          rgba(0,0,0,1) 38%,
+          rgba(0,0,0,0) 39%,
+          rgba(0,0,0,0) 62%,
+          rgba(0,0,0,1) 63%,
+          rgba(0,0,0,1) 100%);
+
+        pointer-events: none;
+      }
+
+      .mini{ font-size: 32px; }
+
+      .sub{
+        font-size:12px;
+        color:#6b7280;
+        max-width:760px;
+        text-align:center;
+        line-height:1.6;
+      }
+    </style>
+  </head>
+
+  <!-- Use data-bg="transparent" for transparent PNG export -->
+  <body data-bg="solid">
+    <div id="logo">
+      <div class="logo" data-text="ECLIA">ECLIA</div>
+      <div class="logo mini" data-text="ECLIA">ECLIA</div>
+      <div class="sub">
+        Standalone HTML/CSS ECLIA mark. Font is loaded via Google Fonts.
+        Edit <code>--eclia-font</code> in <code>:root</code> to swap fonts.
+      </div>
+    </div>
+  </body>
+</html>

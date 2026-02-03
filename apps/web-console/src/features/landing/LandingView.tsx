@@ -19,19 +19,21 @@ export function LandingView({ onOpenMenu }: { onOpenMenu: () => void }) {
     }
   };
 
+  const delay = (ms: number) => ({ ["--motion-delay" as any]: `${ms}ms` }) as React.CSSProperties;
+
   return (
     <div className="landing">
-      <div className="brand brand-lg" data-text="ECLIA">
+      <div className="brand brand-lg motion-item" style={delay(0)} data-text="ECLIA">
         ECLIA
       </div>
 
-      <div className="promptbar" role="search">
+      <div className="promptbar motion-item" style={delay(90)} role="search">
         <input
           className="prompt-input"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="输入问题或 /命令…"
+          placeholder="Ask anything or type a /command…"
           aria-label="Prompt"
         />
         <button className="prompt-send" onClick={() => void send()} aria-label="Send">
@@ -39,12 +41,12 @@ export function LandingView({ onOpenMenu }: { onOpenMenu: () => void }) {
         </button>
       </div>
 
-      <button className="btn menu" onClick={onOpenMenu}>
+      <button className="btn menu motion-item" style={delay(150)} onClick={onOpenMenu}>
         MENU
       </button>
 
-      <div className="landing-hint">
-        Enter 发送。菜单里可以切换历史 session / 插件配置 / 设置。
+      <div className="landing-hint motion-item" style={delay(210)}>
+        Press Enter to send. MENU: Sessions / Plugins / Settings (fallback toggle lives in Settings).
       </div>
     </div>
   );

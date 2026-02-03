@@ -56,9 +56,9 @@ export function useSendMessage() {
               type: "text",
               text:
                 "Commands:\n" +
-                "- /help  显示帮助\n" +
-                "- /clear 清空当前会话\n" +
-                "- /new   新建空会话（回到 Landing）\n"
+                "- /help  show help\n" +
+                "- /clear clear current session\n" +
+                "- /new   start a fresh session (back to Landing)\n"
             }
           ]);
           return true;
@@ -85,7 +85,7 @@ export function useSendMessage() {
 
       addUserMessage(trimmed);
 
-      // 新请求打断旧请求（同时支持 transport.abort 和 AbortController）
+      // Abort any in-flight request (supports both transport.abort and AbortController).
       acRef.current?.abort();
       runtime.transports.get(state.transport).abort?.();
 

@@ -27,7 +27,7 @@ export type Message = {
   createdAt: number;
 
   /**
-   * streaming=true 表示它会被持续 append（例如逐 token delta）
+   * streaming=true means this message will be appended over time (e.g. token deltas).
    */
   streaming?: boolean;
 };

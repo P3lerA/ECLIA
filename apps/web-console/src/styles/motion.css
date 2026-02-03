@@ -1,0 +1,156 @@
+/* Motion system: tokens + reusable patterns (ECLIA Motion Spec v0.1)
+   Keep motion calm, subtle, and performance-safe (transform/opacity).
+*/
+
+:root{
+  /* Durations */
+  --motion-1: 90ms;
+  --motion-2: 140ms;
+  --motion-3: 220ms;
+  --motion-4: 320ms;
+  --motion-5: 520ms;
+
+  /* Easing */
+  --ease-standard: cubic-bezier(.2, 0, 0, 1);
+  --ease-enter: cubic-bezier(.16, 1, .3, 1);
+  --ease-exit: cubic-bezier(.4, 0, 1, 1);
+  --ease-linear: linear;
+
+  /* Distances */
+  --dist-1: 4px;
+  --dist-2: 8px;
+  --dist-3: 14px;
+}
+
+@media (prefers-reduced-motion: reduce){
+  :root{
+    --motion-1: 1ms;
+    --motion-2: 1ms;
+    --motion-3: 1ms;
+    --motion-4: 1ms;
+    --motion-5: 1ms;
+  }
+}
+
+/* Keyframes */
+@keyframes k-fade-in{
+  from{ opacity: 0; }
+  to{ opacity: 1; }
+}
+@keyframes k-fade-up{
+  from{
+    opacity: 0;
+    transform: translateY(var(--motion-distance, var(--dist-2))) scale(.985);
+  }
+  to{
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes k-page-in{
+  from{
+    opacity: 0;
+    transform: translateY(var(--dist-3)) scale(.99);
+  }
+  to{
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes k-sheet-in{
+  from{
+    opacity: 0;
+    transform: translateY(18px) scale(.985);
+  }
+  to{
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes k-sheet-out{
+  from{
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to{
+    opacity: 0;
+    transform: translateY(14px) scale(.99);
+  }
+}
+@keyframes k-overlay-in{
+  from{ opacity: 0; }
+  to{ opacity: 1; }
+}
+@keyframes k-overlay-out{
+  from{ opacity: 1; }
+  to{ opacity: 0; }
+}
+
+/* Utility classes */
+.motion-page{
+  animation: k-page-in var(--motion-4) var(--ease-enter) both;
+}
+.motion-item{
+  animation: k-fade-up var(--motion-3) var(--ease-enter) both;
+  animation-delay: var(--motion-delay, 0ms);
+}
+.motion-msg{
+  --motion-distance: var(--dist-1);
+  animation: k-fade-up var(--motion-2) var(--ease-enter) both;
+}
+
+/* Stateful motion via data attributes */
+.motion-overlay[data-motion="enter"]{ animation: k-overlay-in var(--motion-3) var(--ease-standard) both; }
+.motion-overlay[data-motion="exit"]{ animation: k-overlay-out var(--motion-2) var(--ease-exit) both; }
+
+.motion-sheet[data-motion="enter"]{ animation: k-sheet-in var(--motion-3) var(--ease-enter) both; }
+.motion-sheet[data-motion="exit"]{ animation: k-sheet-out var(--motion-2) var(--ease-exit) both; }
+
+/* Micro-interactions (safe properties only) */
+.btn,
+.menu-item,
+.promptbar,
+.prompt-send,
+textarea,
+.select{
+  transition:
+    transform var(--motion-1) var(--ease-standard),
+    box-shadow var(--motion-2) var(--ease-standard),
+    background-color var(--motion-2) var(--ease-standard),
+    border-color var(--motion-2) var(--ease-standard),
+    color var(--motion-2) var(--ease-standard),
+    opacity var(--motion-2) var(--ease-standard);
+}
+
+.btn:hover,
+.menu-item:hover{
+  transform: translateY(-1px);
+}
+
+.btn:active,
+.menu-item:active,
+.prompt-send:active{
+  transform: translateY(0) scale(.98);
+}
+
+.promptbar:focus-within{
+  transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce){
+  .motion-page,
+  .motion-item,
+  .motion-msg,
+  .motion-overlay,
+  .motion-sheet{
+    animation: none !important;
+  }
+  .btn,
+  .menu-item,
+  .promptbar,
+  .prompt-send,
+  textarea,
+  .select{
+    transition-duration: 1ms !important;
+  }
+}

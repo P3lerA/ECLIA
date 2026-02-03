@@ -28,7 +28,7 @@ export function useAppDispatch(): React.Dispatch<Action> {
   return v;
 }
 
-// selectors（可选）
+// Selectors (optional)
 export function useActiveSession(): Session {
   const s = useAppState();
   const found = s.sessions.find((x) => x.id === s.activeSessionId);

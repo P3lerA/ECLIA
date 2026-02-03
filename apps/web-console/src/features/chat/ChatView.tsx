@@ -8,7 +8,7 @@ export function ChatView({ onOpenMenu }: { onOpenMenu: () => void }) {
   const messages = useMessages(session.id);
 
   return (
-    <div className="chatview">
+    <div className="chatview motion-page">
       <div className="chatview-head">
         <div className="brand brand-sm" data-text="ECLIA">
           ECLIA

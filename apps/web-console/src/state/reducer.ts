@@ -1,7 +1,30 @@
-import type { Block, InspectorTabId, LogItem, Message, Session, PluginConfig } from "../core/types";
+import type {
+  Block,
+  InspectorTabId,
+  LogItem,
+  Message,
+  Session,
+  PluginConfig
+} from "../core/types";
 import type { TransportId } from "../core/transport/TransportRegistry";
 
+export type AppPage = "console" | "settings";
+
+export type AppSettings = {
+  /**
+   * Enable the static contour fallback when GPU is unavailable.
+   * Prototype note: currently uses an embedded placeholder texture (CPU rendering TODO).
+   */
+  staticContourFallback: boolean;
+};
+
+export type AppGPU = {
+  available: boolean | null; // null=unknown/checking
+};
+
 export type AppState = {
+  page: AppPage;
+
   model: string;
   transport: TransportId;
 
@@ -12,15 +35,21 @@ export type AppState = {
 
   plugins: PluginConfig[];
 
+  settings: AppSettings;
+  gpu: AppGPU;
+
   inspectorTab: InspectorTabId;
   logsByTab: Record<InspectorTabId, LogItem[]>;
 };
 
 export type Action =
+  | { type: "nav/to"; page: AppPage }
   | { type: "session/select"; sessionId: string }
   | { type: "session/new" }
   | { type: "model/set"; model: string }
   | { type: "transport/set"; transport: TransportId }
+  | { type: "settings/staticFallback"; enabled: boolean }
+  | { type: "gpu/available"; available: boolean }
   | { type: "message/add"; sessionId: string; message: Message }
   | { type: "assistant/stream/start"; sessionId: string; messageId: string }
   | { type: "assistant/stream/append"; sessionId: string; text: string }
@@ -33,18 +62,32 @@ export type Action =
 
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
+    case "nav/to":
+      return { ...state, page: action.page };
+
+    case "settings/staticFallback":
+      if (state.settings.staticContourFallback === action.enabled) return state;
+      return { ...state, settings: { ...state.settings, staticContourFallback: action.enabled } };
+
+    case "gpu/available":
+      if (state.gpu.available === action.available) return state;
+      return { ...state, gpu: { ...state.gpu, available: action.available } };
+
     case "session/select":
-      return { ...state, activeSessionId: action.sessionId };
+      return { ...state, activeSessionId: action.sessionId, page: "console" };
 
     case "session/new": {
       const id = "s" + (state.sessions.length + 1);
       const now = Date.now();
-      const meta = "just now · " + new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const meta =
+        "just now · " +
+        new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       const session: Session = { id, title: "New session", meta, createdAt: now };
       return {
         ...state,
         sessions: [session, ...state.sessions],
         activeSessionId: id,
+        page: "console",
         messagesBySession: { ...state.messagesBySession, [id]: [] }
       };
     }
@@ -84,6 +127,7 @@ export function reducer(state: AppState, action: Action): AppState {
       };
       return {
         ...state,
+        page: "console",
         messagesBySession: {
           ...state.messagesBySession,
           [action.sessionId]: [...list, msg]

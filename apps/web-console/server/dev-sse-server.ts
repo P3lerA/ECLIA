@@ -60,11 +60,11 @@ const server = http.createServer(async (req, res) => {
 
     send(res, "meta", { at: Date.now(), sessionId, model });
 
-    // 模拟逐段输出（你可以把这里替换成真实 LLM / router / tool runtime）
+    // Simulate chunked output (replace this with a real LLM/router/tool runtime).
     const chunks = [
-      `收到：${userText.slice(0, 120)}${userText.length > 120 ? "..." : ""}`,
-      "这是一个 SSE 示例服务：响应头是 text/event-stream，消息用 event/data 分块发送。",
-      "在真实项目里，你会把 tool_call / tool_result / citations / retrieval 等也当成事件推给前端。"
+      `Received: ${userText.slice(0, 120)}${userText.length > 120 ? "..." : ""}`,
+      "This is a demo SSE server: response is text/event-stream, messages are sent as event/data blocks.",
+      "In a real system, you can also stream tool_call / tool_result / citations / retrieval as events."
     ];
 
     for (const c of chunks) {
@@ -81,9 +81,9 @@ const server = http.createServer(async (req, res) => {
     send(res, "done", { at: Date.now() });
     res.end();
 
-    // 客户端断开时清理（这里没有 interval，只示范结构）
+    // Cleanup when the client disconnects (no interval here; just a structural example).
     req.on("close", () => {
-      // 真实流式生成时，你在这里终止模型推理
+      // In real streaming generation, you'd cancel the model inference here.
     });
 
     return;

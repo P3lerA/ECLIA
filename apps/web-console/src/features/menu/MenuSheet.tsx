@@ -1,7 +1,6 @@
 import React from "react";
 import { useAppDispatch, useAppState } from "../../state/AppState";
-import type { TransportId } from "../../core/transport/TransportRegistry";
-import { runtime } from "../../core/runtime";
+import { usePresence } from "../motion/usePresence";
 
 const FOCUSABLE =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -10,14 +9,17 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
   const state = useAppState();
   const dispatch = useAppDispatch();
 
+  const { present, motion } = usePresence(open, { exitMs: 220 });
+
   const sheetRef = React.useRef<HTMLDivElement | null>(null);
   const closeBtnRef = React.useRef<HTMLButtonElement | null>(null);
   const lastActiveRef = React.useRef<HTMLElement | null>(null);
 
   React.useEffect(() => {
-    if (!open) return;
+    if (!present) return;
 
-    lastActiveRef.current = document.activeElement as HTMLElement | null;
+    // Remember focus before opening, restore it after unmount.
+    if (open) lastActiveRef.current = document.activeElement as HTMLElement | null;
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -26,7 +28,7 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
         return;
       }
       if (e.key === "Tab") {
-        // 简易 focus trap（足够原型用）
+        // Simple focus trap (good enough for a prototype).
         const root = sheetRef.current;
         if (!root) return;
         const nodes = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
@@ -49,24 +51,30 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
     };
 
     window.addEventListener("keydown", onKeyDown);
-    // 初始 focus
-    setTimeout(() => closeBtnRef.current?.focus(), 0);
+
+    // Initial focus (only when opening)
+    if (open) setTimeout(() => closeBtnRef.current?.focus(), 0);
 
     return () => {
       window.removeEventListener("keydown", onKeyDown);
-      // 恢复 focus
       lastActiveRef.current?.focus?.();
     };
-  }, [open, onClose]);
+  }, [present, open, onClose]);
 
-  const transports = runtime.transports.list();
+  if (!present) return null;
 
-  if (!open) return null;
+  const sectionDelay = (ms: number) => ({ ["--motion-delay" as any]: `${ms}ms` }) as React.CSSProperties;
 
   return (
-    <div className="menusheet-overlay" onMouseDown={onClose} aria-hidden={false}>
+    <div
+      className="menusheet-overlay motion-overlay"
+      data-motion={motion}
+      onMouseDown={onClose}
+      aria-hidden={false}
+    >
       <div
-        className="menusheet"
+        className="menusheet motion-sheet"
+        data-motion={motion}
         role="dialog"
         aria-modal="true"
         aria-labelledby="menu-title"
@@ -88,7 +96,23 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
         </div>
 
         <div className="menusheet-body">
-          <section className="menu-section">
+          <section className="menu-section motion-item" style={sectionDelay(40)}>
+            <div className="menu-section-title">Navigate</div>
+            <div className="menu-list">
+              <button
+                className="menu-item"
+                onClick={() => {
+                  dispatch({ type: "nav/to", page: "settings" });
+                  onClose();
+                }}
+              >
+                <div className="menu-item-main">Settings</div>
+                <div className="menu-item-sub">Transport · Model · Background</div>
+              </button>
+            </div>
+          </section>
+
+          <section className="menu-section motion-item" style={sectionDelay(80)}>
             <div className="menu-section-title">Sessions</div>
 
             <div className="menu-list">
@@ -121,7 +145,7 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
             </div>
           </section>
 
-          <section className="menu-section">
+          <section className="menu-section motion-item" style={sectionDelay(120)}>
             <div className="menu-section-title">Plugins</div>
             <div className="menu-list">
               {state.plugins.map((p) => (
@@ -140,43 +164,7 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
             </div>
           </section>
 
-          <section className="menu-section">
-            <div className="menu-section-title">Settings</div>
-
-            <div className="menu-grid">
-              <label className="menu-field">
-                <div className="menu-field-label">Transport</div>
-                <select
-                  className="select"
-                  value={state.transport}
-                  onChange={(e) =>
-                    dispatch({ type: "transport/set", transport: e.target.value as TransportId })
-                  }
-                >
-                  {transports.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="menu-field">
-                <div className="menu-field-label">Model</div>
-                <select
-                  className="select"
-                  value={state.model}
-                  onChange={(e) => dispatch({ type: "model/set", model: e.target.value })}
-                >
-                  <option value="local/ollama">local/ollama</option>
-                  <option value="openai-compatible">openai-compatible</option>
-                  <option value="router/gateway">router/gateway</option>
-                </select>
-              </label>
-            </div>
-          </section>
-
-          <section className="menu-section">
+          <section className="menu-section motion-item" style={sectionDelay(160)}>
             <div className="menu-section-title">Diagnostics</div>
             <div className="menu-diag">
               <div className="menu-diag-row">

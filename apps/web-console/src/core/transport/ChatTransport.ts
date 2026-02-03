@@ -2,8 +2,8 @@ import type { ChatEventHandlers, ChatRequest } from "../types";
 
 export interface ChatTransport {
   /**
-   * 以事件流的方式回传模型输出（delta / tool_call / tool_result / done）
-   * 注意：UI 不应该关心“到底是 OpenAI 还是本地模型”
+   * Streams model output as an event stream (delta / tool_call / tool_result / done).
+   * Note: the UI should not care whether the backend is OpenAI, local, etc.
    */
   streamChat(
     req: ChatRequest,
@@ -12,7 +12,7 @@ export interface ChatTransport {
   ): Promise<void>;
 
   /**
-   * 可选：立即终止正在进行的流
+   * Optional: immediately abort an in-flight stream.
    */
   abort?: () => void;
 }
