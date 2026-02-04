@@ -1,4 +1,5 @@
 import type { AppState } from "./reducer";
+import { readStoredThemeMode } from "../theme/theme";
 
 function nowMeta(label: string) {
   const d = new Date();
@@ -12,13 +13,15 @@ export function makeInitialState(): AppState {
   return {
     page: "console",
 
+    themeMode: readStoredThemeMode(),
+
     model: "local/ollama",
     transport: "mock",
 
     sessions: [
-      { id: "s1", title: "New session", meta: nowMeta("just now"), createdAt: t },
-      { id: "s2", title: "Tool call: Browser automation", meta: nowMeta("yesterday"), createdAt: t - 86400000 },
-      { id: "s3", title: "Prompt experiment: JSON Schema", meta: nowMeta("last week"), createdAt: t - 7 * 86400000 }
+      { id: "s1", title: "New session", meta: nowMeta("just now"), createdAt: t, started: false },
+      { id: "s2", title: "Tool call: Browser automation", meta: nowMeta("yesterday"), createdAt: t - 86400000, started: true },
+      { id: "s3", title: "Prompt experiment: JSON Schema", meta: nowMeta("last week"), createdAt: t - 7 * 86400000, started: false }
     ],
     activeSessionId: "s1",
 

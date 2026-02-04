@@ -47,7 +47,7 @@ export function useSendMessage() {
       switch (cmd) {
         case "/clear":
           dispatch({ type: "messages/clear", sessionId: state.activeSessionId });
-          pushLog("events", "command", "clear messages");
+          pushLog("events", "command", "reset session (clear)");
           return true;
 
         case "/help":

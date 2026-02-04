@@ -35,6 +35,7 @@ out vec4 outColor;
 
 uniform vec2 u_resolution;
 uniform float u_time;
+uniform float u_dark;
 
 float hash21(vec2 p) {
   // Cheap hash
@@ -113,19 +114,30 @@ void main() {
   float w = max(fwidth(x), 1e-4);
   float distPx = d / w;
 
-  float thickness = 0.85; // thinner lines (approx px half-width)
+  float thickness = 0.45; // very thin lines (approx px half-width)
   float line = 1.0 - smoothstep(thickness, thickness + 1.0, distPx);
 
   // Very subtle shading so it doesn't look flat.
-  float shade = phase * 0.05;
+  float theme = clamp(u_dark, 0.0, 1.0);
 
-  vec3 bg = vec3(0.965, 0.969, 0.973);      // ~ #f6f7f8
-  vec3 contour = vec3(0.82, 0.83, 0.85);    // light gray lines
+  vec3 bgLight = vec3(0.965, 0.969, 0.973);      // ~ #f6f7f8
+  vec3 bgDark  = vec3(0.043, 0.047, 0.055);      // ~ #0b0c0f
+  vec3 bg = mix(bgLight, bgDark, theme);
 
-  vec3 col = bg - shade;
+  // In light mode contours are slightly darker than background.
+  // In dark mode contours are slightly lighter than background.
+  vec3 contourLight = vec3(0.82, 0.83, 0.85);
+  vec3 contourDark  = vec3(0.20, 0.21, 0.24);
+  vec3 contour = mix(contourLight, contourDark, theme);
 
-  // Subtle breathing in contrast as well (helps readability without being loud).
-  float ink = 0.42 + 0.04 * breath;
+  // Subtle shading centered around bg (works in both light & dark).
+  float shadeAmt = mix(0.05, 0.035, theme);
+  vec3 col = bg + (phase - 0.5) * shadeAmt;
+  col = clamp(col, 0.0, 1.0);
+
+  // Gentle breathing in contrast (kept subtle to avoid visual noise).
+  float inkBase = mix(0.30, 0.26, theme);
+  float ink = inkBase + 0.04 * breath;
   col = mix(col, contour, line * ink);
 
   outColor = vec4(col, 1.0);
@@ -187,9 +199,11 @@ export function WebGLContourBackground({ onStatus }: Props) {
 
   const uResRef = React.useRef<WebGLUniformLocation | null>(null);
   const uTimeRef = React.useRef<WebGLUniformLocation | null>(null);
+  const uDarkRef = React.useRef<WebGLUniformLocation | null>(null);
 
   const lostRef = React.useRef(false);
   const confirmedRef = React.useRef(false);
+  const lastDarkRef = React.useRef<number>(-1);
 
   React.useEffect(() => {
     const canvas = canvasRef.current;
@@ -272,6 +286,7 @@ export function WebGLContourBackground({ onStatus }: Props) {
 
       uResRef.current = gl.getUniformLocation(prog, "u_resolution");
       uTimeRef.current = gl.getUniformLocation(prog, "u_time");
+      uDarkRef.current = gl.getUniformLocation(prog, "u_dark");
 
       gl.disable(gl.DEPTH_TEST);
       gl.disable(gl.BLEND);
@@ -316,7 +331,22 @@ export function WebGLContourBackground({ onStatus }: Props) {
         const uTime = uTimeRef.current;
         if (uTime) gl.uniform1f(uTime, t);
 
-        gl.clearColor(0.965, 0.969, 0.973, 1.0);
+        // Theme → shader uniform (0 = light, 1 = dark)
+        const isDark = document.documentElement?.dataset?.theme === "dark";
+        const uDark = uDarkRef.current;
+        if (uDark) {
+          const v = isDark ? 1 : 0;
+          if (lastDarkRef.current !== v) {
+            gl.uniform1f(uDark, v);
+            lastDarkRef.current = v;
+          }
+        }
+
+        if (document.documentElement?.dataset?.theme === "dark") {
+          gl.clearColor(0.043, 0.047, 0.055, 1.0);
+        } else {
+          gl.clearColor(0.965, 0.969, 0.973, 1.0);
+        }
         gl.clear(gl.COLOR_BUFFER_BIT);
 
         gl.drawArrays(gl.TRIANGLES, 0, 3);

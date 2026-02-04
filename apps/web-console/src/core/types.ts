@@ -37,6 +37,12 @@ export type Session = {
   title: string;
   meta: string;
   createdAt: number;
+
+  /**
+   * UI hint: whether this session has entered the "chat" mode (vs Landing screen).
+   * A cleared session can still be started=true (empty chat but stays in Chat view).
+   */
+  started?: boolean;
 };
 
 export type InspectorTabId = "events" | "tools" | "context";

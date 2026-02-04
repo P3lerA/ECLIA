@@ -1,17 +1,72 @@
 :root{
+  color-scheme: light;
+
   --bg:#f6f7f8;
   --surface:#f8fafc;
   --surface-2:#ffffff;
   --text:#0b0b0c;
   --muted:#6b7280;
+
   --line:rgba(17,24,39,.10);
   --line-2:rgba(17,24,39,.06);
+
   --shadow: 0 1px 0 rgba(17,24,39,.04), 0 18px 40px rgba(17,24,39,.08);
+  --shadow-soft: 0 1px 0 rgba(17,24,39,.03), 0 14px 30px rgba(17,24,39,.08);
+  --shadow-card: 0 1px 0 rgba(17,24,39,.03), 0 10px 26px rgba(17,24,39,.06);
+
   --radius:16px;
+
+  --surface-hover:#f9fafb;
+  --overlay: rgba(17,24,39,.22);
+
+  --dot: rgba(17,24,39,.25);
 
   --accent: linear-gradient(90deg,#ff3b3b 0%,#ffb02e 28%,#ffee63 46%,#86ff66 70%,#2fe6d6 100%);
   --accent-soft: linear-gradient(90deg,rgba(255,59,59,.18),rgba(255,176,46,.14),rgba(255,238,99,.12),rgba(134,255,102,.12),rgba(47,230,214,.14));
 
+  /* Brand depth tokens (used by the HTML logo text) */
+  --brand-base:#0a0a0b;
+  --brand-under: rgba(0,0,0,0.16);
+  --brand-shadow-hi: 0 1px 0 rgba(255,255,255,0.75);
+  --brand-shadow-lo: 0 8px 14px rgba(0,0,0,0.12);
+  --brand-accent-opacity: .92;
+
+  /* Code blocks */
+  --code-bg:#0b0b0c;
+  --code-text:rgba(255,255,255,.92);
+
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
   --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+}
+
+:root[data-theme="dark"]{
+  color-scheme: dark;
+
+  --bg:#0b0c0f;
+  --surface:#111318;
+  --surface-2:#151a22;
+  --text:#f3f4f6;
+  --muted:#a6abb6;
+
+  --line:rgba(255,255,255,.12);
+  --line-2:rgba(255,255,255,.08);
+
+  --shadow: 0 1px 0 rgba(0,0,0,.55), 0 18px 40px rgba(0,0,0,.48);
+  --shadow-soft: 0 1px 0 rgba(0,0,0,.38), 0 14px 30px rgba(0,0,0,.45);
+  --shadow-card: 0 1px 0 rgba(0,0,0,.35), 0 10px 26px rgba(0,0,0,.38);
+
+  --surface-hover:rgba(255,255,255,.06);
+  --overlay: rgba(0,0,0,.50);
+
+  --dot: rgba(255,255,255,.22);
+
+  --brand-base:#f5f6f8;
+  --brand-under: rgba(0,0,0,0.60);
+  --brand-shadow-hi: 0 1px 0 rgba(255,255,255,0.10);
+  --brand-shadow-lo: 0 12px 24px rgba(0,0,0,0.55);
+  --brand-accent-opacity: .90;
+
+  /* Keep code blocks readable in dark theme too */
+  --code-bg:#0b0b0c;
+  --code-text:rgba(255,255,255,.92);
 }

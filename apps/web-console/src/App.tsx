@@ -5,13 +5,27 @@ import { ChatView } from "./features/chat/ChatView";
 import { MenuSheet } from "./features/menu/MenuSheet";
 import { SettingsView } from "./features/settings/SettingsView";
 import { BackgroundRoot } from "./features/background/BackgroundRoot";
+import { applyTheme, subscribeSystemThemeChange, writeStoredThemeMode } from "./theme/theme";
 
 function AppInner() {
   const state = useAppState();
   const dispatch = useAppDispatch();
 
+  // Theme: apply & persist (handles system changes in "system" mode).
+  React.useEffect(() => {
+    writeStoredThemeMode(state.themeMode);
+    applyTheme(state.themeMode);
+  }, [state.themeMode]);
+
+  React.useEffect(() => {
+    if (state.themeMode !== "system") return;
+    return subscribeSystemThemeChange(() => applyTheme("system"));
+  }, [state.themeMode]);
+
   const messages = state.messagesBySession[state.activeSessionId] ?? [];
-  const isLanding = messages.length === 0;
+  const active = state.sessions.find((s) => s.id === state.activeSessionId);
+  const started = active?.started ?? messages.length > 0;
+  const isLanding = !started;
 
   // Detect Landing → Chat transition to trigger one-shot docking animation.
   const prevIsLandingRef = React.useRef(isLanding);

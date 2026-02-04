@@ -7,6 +7,7 @@ import type {
   PluginConfig
 } from "../core/types";
 import type { TransportId } from "../core/transport/TransportRegistry";
+import type { ThemeMode } from "../theme/theme";
 
 export type AppPage = "console" | "settings";
 
@@ -24,6 +25,8 @@ export type AppGPU = {
 
 export type AppState = {
   page: AppPage;
+
+  themeMode: ThemeMode;
 
   model: string;
   transport: TransportId;
@@ -44,6 +47,7 @@ export type AppState = {
 
 export type Action =
   | { type: "nav/to"; page: AppPage }
+  | { type: "theme/setMode"; mode: ThemeMode }
   | { type: "session/select"; sessionId: string }
   | { type: "session/new" }
   | { type: "model/set"; model: string }
@@ -65,6 +69,10 @@ export function reducer(state: AppState, action: Action): AppState {
     case "nav/to":
       return { ...state, page: action.page };
 
+    case "theme/setMode":
+      if (state.themeMode === action.mode) return state;
+      return { ...state, themeMode: action.mode };
+
     case "settings/staticFallback":
       if (state.settings.staticContourFallback === action.enabled) return state;
       return { ...state, settings: { ...state.settings, staticContourFallback: action.enabled } };
@@ -82,7 +90,7 @@ export function reducer(state: AppState, action: Action): AppState {
       const meta =
         "just now · " +
         new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      const session: Session = { id, title: "New session", meta, createdAt: now };
+      const session: Session = { id, title: "New session", meta, createdAt: now, started: false };
       return {
         ...state,
         sessions: [session, ...state.sessions],
@@ -107,11 +115,14 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case "message/add": {
       const list = state.messagesBySession[action.sessionId] ?? [];
+      const nextMessages = [...list, action.message];
+      const sessions = ensureSessionStarted(state.sessions, action.sessionId);
       return {
         ...state,
+        sessions,
         messagesBySession: {
           ...state.messagesBySession,
-          [action.sessionId]: [...list, action.message]
+          [action.sessionId]: nextMessages
         }
       };
     }
@@ -125,8 +136,12 @@ export function reducer(state: AppState, action: Action): AppState {
         streaming: true,
         blocks: [{ type: "text", text: "" }]
       };
+
+      const sessions = ensureSessionStarted(state.sessions, action.sessionId);
+
       return {
         ...state,
+        sessions,
         page: "console",
         messagesBySession: {
           ...state.messagesBySession,
@@ -184,14 +199,34 @@ export function reducer(state: AppState, action: Action): AppState {
         createdAt: Date.now(),
         blocks: action.blocks
       };
+
+      const sessions = ensureSessionStarted(state.sessions, action.sessionId);
+
       return {
         ...state,
+        sessions,
         messagesBySession: { ...state.messagesBySession, [action.sessionId]: [...list, msg] }
       };
     }
 
-    case "messages/clear":
-      return { ...state, messagesBySession: { ...state.messagesBySession, [action.sessionId]: [] } };
+    case "messages/clear": {
+      const now = Date.now();
+      const meta =
+        "just now · " +
+        new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+      const sessions = state.sessions.map((s) =>
+        s.id === action.sessionId
+          ? { ...s, title: "New session", meta, started: true }
+          : s
+      );
+
+      return {
+        ...state,
+        sessions,
+        messagesBySession: { ...state.messagesBySession, [action.sessionId]: [] }
+      };
+    }
 
     case "inspector/tab":
       return { ...state, inspectorTab: action.tab };
@@ -211,6 +246,18 @@ export function reducer(state: AppState, action: Action): AppState {
     default:
       return state;
   }
+}
+
+function ensureSessionStarted(sessions: Session[], sessionId: string): Session[] {
+  const idx = sessions.findIndex((s) => s.id === sessionId);
+  if (idx < 0) return sessions;
+
+  const s = sessions[idx];
+  if (s.started) return sessions;
+
+  const next = sessions.slice();
+  next[idx] = { ...s, started: true };
+  return next;
 }
 
 function replaceAt<T>(arr: T[], idx: number, value: T): T[] {

@@ -2,6 +2,7 @@ import React from "react";
 import { useActiveSession, useMessages } from "../../state/AppState";
 import { MessageList } from "./MessageList";
 import { ChatComposer } from "./ChatComposer";
+import { ThemeModeSwitch } from "../theme/ThemeModeSwitch";
 
 export function ChatView({
   onOpenMenu,
@@ -30,6 +31,10 @@ export function ChatView({
         <div className="chatview-title">
           <div className="title">{session.title}</div>
           <div className="meta">{session.meta}</div>
+        </div>
+
+        <div className="chatview-actions" aria-label="Theme">
+          <ThemeModeSwitch compact />
         </div>
       </div>
 

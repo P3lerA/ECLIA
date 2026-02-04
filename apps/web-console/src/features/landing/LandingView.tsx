@@ -1,5 +1,6 @@
 import React from "react";
 import { useSendMessage } from "../chat/useSendMessage";
+import { ThemeCycleButton } from "../theme/ThemeCycleButton";
 
 export function LandingView({ onOpenMenu }: { onOpenMenu: () => void }) {
   const { sendText } = useSendMessage();
@@ -41,9 +42,12 @@ export function LandingView({ onOpenMenu }: { onOpenMenu: () => void }) {
         </button>
       </div>
 
-      <button className="btn menu motion-item" style={delay(150)} onClick={onOpenMenu}>
-        MENU
-      </button>
+      <div className="landing-actions motion-item" style={delay(150)}>
+        <button className="btn menu" onClick={onOpenMenu}>
+          MENU
+        </button>
+        <ThemeCycleButton />
+      </div>
 
       <div className="landing-hint motion-item" style={delay(210)}>
         Press Enter to send. MENU: Sessions / Plugins / Settings (fallback toggle lives in Settings).

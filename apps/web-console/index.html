@@ -12,6 +12,26 @@
       href="https://fonts.googleapis.com/css2?family=Rubik:ital,wght@0,700;0,900;1,700;1,900&display=swap"
       rel="stylesheet"
     />
+
+    <!-- Theme boot: apply before CSS to avoid flash -->
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem("eclia-theme-mode");
+          var mode = raw === "light" || raw === "dark" || raw === "system" ? raw : "system";
+          var prefersDark =
+            window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var resolved = mode === "system" ? (prefersDark ? "dark" : "light") : mode;
+
+          document.documentElement.dataset.theme = resolved;
+          document.documentElement.dataset.themeMode = mode;
+          document.documentElement.style.colorScheme = resolved;
+        } catch (e) {
+          // ignore
+        }
+      })();
+    </script>
+
   </head>
   <body>
     <div id="root"></div>

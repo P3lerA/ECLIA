@@ -1,5 +1,5 @@
 <p align = "center">
-  <img src="post.png" width="300">
+  <img src="icon.png" width="300">
 </p>
 
 <div align = "center">
