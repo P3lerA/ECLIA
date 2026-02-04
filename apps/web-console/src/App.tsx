@@ -4,6 +4,7 @@ import { LandingView } from "./features/landing/LandingView";
 import { ChatView } from "./features/chat/ChatView";
 import { MenuSheet } from "./features/menu/MenuSheet";
 import { SettingsView } from "./features/settings/SettingsView";
+import { PluginsView } from "./features/plugins/PluginsView";
 import { BackgroundRoot } from "./features/background/BackgroundRoot";
 import { applyTheme, subscribeSystemThemeChange, writeStoredThemeMode } from "./theme/theme";
 
@@ -43,6 +44,8 @@ function AppInner() {
       <div className="container">
         {state.page === "settings" ? (
           <SettingsView onBack={() => dispatch({ type: "nav/to", page: "console" })} />
+        ) : state.page === "plugins" ? (
+          <PluginsView onBack={() => dispatch({ type: "nav/to", page: "console" })} />
         ) : isLanding ? (
           <LandingView onOpenMenu={() => setMenuOpen(true)} />
         ) : (

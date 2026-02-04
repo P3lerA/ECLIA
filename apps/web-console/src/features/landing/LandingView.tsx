@@ -50,7 +50,7 @@ export function LandingView({ onOpenMenu }: { onOpenMenu: () => void }) {
       </div>
 
       <div className="landing-hint motion-item" style={delay(210)}>
-        Press Enter to send. MENU: Sessions / Plugins / Settings (fallback toggle lives in Settings).
+        ECLIA can make mistakes. Check before executing.
       </div>
     </div>
   );

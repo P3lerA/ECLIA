@@ -365,13 +365,13 @@ textarea{
   resize: none;
   min-height: 44px;
   max-height: 140px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   border-radius: 18px;
   border: 1px solid var(--line);
   background: var(--surface);
-  font-size: 13.5px;
+  font-size: 14.5px;
   outline: none;
-  line-height: 1.45;
+  line-height: 20px;
 }
 textarea:focus{
   border-color: var(--line);
@@ -434,6 +434,8 @@ textarea:focus{
   letter-spacing: .14em;
   font-size: 12px;
 }
+
+.menusheet-head-actions{ display:flex; gap: 8px; align-items: center; }
 .menusheet-body{
   padding: 10px;
   overflow: auto;
@@ -455,6 +457,7 @@ textarea:focus{
   margin-bottom: 10px;
   letter-spacing: .02em;
 }
+.menu-section-foot{ margin-top: 10px; display:flex; justify-content: flex-end; }
 .menu-list{
   display: flex;
   flex-direction: column;

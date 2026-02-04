@@ -9,7 +9,7 @@ import type {
 import type { TransportId } from "../core/transport/TransportRegistry";
 import type { ThemeMode } from "../theme/theme";
 
-export type AppPage = "console" | "settings";
+export type AppPage = "console" | "settings" | "plugins";
 
 export type AppSettings = {
   /**
@@ -17,6 +17,11 @@ export type AppSettings = {
    * Prototype note: currently uses an embedded placeholder texture (CPU rendering TODO).
    */
   staticContourFallback: boolean;
+
+  /**
+   * Disable background textures (WebGL/static). When enabled, the background becomes a solid color.
+   */
+  textureDisabled: boolean;
 };
 
 export type AppGPU = {
@@ -53,6 +58,7 @@ export type Action =
   | { type: "model/set"; model: string }
   | { type: "transport/set"; transport: TransportId }
   | { type: "settings/staticFallback"; enabled: boolean }
+  | { type: "settings/textureDisabled"; enabled: boolean }
   | { type: "gpu/available"; available: boolean }
   | { type: "message/add"; sessionId: string; message: Message }
   | { type: "assistant/stream/start"; sessionId: string; messageId: string }
@@ -76,6 +82,10 @@ export function reducer(state: AppState, action: Action): AppState {
     case "settings/staticFallback":
       if (state.settings.staticContourFallback === action.enabled) return state;
       return { ...state, settings: { ...state.settings, staticContourFallback: action.enabled } };
+
+    case "settings/textureDisabled":
+      if (state.settings.textureDisabled === action.enabled) return state;
+      return { ...state, settings: { ...state.settings, textureDisabled: action.enabled } };
 
     case "gpu/available":
       if (state.gpu.available === action.available) return state;

@@ -5,11 +5,20 @@ import { usePresence } from "../motion/usePresence";
 const FOCUSABLE =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
+type MenuView = "main" | "all-sessions";
+
 export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
 
   const { present, motion } = usePresence(open, { exitMs: 220 });
+
+  const [view, setView] = React.useState<MenuView>("main");
+
+  // Reset to the default view whenever the sheet closes.
+  React.useEffect(() => {
+    if (!open) setView("main");
+  }, [open]);
 
   const sheetRef = React.useRef<HTMLDivElement | null>(null);
   const closeBtnRef = React.useRef<HTMLButtonElement | null>(null);
@@ -63,7 +72,41 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
 
   if (!present) return null;
 
-  const sectionDelay = (ms: number) => ({ ["--motion-delay" as any]: `${ms}ms` }) as React.CSSProperties;
+  const sectionDelay = (ms: number) =>
+    ({ ["--motion-delay" as any]: `${ms}ms` }) as React.CSSProperties;
+
+  const renderSessions = (sessions: typeof state.sessions) => {
+    return (
+      <div className="menu-list">
+        <button
+          className="btn subtle"
+          onClick={() => {
+            dispatch({ type: "session/new" });
+            onClose();
+          }}
+        >
+          + New session
+        </button>
+
+        {sessions.map((s) => {
+          const active = s.id === state.activeSessionId;
+          return (
+            <button
+              key={s.id}
+              className={"menu-item" + (active ? " active" : "")}
+              onClick={() => {
+                dispatch({ type: "session/select", sessionId: s.id });
+                onClose();
+              }}
+            >
+              <div className="menu-item-main">{s.title}</div>
+              <div className="menu-item-sub">{s.meta}</div>
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <div
@@ -83,116 +126,77 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
       >
         <div className="menusheet-head">
           <div id="menu-title" className="menusheet-title">
-            MENU
+            {view === "all-sessions" ? "SESSIONS" : "MENU"}
           </div>
-          <button
-            ref={closeBtnRef}
-            className="btn icon"
-            onClick={onClose}
-            aria-label="Close menu"
-          >
-            ✕
-          </button>
+
+          <div className="menusheet-head-actions">
+            {view === "all-sessions" ? (
+              <button
+                className="btn subtle"
+                onClick={() => setView("main")}
+                aria-label="Back to menu"
+              >
+                Back
+              </button>
+            ) : null}
+
+            <button
+              ref={closeBtnRef}
+              className="btn icon"
+              onClick={onClose}
+              aria-label="Close menu"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         <div className="menusheet-body">
+          {/* Sessions always comes first. */}
           <section className="menu-section motion-item" style={sectionDelay(40)}>
-            <div className="menu-section-title">Navigate</div>
-            <div className="menu-list">
-              <button
-                className="menu-item"
-                onClick={() => {
-                  dispatch({ type: "nav/to", page: "settings" });
-                  onClose();
-                }}
-              >
-                <div className="menu-item-main">Settings</div>
-                <div className="menu-item-sub">Transport · Model · Background</div>
-              </button>
-            </div>
-          </section>
-
-          <section className="menu-section motion-item" style={sectionDelay(80)}>
             <div className="menu-section-title">Sessions</div>
 
-            <div className="menu-list">
-              <button
-                className="btn subtle"
-                onClick={() => {
-                  dispatch({ type: "session/new" });
-                  onClose();
-                }}
-              >
-                + New session
-              </button>
+            {view === "all-sessions"
+              ? renderSessions(state.sessions)
+              : renderSessions(state.sessions.slice(0, 5))}
 
-              {state.sessions.map((s) => {
-                const active = s.id === state.activeSessionId;
-                return (
-                  <button
-                    key={s.id}
-                    className={"menu-item" + (active ? " active" : "")}
-                    onClick={() => {
-                      dispatch({ type: "session/select", sessionId: s.id });
-                      onClose();
-                    }}
-                  >
-                    <div className="menu-item-main">{s.title}</div>
-                    <div className="menu-item-sub">{s.meta}</div>
-                  </button>
-                );
-              })}
-            </div>
+            {view === "main" && state.sessions.length > 5 ? (
+              <div className="menu-section-foot">
+                <button className="btn subtle" onClick={() => setView("all-sessions")}>
+                  All sessions
+                </button>
+              </div>
+            ) : null}
           </section>
 
-          <section className="menu-section motion-item" style={sectionDelay(120)}>
-            <div className="menu-section-title">Plugins</div>
-            <div className="menu-list">
-              {state.plugins.map((p) => (
-                <label key={p.id} className="menu-toggle">
-                  <div className="menu-toggle-main">
-                    <div className="menu-item-main">{p.name}</div>
-                    <div className="menu-item-sub">{p.description ?? ""}</div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={p.enabled}
-                    onChange={() => dispatch({ type: "plugin/toggle", pluginId: p.id })}
-                  />
-                </label>
-              ))}
-            </div>
-          </section>
-
-          <section className="menu-section motion-item" style={sectionDelay(160)}>
-            <div className="menu-section-title">Diagnostics</div>
-            <div className="menu-diag">
-              <div className="menu-diag-row">
-                <div className="muted">events</div>
-                <div className="muted">{state.logsByTab.events[0]?.summary ?? "-"}</div>
-              </div>
-              <div className="menu-diag-row">
-                <div className="muted">tools</div>
-                <div className="muted">{state.logsByTab.tools[0]?.summary ?? "-"}</div>
-              </div>
-              <div className="menu-diag-row">
-                <div className="muted">context</div>
-                <div className="muted">{state.logsByTab.context[0]?.summary ?? "-"}</div>
-              </div>
-
-              <div className="menu-diag-actions">
+          {view === "main" ? (
+            <section className="menu-section motion-item" style={sectionDelay(90)}>
+              <div className="menu-section-title">Navigate</div>
+              <div className="menu-list">
                 <button
-                  className="btn subtle"
+                  className="menu-item"
                   onClick={() => {
-                    dispatch({ type: "messages/clear", sessionId: state.activeSessionId });
+                    dispatch({ type: "nav/to", page: "plugins" });
                     onClose();
                   }}
                 >
-                  Clear messages
+                  <div className="menu-item-main">Plugins</div>
+                  <div className="menu-item-sub">Enable/disable · Prototype config</div>
+                </button>
+
+                <button
+                  className="menu-item"
+                  onClick={() => {
+                    dispatch({ type: "nav/to", page: "settings" });
+                    onClose();
+                  }}
+                >
+                  <div className="menu-item-main">Settings</div>
+                  <div className="menu-item-sub">Appearance · Runtime · Diagnostics</div>
                 </button>
               </div>
-            </div>
-          </section>
+            </section>
+          ) : null}
         </div>
       </div>
     </div>

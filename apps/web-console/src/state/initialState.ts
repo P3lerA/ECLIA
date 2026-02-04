@@ -74,7 +74,8 @@ export function makeInitialState(): AppState {
     ],
 
     settings: {
-      staticContourFallback: true
+      staticContourFallback: true,
+      textureDisabled: false
     },
 
     gpu: {
