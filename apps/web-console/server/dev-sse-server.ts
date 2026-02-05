@@ -1,14 +1,71 @@
 import http from "node:http";
+import net from "node:net";
+import { loadEcliaConfig, writeLocalEcliaConfig, type EcliaConfigPatch } from "./ecliaConfig";
 
-const PORT = Number(process.env.PORT ?? 8787);
-
-type ReqBody = {
+type ChatReqBody = {
   sessionId?: string;
   model?: string;
   userText?: string;
 };
 
-function readJson(req: http.IncomingMessage): Promise<ReqBody> {
+type ConfigReqBody = {
+  console?: { host?: string; port?: number };
+  api?: { port?: number };
+};
+
+function isValidPort(n: unknown): n is number {
+  if (typeof n !== "number" || !Number.isFinite(n)) return false;
+  const i = Math.trunc(n);
+  return i >= 1 && i <= 65535;
+}
+
+function cleanHost(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  return s.length ? s : null;
+}
+
+function hintForListenError(code: string | undefined): string {
+  switch (code) {
+    case "EACCES":
+      return "Permission denied. On some systems, this port may be reserved by the OS. Try a higher port (e.g. 5173, 3000, 8080).";
+    case "EADDRINUSE":
+      return "Port is already in use. Pick another port or stop the process currently using it.";
+    case "EADDRNOTAVAIL":
+      return "Host/IP is not available on this machine.";
+    default:
+      return "Unable to bind to the requested host/port.";
+  }
+}
+
+async function probeTcpListen(host: string, port: number): Promise<{ ok: true } | { ok: false; code?: string; message: string; hint: string }> {
+  return await new Promise((resolve) => {
+    const srv = net.createServer();
+
+    const onError = (err: any) => {
+      const code = typeof err?.code === "string" ? err.code : undefined;
+      resolve({
+        ok: false,
+        code,
+        message: String(err?.message ?? "listen failed"),
+        hint: hintForListenError(code)
+      });
+    };
+
+    srv.once("error", onError);
+
+    try {
+      srv.listen({ host, port, exclusive: true }, () => {
+        srv.close(() => resolve({ ok: true }));
+      });
+    } catch (e: any) {
+      onError(e);
+    }
+  });
+}
+
+
+function readJson(req: http.IncomingMessage): Promise<any> {
   return new Promise((resolve) => {
     let data = "";
     req.on("data", (chunk) => (data += String(chunk)));
@@ -22,36 +79,138 @@ function readJson(req: http.IncomingMessage): Promise<ReqBody> {
   });
 }
 
-function sseHeaders() {
+function corsHeaders(extra: Record<string, string> = {}) {
   return {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache, no-transform",
-    Connection: "keep-alive",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS"
+    "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
+    ...extra
   };
 }
 
+function json(res: http.ServerResponse, code: number, body: unknown) {
+  res.writeHead(code, corsHeaders({ "Content-Type": "application/json" }));
+  res.end(JSON.stringify(body));
+}
+
+function sseHeaders() {
+  return corsHeaders({
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive"
+  });
+}
+
 function send(res: http.ServerResponse, event: string, data: unknown) {
-  res.write(`event: ${event}\n`);
-  res.write(`data: ${JSON.stringify(data)}\n\n`);
+  res.write(`event: ${event}
+`);
+  res.write(`data: ${JSON.stringify(data)}
+
+`);
 }
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+const { config } = loadEcliaConfig(process.cwd());
+const PORT = Number(process.env.PORT ?? config.api.port);
+
 const server = http.createServer(async (req, res) => {
   const url = req.url ?? "/";
   if (req.method === "OPTIONS") {
-    res.writeHead(204, sseHeaders());
+    res.writeHead(204, corsHeaders());
     res.end();
     return;
   }
 
+  // Dev config read/write (write to eclia.config.local.toml).
+  if (url === "/api/config" && req.method === "GET") {
+    const { config: live, paths } = loadEcliaConfig(process.cwd());
+    json(res, 200, {
+      ok: true,
+      config: live,
+      paths,
+      restartRequired: true
+    });
+    return;
+  }
+
+  if (url === "/api/config" && req.method === "PUT") {
+    const body = (await readJson(req)) as ConfigReqBody;
+
+    const patch: EcliaConfigPatch = {};
+
+    // Validate + normalize console host/port.
+    if (body.console?.host !== undefined) {
+      const h = cleanHost(body.console.host);
+      if (!h) {
+        json(res, 400, { ok: false, error: "invalid_host", hint: "Host must be a non-empty string." });
+        return;
+      }
+      patch.console = { ...(patch.console ?? {}), host: h };
+    }
+
+    if (body.console?.port !== undefined) {
+      const p = Number(body.console.port);
+      if (!isValidPort(p)) {
+        json(res, 400, { ok: false, error: "invalid_port", hint: "Port must be an integer in 1–65535." });
+        return;
+      }
+      patch.console = { ...(patch.console ?? {}), port: Math.trunc(p) };
+    }
+
+    if (body.api?.port !== undefined) {
+      const p = Number(body.api.port);
+      if (!isValidPort(p)) {
+        json(res, 400, { ok: false, error: "invalid_api_port", hint: "API port must be an integer in 1–65535." });
+        return;
+      }
+      patch.api = { ...(patch.api ?? {}), port: Math.trunc(p) };
+    }
+
+    if (!patch.console && !patch.api) {
+      json(res, 400, { ok: false, error: "empty_patch", hint: "Nothing to update." });
+      return;
+    }
+
+    // Preflight: if console host/port changed, ensure we can bind.
+    try {
+      const { config: current } = loadEcliaConfig(process.cwd());
+
+      const changingConsole = !!patch.console;
+      const wantHost = patch.console?.host ?? current.console.host;
+      const wantPort = patch.console?.port ?? current.console.port;
+
+      const changed = changingConsole && (wantHost !== current.console.host || wantPort !== current.console.port);
+
+      if (changed) {
+        const probe = await probeTcpListen(wantHost, wantPort);
+        if (!probe.ok) {
+          json(res, 400, {
+            ok: false,
+            error: "console_listen_failed",
+            hint: probe.hint
+          });
+          return;
+        }
+      }
+    } catch {
+      // If probing fails unexpectedly, do not block saving.
+    }
+
+    try {
+      const out = writeLocalEcliaConfig(patch, process.cwd());
+      json(res, 200, { ok: true, config: out.config, restartRequired: true });
+    } catch {
+      json(res, 500, { ok: false, error: "write_failed", hint: "Failed to write eclia.config.local.toml." });
+    }
+    return;
+  }
+
+  // Chat streaming (demo only).
   if (url === "/api/chat" && req.method === "POST") {
-    const body = await readJson(req);
+    const body = (await readJson(req)) as ChatReqBody;
     const sessionId = String(body.sessionId ?? "");
     const model = String(body.model ?? "");
     const userText = String(body.userText ?? "");
@@ -81,7 +240,6 @@ const server = http.createServer(async (req, res) => {
     send(res, "done", { at: Date.now() });
     res.end();
 
-    // Cleanup when the client disconnects (no interval here; just a structural example).
     req.on("close", () => {
       // In real streaming generation, you'd cancel the model inference here.
     });
@@ -89,11 +247,11 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  res.writeHead(404, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
-  res.end(JSON.stringify({ error: "not_found" }));
+  json(res, 404, { error: "not_found" });
 });
 
 server.listen(PORT, () => {
   console.log(`[sse] listening on http://localhost:${PORT}`);
   console.log(`[sse] POST http://localhost:${PORT}/api/chat`);
+  console.log(`[sse] GET/PUT http://localhost:${PORT}/api/config`);
 });

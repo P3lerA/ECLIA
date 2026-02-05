@@ -1,0 +1,13 @@
+{
+  "name": "eclia",
+  "private": true,
+  "scripts": {
+    "dev:web": "pnpm -C apps/web-console dev",
+    "dev:api": "pnpm -C apps/web-console dev:server",
+    "dev:all": "concurrently -n WEB,API \"pnpm -C apps/web-console dev\" \"pnpm -C apps/web-console dev:server\"",
+    "build:web": "pnpm -C apps/web-console build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

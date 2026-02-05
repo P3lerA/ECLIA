@@ -7,6 +7,7 @@ import { SettingsView } from "./features/settings/SettingsView";
 import { PluginsView } from "./features/plugins/PluginsView";
 import { BackgroundRoot } from "./features/background/BackgroundRoot";
 import { applyTheme, subscribeSystemThemeChange, writeStoredThemeMode } from "./theme/theme";
+import { writeStoredPrefs } from "./persist/prefs";
 
 function AppInner() {
   const state = useAppState();
@@ -22,6 +23,18 @@ function AppInner() {
     if (state.themeMode !== "system") return;
     return subscribeSystemThemeChange(() => applyTheme("system"));
   }, [state.themeMode]);
+
+
+  // Persist user preferences (stored locally in the browser).
+  React.useEffect(() => {
+    writeStoredPrefs({
+      v: 1,
+      textureDisabled: state.settings.textureDisabled,
+      transport: state.transport,
+      model: state.model,
+      plugins: Object.fromEntries(state.plugins.map((p) => [p.id, p.enabled]))
+    });
+  }, [state.settings.textureDisabled, state.transport, state.model, state.plugins]);
 
   const messages = state.messagesBySession[state.activeSessionId] ?? [];
   const active = state.sessions.find((s) => s.id === state.activeSessionId);

@@ -9,7 +9,7 @@ An **extensible LLM console frontend shell** — designed like a “console kern
   - After the first message: chat-style conversation; `MENU` moves next to the send button
 - **Background: WebGL2 dynamic contours (GPU)**
   - If WebGL2 works: shader-rendered, light-gray topographic contours with a slow *breathing* motion
-  - If GPU is unavailable: optional **Static contour fallback** (Settings) — currently a placeholder texture; CPU noise→isolines can be added later
+  - If GPU is unavailable: fallback is a solid background color (no texture). A CPU noise→isolines renderer can be added later if we want an offline texture.
 - **Message = blocks**
   - `text / code / tool` is just the start; add `image/table/citation/file` by adding a block type + renderer
 - **Transport abstraction**
@@ -50,6 +50,47 @@ pnpm dev:all
 
 Then open `MENU → Settings` and switch **Transport** to `sse`.
 
+
+
+## Persistence (browser)
+
+UI/runtime preferences (theme, background texture toggle, transport/model, plugin toggles) are stored in `localStorage`.
+Dev host/port stays in TOML on disk.
+
+## Config (TOML)
+
+The console reads dev host/port settings from a project-level TOML config:
+
+- `eclia.config.toml` (committed defaults)
+- `eclia.config.local.toml` (optional local overrides, gitignored)
+
+Keys used today:
+
+```toml
+[console]
+host = "127.0.0.1"
+port = 5173
+
+[api]
+port = 8787
+```
+
+Changes take effect **after restart**.
+
+## One-command dev launcher (macOS/Linux)
+
+From the repo root:
+
+```bash
+chmod +x scripts/dev.sh
+./scripts/dev.sh
+```
+
+This starts both:
+- Vite dev server (host/port from config)
+- Demo SSE backend (port from config)
+
+
 ## Project layout (the important part)
 
 ```txt
@@ -60,7 +101,7 @@ src/
     transport/          # Mock / SSE fetch transport
   state/                # AppState (useReducer + Context)
   features/
-    background/         # WebGL2 contours + static fallback
+    background/         # WebGL2 contours (solid fallback)
     landing/            # Landing view
     chat/               # Chat view (MessageList + ChatComposer)
     menu/               # MenuSheet (sessions/plugins/settings entry)

@@ -1,0 +1,12 @@
+# ECLIA project configuration (TOML)
+# This file is safe to commit (no secrets).
+# For machine-specific overrides (ports, keys), create: eclia.config.local.toml (gitignored)
+
+[console]
+# Vite dev server host/port
+host = "127.0.0.1"
+port = 5173
+
+[api]
+# Demo SSE server port (dev only)
+port = 8787

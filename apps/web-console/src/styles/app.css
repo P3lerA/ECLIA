@@ -21,14 +21,6 @@ body{
   height: 100%;
   display: block;
 }
-.bg-static{
-  position: absolute;
-  inset: 0;
-  opacity: .20;
-  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27800%27%20height%3D%27800%27%20viewBox%3D%270%200%20800%20800%27%3E%0A%20%20%3Cg%20fill%3D%27none%27%20stroke%3D%27%239ca3af%27%20stroke-opacity%3D%270.12%27%20stroke-width%3D%270.45%27%20stroke-linecap%3D%27round%27%3E%0A%20%20%20%20%3Cpath%20d%3D%27M-120%20110%20C%2090%2030%2C%20260%20210%2C%20440%20110%20S%20710%2030%2C%20920%20110%27%2F%3E%0A%20%20%20%20%3Cpath%20d%3D%27M-120%20160%20C%2070%2090%2C%20270%20240%2C%20460%20160%20S%20730%2090%2C%20920%20160%27%2F%3E%0A%20%20%20%20%3Cpath%20d%3D%27M-120%20210%20C%20100%20130%2C%20260%20310%2C%20430%20210%20S%20700%20130%2C%20920%20210%27%2F%3E%0A%20%20%20%20%3Cpath%20d%3D%27M-120%20260%20C%2080%20190%2C%20280%20350%2C%20470%20260%20S%20730%20190%2C%20920%20260%27%2F%3E%0A%20%20%20%20%3Cpath%20d%3D%27M-120%20310%20C%20110%20230%2C%20240%20410%2C%20430%20310%20S%20710%20230%2C%20920%20310%27%2F%3E%0A%20%20%20%20%3Cpath%20d%3D%27M-120%20360%20C%2090%20290%2C%20260%20460%2C%20460%20360%20S%20720%20290%2C%20920%20360%27%2F%3E%0A%20%20%20%20%3Cpath%20d%3D%27M-120%20410%20C%20130%20330%2C%20240%20510%2C%20430%20410%20S%20710%20330%2C%20920%20410%27%2F%3E%0A%20%20%20%20%3Cpath%20d%3D%27M-120%20460%20C%20100%20390%2C%20280%20560%2C%20470%20460%20S%20730%20390%2C%20920%20460%27%2F%3E%0A%20%20%20%20%3Cpath%20d%3D%27M-120%20510%20C%20120%20430%2C%20250%20610%2C%20440%20510%20S%20710%20430%2C%20920%20510%27%2F%3E%0A%20%20%20%20%3Cpath%20d%3D%27M-120%20560%20C%2090%20490%2C%20270%20660%2C%20460%20560%20S%20730%20490%2C%20920%20560%27%2F%3E%0A%20%20%3C%2Fg%3E%0A%3C%2Fsvg%3E%0A");
-  background-size: 900px 900px;
-  background-repeat: repeat;
-}
 
 /* App frame */
 .app{
@@ -544,6 +536,33 @@ textarea:focus{
   color: var(--text);
   letter-spacing: .02em;
 }
+
+.settings-head-actions{
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.saveIndicator{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: .01em;
+}
+.saveDot{
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255,176,46,.95);
+  box-shadow: 0 0 0 3px rgba(255,176,46,.14);
+}
+
+.btn:disabled{
+  opacity: .55;
+  cursor: not-allowed;
+}
 .settings-body{
   display: flex;
   flex-direction: column;
@@ -598,6 +617,26 @@ textarea:focus{
   color: var(--muted);
   font-weight: 650;
 }
+
+.devNote{
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-2);
+}
+.devNoteTitle{
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.devNoteText{
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
 @media (max-width: 760px){
   .grid2{ grid-template-columns: 1fr; }
 }
@@ -666,8 +705,3 @@ textarea:focus{
   box-shadow: 0 1px 0 rgba(0,0,0,0.04);
 }
 
-/* Static contour fallback in dark theme: invert the lines and reduce strength */
-:root[data-theme="dark"] .bg-static{
-  opacity: .14;
-  filter: invert(1) hue-rotate(180deg);
-}

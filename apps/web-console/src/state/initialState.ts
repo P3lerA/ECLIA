@@ -1,5 +1,6 @@
 import type { AppState } from "./reducer";
 import { readStoredThemeMode } from "../theme/theme";
+import { readStoredPrefs } from "../persist/prefs";
 
 function nowMeta(label: string) {
   const d = new Date();
@@ -9,14 +10,15 @@ function nowMeta(label: string) {
 
 export function makeInitialState(): AppState {
   const t = Date.now();
+  const prefs = readStoredPrefs();
 
   return {
     page: "console",
 
     themeMode: readStoredThemeMode(),
 
-    model: "local/ollama",
-    transport: "mock",
+    model: prefs.model ?? "local/ollama",
+    transport: (prefs.transport as any) ?? "mock",
 
     sessions: [
       { id: "s1", title: "New session", meta: nowMeta("just now"), createdAt: t, started: false },
@@ -71,11 +73,14 @@ export function makeInitialState(): AppState {
       { id: "tools", name: "Tools Runtime", enabled: true, description: "Enable tool_call / tool_result events" },
       { id: "rag", name: "RAG", enabled: false, description: "Retrieval augmentation (citations/recall)" },
       { id: "trace", name: "Tracing", enabled: false, description: "Observability and event tracing" }
-    ],
+    ].map((p) => {
+      const m = prefs.plugins;
+      const v = m ? m[p.id] : undefined;
+      return typeof v === "boolean" ? { ...p, enabled: v } : p;
+    }),
 
     settings: {
-      staticContourFallback: true,
-      textureDisabled: false
+      textureDisabled: prefs.textureDisabled ?? false
     },
 
     gpu: {

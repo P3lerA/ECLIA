@@ -12,14 +12,9 @@ import type { ThemeMode } from "../theme/theme";
 export type AppPage = "console" | "settings" | "plugins";
 
 export type AppSettings = {
-  /**
-   * Enable the static contour fallback when GPU is unavailable.
-   * Prototype note: currently uses an embedded placeholder texture (CPU rendering TODO).
-   */
-  staticContourFallback: boolean;
 
   /**
-   * Disable background textures (WebGL/static). When enabled, the background becomes a solid color.
+   * Disable background textures (WebGL). When enabled, the background becomes a solid color.
    */
   textureDisabled: boolean;
 };
@@ -57,7 +52,6 @@ export type Action =
   | { type: "session/new" }
   | { type: "model/set"; model: string }
   | { type: "transport/set"; transport: TransportId }
-  | { type: "settings/staticFallback"; enabled: boolean }
   | { type: "settings/textureDisabled"; enabled: boolean }
   | { type: "gpu/available"; available: boolean }
   | { type: "message/add"; sessionId: string; message: Message }
@@ -79,9 +73,6 @@ export function reducer(state: AppState, action: Action): AppState {
       if (state.themeMode === action.mode) return state;
       return { ...state, themeMode: action.mode };
 
-    case "settings/staticFallback":
-      if (state.settings.staticContourFallback === action.enabled) return state;
-      return { ...state, settings: { ...state.settings, staticContourFallback: action.enabled } };
 
     case "settings/textureDisabled":
       if (state.settings.textureDisabled === action.enabled) return state;
