@@ -273,6 +273,19 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
               <div className="row-sub muted">{gpuLine}</div>
             </div>
           </div>
+
+          <div className="row">
+            <div className="row-left">
+              <div className="row-main">Disable background texture</div>
+              <div className="row-sub muted">Use a solid background (no contour lines).</div>
+            </div>
+            <input
+              type="checkbox"
+              checked={draft.textureDisabled}
+              onChange={(e) => setDraft((d) => ({ ...d, textureDisabled: e.target.checked }))}
+              aria-label="Disable background texture"
+            />
+          </div>
         </div>
 
         <div className="card">

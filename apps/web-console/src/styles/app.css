@@ -436,6 +436,48 @@ textarea:focus{
   gap: 12px;
 }
 
+
+
+/* Menu internal view transitions (main ↔ all sessions) */
+.menuNavStage{ position: relative; }
+.menuNavView{
+  transition:
+    opacity var(--motion-3) var(--ease-standard),
+    transform var(--motion-3) var(--ease-enter);
+  will-change: transform, opacity;
+}
+
+.menuNavStage[data-view="main"] .menuNavView-main{
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  position: relative;
+}
+.menuNavStage[data-view="main"] .menuNavView-all{
+  opacity: 0;
+  transform: translateX(var(--dist-2));
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+}
+
+.menuNavStage[data-view="all-sessions"] .menuNavView-main{
+  opacity: 0;
+  transform: translateX(calc(-1 * var(--dist-2)));
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+}
+.menuNavStage[data-view="all-sessions"] .menuNavView-all{
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  position: relative;
+}
+
+@media (prefers-reduced-motion: reduce){
+  .menuNavView{ transition: none; }
+}
 .menu-section{
   border: 1px solid var(--line-2);
   border-radius: 16px;
@@ -602,6 +644,13 @@ textarea:focus{
   color: var(--muted);
   line-height: 1.4;
 }
+
+.row input[type="checkbox"]{
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+}
+
 .grid2{
   display: grid;
   grid-template-columns: 1fr 1fr;

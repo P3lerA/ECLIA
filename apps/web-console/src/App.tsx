@@ -1,5 +1,6 @@
 import React from "react";
-import { AppStateProvider, useAppDispatch, useAppState } from "./state/AppState";
+import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { AppStateProvider, useAppState } from "./state/AppState";
 import { LandingView } from "./features/landing/LandingView";
 import { ChatView } from "./features/chat/ChatView";
 import { MenuSheet } from "./features/menu/MenuSheet";
@@ -11,7 +12,7 @@ import { writeStoredPrefs } from "./persist/prefs";
 
 function AppInner() {
   const state = useAppState();
-  const dispatch = useAppDispatch();
+  const navigate = useNavigate();
 
   // Theme: apply & persist (handles system changes in "system" mode).
   React.useEffect(() => {
@@ -23,7 +24,6 @@ function AppInner() {
     if (state.themeMode !== "system") return;
     return subscribeSystemThemeChange(() => applyTheme("system"));
   }, [state.themeMode]);
-
 
   // Persist user preferences (stored locally in the browser).
   React.useEffect(() => {
@@ -55,15 +55,23 @@ function AppInner() {
       <BackgroundRoot />
 
       <div className="container">
-        {state.page === "settings" ? (
-          <SettingsView onBack={() => dispatch({ type: "nav/to", page: "console" })} />
-        ) : state.page === "plugins" ? (
-          <PluginsView onBack={() => dispatch({ type: "nav/to", page: "console" })} />
-        ) : isLanding ? (
-          <LandingView onOpenMenu={() => setMenuOpen(true)} />
-        ) : (
-          <ChatView onOpenMenu={() => setMenuOpen(true)} dockFromLanding={dockFromLanding} />
-        )}
+        <Routes>
+          <Route path="/settings" element={<SettingsView onBack={() => navigate("/")} />} />
+          <Route path="/plugins" element={<PluginsView onBack={() => navigate("/")} />} />
+
+          <Route
+            path="/"
+            element={
+              isLanding ? (
+                <LandingView onOpenMenu={() => setMenuOpen(true)} />
+              ) : (
+                <ChatView onOpenMenu={() => setMenuOpen(true)} dockFromLanding={dockFromLanding} />
+              )
+            }
+          />
+
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </div>
 
       <MenuSheet open={menuOpen} onClose={() => setMenuOpen(false)} />

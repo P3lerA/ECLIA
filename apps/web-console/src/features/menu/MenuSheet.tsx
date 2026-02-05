@@ -1,4 +1,5 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 import { usePresence } from "../motion/usePresence";
 
@@ -10,6 +11,7 @@ type MenuView = "main" | "all-sessions";
 export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const navigate = useNavigate();
 
   const { present, motion } = usePresence(open, { exitMs: 220 });
 
@@ -108,6 +110,8 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
     );
   };
 
+  const preview = state.sessions.slice(0, 5);
+
   return (
     <div
       className="menusheet-overlay motion-overlay"
@@ -131,72 +135,79 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
 
           <div className="menusheet-head-actions">
             {view === "all-sessions" ? (
-              <button
-                className="btn subtle"
-                onClick={() => setView("main")}
-                aria-label="Back to menu"
-              >
+              <button className="btn subtle" onClick={() => setView("main")} aria-label="Back to menu">
                 Back
               </button>
             ) : null}
 
-            <button
-              ref={closeBtnRef}
-              className="btn icon"
-              onClick={onClose}
-              aria-label="Close menu"
-            >
+            <button ref={closeBtnRef} className="btn icon" onClick={onClose} aria-label="Close menu">
               ✕
             </button>
           </div>
         </div>
 
         <div className="menusheet-body">
-          {/* Sessions always comes first. */}
-          <section className="menu-section motion-item" style={sectionDelay(40)}>
-            <div className="menu-section-title">Sessions</div>
+          {/* Keep both views mounted to enable smooth transitions between them. */}
+          <div className="menuNavStage" data-view={view}>
+            {/* MAIN */}
+            <div
+              className="menuNavView menuNavView-main"
+              aria-hidden={view !== "main"}
+              {...(view !== "main" ? ({ inert: "" } as any) : {})}
+            >
+              <section className="menu-section motion-item" style={sectionDelay(40)}>
+                <div className="menu-section-title">Sessions</div>
+                {renderSessions(preview)}
 
-            {view === "all-sessions"
-              ? renderSessions(state.sessions)
-              : renderSessions(state.sessions.slice(0, 5))}
+                {state.sessions.length > 5 ? (
+                  <div className="menu-section-foot">
+                    <button className="btn subtle" onClick={() => setView("all-sessions")}>
+                      All sessions
+                    </button>
+                  </div>
+                ) : null}
+              </section>
 
-            {view === "main" && state.sessions.length > 5 ? (
-              <div className="menu-section-foot">
-                <button className="btn subtle" onClick={() => setView("all-sessions")}>
-                  All sessions
-                </button>
-              </div>
-            ) : null}
-          </section>
+              <section className="menu-section motion-item" style={sectionDelay(90)}>
+                <div className="menu-section-title">Navigate</div>
+                <div className="menu-list">
+                  <button
+                    className="menu-item"
+                    onClick={() => {
+                      navigate("/plugins");
+                      onClose();
+                    }}
+                  >
+                    <div className="menu-item-main">Plugins</div>
+                    <div className="menu-item-sub">Enable/disable · Prototype config</div>
+                  </button>
 
-          {view === "main" ? (
-            <section className="menu-section motion-item" style={sectionDelay(90)}>
-              <div className="menu-section-title">Navigate</div>
-              <div className="menu-list">
-                <button
-                  className="menu-item"
-                  onClick={() => {
-                    dispatch({ type: "nav/to", page: "plugins" });
-                    onClose();
-                  }}
-                >
-                  <div className="menu-item-main">Plugins</div>
-                  <div className="menu-item-sub">Enable/disable · Prototype config</div>
-                </button>
+                  <button
+                    className="menu-item"
+                    onClick={() => {
+                      navigate("/settings");
+                      onClose();
+                    }}
+                  >
+                    <div className="menu-item-main">Settings</div>
+                    <div className="menu-item-sub">Appearance · Runtime · Diagnostics</div>
+                  </button>
+                </div>
+              </section>
+            </div>
 
-                <button
-                  className="menu-item"
-                  onClick={() => {
-                    dispatch({ type: "nav/to", page: "settings" });
-                    onClose();
-                  }}
-                >
-                  <div className="menu-item-main">Settings</div>
-                  <div className="menu-item-sub">Appearance · Runtime · Diagnostics</div>
-                </button>
-              </div>
-            </section>
-          ) : null}
+            {/* ALL SESSIONS */}
+            <div
+              className="menuNavView menuNavView-all"
+              aria-hidden={view !== "all-sessions"}
+              {...(view !== "all-sessions" ? ({ inert: "" } as any) : {})}
+            >
+              <section className="menu-section motion-item" style={sectionDelay(40)}>
+                <div className="menu-section-title">Sessions</div>
+                {renderSessions(state.sessions)}
+              </section>
+            </div>
+          </div>
         </div>
       </div>
     </div>
