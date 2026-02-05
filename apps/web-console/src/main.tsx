@@ -6,6 +6,7 @@ import "./styles/tokens.css";
 import "./styles/motion.css";
 import "./styles/app.css";
 
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>

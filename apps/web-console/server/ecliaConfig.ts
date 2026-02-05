@@ -1,155 +1,163 @@
 import fs from "node:fs";
 import path from "node:path";
-import * as TOML from "@iarna/toml";
 
 export type EcliaConfig = {
-  console: {
-    host: string;
-    port: number;
-  };
-  api: {
-    port: number;
-  };
+  console: { host: string; port: number };
+  api: { port: number };
+  inference?: any;
 };
 
-export type EcliaConfigPatch = Partial<{
-  console: Partial<EcliaConfig["console"]>;
-  api: Partial<EcliaConfig["api"]>;
-}>;
-
-export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
-  console: {
-    host: "127.0.0.1",
-    port: 5173
-  },
-  api: {
-    port: 8787
-  }
-};
-
-function isRecord(v: unknown): v is Record<string, unknown> {
+function isPlainObject(v: any): v is Record<string, any> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function clampPort(v: unknown, fallback: number): number {
-  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
-  if (!Number.isFinite(n)) return fallback;
-  const i = Math.trunc(n);
-  if (i < 1 || i > 65535) return fallback;
-  return i;
-}
-
-function coerceHost(v: unknown, fallback: string): string {
-  if (typeof v !== "string") return fallback;
-  const s = v.trim();
-  return s.length ? s : fallback;
-}
-
-function deepMerge<T extends Record<string, any>>(a: T, b: Partial<T>): T {
-  const out: any = { ...a };
-  for (const [k, v] of Object.entries(b)) {
-    if (v === undefined) continue;
-    if (isRecord(v) && isRecord(out[k])) out[k] = deepMerge(out[k], v);
-    else out[k] = v;
+function deepMerge(a: any, b: any): any {
+  if (Array.isArray(a) && Array.isArray(b)) return b;
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const out: Record<string, any> = { ...a };
+    for (const k of Object.keys(b)) out[k] = deepMerge(a[k], b[k]);
+    return out;
   }
+  return b === undefined ? a : b;
+}
+
+function findRepoRoot(startDir: string): string {
+  let dir = path.resolve(startDir);
+  while (true) {
+    const hasToml = fs.existsSync(path.join(dir, "eclia.config.toml"));
+    const hasGit = fs.existsSync(path.join(dir, ".git"));
+    if (hasToml || hasGit) return dir;
+
+    const parent = path.dirname(dir);
+    if (parent === dir) return startDir;
+    dir = parent;
+  }
+}
+
+function ensureLocalOverrideFile(localPath: string) {
+  try {
+    if (!fs.existsSync(localPath)) {
+      fs.writeFileSync(localPath, "# ECLIA local overrides\n", { encoding: "utf-8", flag: "wx" });
+    }
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Minimal TOML reader for dev config needs (host/port).
+ * We only parse:
+ * - section headers: [a.b.c]
+ * - assignments: key = "string" | 'string' | number | true/false
+ *
+ * Anything else is ignored (arrays, inline tables, etc.).
+ * The gateway uses a full TOML parser; this is only for Vite config.
+ */
+function parseTomlLoose(input: string): any {
+  const out: Record<string, any> = {};
+  let section: string[] = [];
+
+  const setAtPath = (obj: any, p: string[], k: string, v: any) => {
+    let cur = obj;
+    for (const seg of p) {
+      if (!isPlainObject(cur[seg])) cur[seg] = {};
+      cur = cur[seg];
+    }
+    cur[k] = v;
+  };
+
+  const lines = input.split(/\r?\n/);
+  for (let raw of lines) {
+    // Strip comments (# ...) but keep quoted #.
+    raw = raw.trim();
+    if (!raw || raw.startsWith("#")) continue;
+
+    // Section header
+    const sec = raw.match(/^\[\s*([^\]]+?)\s*\]$/);
+    if (sec) {
+      section = sec[1].split(".").map((s) => s.trim()).filter(Boolean);
+      continue;
+    }
+
+    // key = value
+    const kv = raw.match(/^([A-Za-z0-9_\-]+)\s*=\s*(.+)$/);
+    if (!kv) continue;
+
+    const key = kv[1].trim();
+    let valueRaw = kv[2].trim();
+
+    // Drop trailing inline comments if any (naive but practical)
+    const hash = valueRaw.indexOf(" #");
+    if (hash >= 0) valueRaw = valueRaw.slice(0, hash).trim();
+
+    let value: any = valueRaw;
+
+    // strings
+    if (
+      (valueRaw.startsWith('"') && valueRaw.endsWith('"')) ||
+      (valueRaw.startsWith("'") && valueRaw.endsWith("'"))
+    ) {
+      value = valueRaw.slice(1, -1);
+    } else if (/^(true|false)$/i.test(valueRaw)) {
+      value = valueRaw.toLowerCase() === "true";
+    } else if (/^[+-]?[0-9][0-9_]*$/.test(valueRaw)) {
+      value = Number(valueRaw.replace(/_/g, ""));
+    } else {
+      // unsupported value type -> ignore
+      continue;
+    }
+
+    setAtPath(out, section, key, value);
+  }
+
   return out;
 }
 
-function findProjectRoot(startDir: string): string {
-  let dir = path.resolve(startDir);
-  for (let i = 0; i < 40; i++) {
-    if (fs.existsSync(path.join(dir, "eclia.config.toml"))) return dir;
-    if (fs.existsSync(path.join(dir, ".git"))) return dir;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return path.resolve(startDir);
-}
-
-function tryReadToml(filePath: string): Record<string, unknown> {
+function readTomlLoose(filePath: string): any {
   try {
     if (!fs.existsSync(filePath)) return {};
-    const raw = fs.readFileSync(filePath, "utf-8");
-    const parsed = TOML.parse(raw) as unknown;
-    return isRecord(parsed) ? parsed : {};
+    const s = fs.readFileSync(filePath, "utf-8");
+    return parseTomlLoose(s);
   } catch {
     return {};
   }
 }
 
-function coerceConfig(obj: Record<string, unknown>): EcliaConfig {
-  const base: EcliaConfig = JSON.parse(JSON.stringify(DEFAULT_ECLIA_CONFIG));
-
-  const consoleObj = isRecord(obj.console) ? obj.console : {};
-  base.console.host = coerceHost(consoleObj.host, base.console.host);
-  base.console.port = clampPort(consoleObj.port, base.console.port);
-
-  const apiObj = isRecord(obj.api) ? obj.api : {};
-  base.api.port = clampPort(apiObj.port, base.api.port);
-
-  return base;
+function toPort(v: any, fallback: number): number {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  const i = Math.trunc(n);
+  return i >= 1 && i <= 65535 ? i : fallback;
 }
 
-function applyEnvOverrides(cfg: EcliaConfig): EcliaConfig {
-  const out: EcliaConfig = JSON.parse(JSON.stringify(cfg));
-
-  out.console.host = coerceHost(process.env.ECLIA_CONSOLE_HOST, out.console.host);
-  out.console.port = clampPort(process.env.ECLIA_CONSOLE_PORT, out.console.port);
-  out.api.port = clampPort(process.env.ECLIA_API_PORT, out.api.port);
-
-  return out;
-}
-
-export function loadEcliaConfig(startDir: string = process.cwd()): {
-  rootDir: string;
-  config: EcliaConfig;
-  paths: { base: string; local: string };
-} {
-  const rootDir = findProjectRoot(startDir);
+/**
+ * Loads config from:
+ * - eclia.config.toml (defaults)
+ * - eclia.config.local.toml (overrides)
+ *
+ * This is imported by Vite config (Node context). Keep it robust and dependency-free.
+ */
+export function loadEcliaConfig(startDir: string) {
+  const rootDir = findRepoRoot(startDir);
   const basePath = path.join(rootDir, "eclia.config.toml");
   const localPath = path.join(rootDir, "eclia.config.local.toml");
 
-  // Ensure the local override file exists (gitignored).
-  // This keeps the mental model simple: base config is committed, local is always present.
-  try {
-    if (fs.existsSync(basePath) && !fs.existsSync(localPath)) {
-      fs.writeFileSync(localPath, "# ECLIA local overrides (gitignored)\n", "utf-8");
-    }
-  } catch {
-    // ignore (read-only envs)
-  }
+  ensureLocalOverrideFile(localPath);
 
-  const baseObj = tryReadToml(basePath);
-  const localObj = tryReadToml(localPath);
+  const base = readTomlLoose(basePath);
+  const local = readTomlLoose(localPath);
+  const merged = deepMerge(base, local);
 
-  const mergedObj = deepMerge(baseObj, localObj);
-  const fileCfg = coerceConfig(mergedObj);
-  const config = applyEnvOverrides(fileCfg);
-
-  return { rootDir, config, paths: { base: basePath, local: localPath } };
-}
-
-export function writeLocalEcliaConfig(
-  patch: EcliaConfigPatch,
-  startDir: string = process.cwd()
-): { rootDir: string; config: EcliaConfig } {
-  const rootDir = findProjectRoot(startDir);
-  const localPath = path.join(rootDir, "eclia.config.local.toml");
-
-  const currentLocal = tryReadToml(localPath);
-  const nextLocal = deepMerge(currentLocal, patch as Record<string, unknown>);
-
-  // Keep the file small + normalized (only store known keys).
-  const normalized = coerceConfig(nextLocal);
-
-  const toWrite: Record<string, any> = {
-    console: { host: normalized.console.host, port: normalized.console.port },
-    api: { port: normalized.api.port }
+  const config: EcliaConfig = {
+    console: {
+      host: String(merged?.console?.host ?? "127.0.0.1"),
+      port: toPort(merged?.console?.port, 5173)
+    },
+    api: {
+      port: toPort(merged?.api?.port, 8787)
+    },
+    inference: merged?.inference
   };
 
-  fs.writeFileSync(localPath, TOML.stringify(toWrite), "utf-8");
-
-  const { config } = loadEcliaConfig(rootDir);
-  return { rootDir, config };
+  return { rootDir, basePath, localPath, config };
 }

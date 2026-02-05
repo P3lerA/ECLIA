@@ -8,5 +8,21 @@ host = "127.0.0.1"
 port = 5173
 
 [api]
-# Demo SSE server port (dev only)
+# Gateway API server port (dev)
 port = 8787
+
+[inference]
+# Current MVP: OpenAI-compatible provider (works with any OpenAI-like API).
+provider = "openai_compat"
+
+[inference.openai_compat]
+# Example: "https://api.openai.com/v1"
+# For Minimax/OpenAI-compatible, set their base URL here.
+base_url = "https://api.openai.com/v1"
+
+# Real upstream model id (NOT the UI route key).
+model = "gpt-4o-mini"
+
+# Secrets belong in eclia.config.local.toml:
+# api_key = "..."
+auth_header = "Authorization"

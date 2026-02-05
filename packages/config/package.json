@@ -1,0 +1,12 @@
+{
+  "name": "@eclia/config",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@iarna/toml": "^2.2.5"
+  }
+}

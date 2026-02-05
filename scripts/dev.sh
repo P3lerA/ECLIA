@@ -2,10 +2,10 @@
 set -euo pipefail
 
 # ECLIA dev launcher (macOS/Linux).
-# Reads ports/host from eclia.config.toml (+ optional eclia.config.local.toml)
-# and starts both: web console (Vite) + demo SSE backend.
+# Starts both: web console (Vite) + gateway backend.
+# Ports/host are read from eclia.config.toml (+ optional eclia.config.local.toml).
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT/apps/web-console"
+cd "$ROOT"
 
 pnpm dev:all

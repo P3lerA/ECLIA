@@ -430,54 +430,60 @@ textarea:focus{
 .menusheet-head-actions{ display:flex; gap: 8px; align-items: center; }
 .menusheet-body{
   padding: 10px;
-  overflow: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
 
-
-/* Menu internal view transitions (main ↔ all sessions) */
-.menuNavStage{ position: relative; }
+/* Menu internal navigation: main ↔ all sessions
+   The MenuSheet keeps both views mounted for smooth transitions.
+   These rules ensure the inactive view is visually hidden and non-interactive. */
+.menuNavStage{
+  position: relative;
+}
 .menuNavView{
+  width: 100%;
   transition:
-    opacity var(--motion-3) var(--ease-standard),
-    transform var(--motion-3) var(--ease-enter);
-  will-change: transform, opacity;
+    opacity var(--motion-4) var(--ease-standard),
+    transform var(--motion-4) var(--ease-standard);
+  will-change: opacity, transform;
 }
 
 .menuNavStage[data-view="main"] .menuNavView-main{
+  position: relative;
   opacity: 1;
   transform: none;
-  pointer-events: auto;
-  position: relative;
 }
 .menuNavStage[data-view="main"] .menuNavView-all{
-  opacity: 0;
-  transform: translateX(var(--dist-2));
-  pointer-events: none;
   position: absolute;
   inset: 0;
+  opacity: 0;
+  transform: translateX(var(--dist-3));
+  pointer-events: none;
 }
 
-.menuNavStage[data-view="all-sessions"] .menuNavView-main{
-  opacity: 0;
-  transform: translateX(calc(-1 * var(--dist-2)));
-  pointer-events: none;
-  position: absolute;
-  inset: 0;
-}
 .menuNavStage[data-view="all-sessions"] .menuNavView-all{
+  position: relative;
   opacity: 1;
   transform: none;
-  pointer-events: auto;
-  position: relative;
+}
+.menuNavStage[data-view="all-sessions"] .menuNavView-main{
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transform: translateX(calc(-1 * var(--dist-3)));
+  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce){
-  .menuNavView{ transition: none; }
+  .menuNavView{
+    transition-duration: 1ms !important;
+    transform: none !important;
+  }
 }
+
 .menu-section{
   border: 1px solid var(--line-2);
   border-radius: 16px;
@@ -644,13 +650,6 @@ textarea:focus{
   color: var(--muted);
   line-height: 1.4;
 }
-
-.row input[type="checkbox"]{
-  width: 18px;
-  height: 18px;
-  margin-top: 2px;
-}
-
 .grid2{
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -107,37 +107,35 @@ export function useSendMessage() {
       const onEvent = (evt: ChatEvent) => {
         if (evt.type === "meta") {
           pushLog("context", "meta", `session=${evt.sessionId} model=${evt.model}`, evt);
-        } else if (evt.type === "delta") {
-          dispatch({
-            type: "assistant/stream/append",
-            sessionId: state.activeSessionId,
-            text: evt.text
-          });
-        } else if (evt.type === "tool_call") {
+          return;
+        }
+
+        if (evt.type === "delta") {
+          dispatch({ type: "assistant/stream/append", sessionId: state.activeSessionId, text: evt.text });
+          return;
+        }
+
+        if (evt.type === "tool_call") {
           dispatch({
             type: "assistant/addBlocks",
             sessionId: state.activeSessionId,
             blocks: [{ type: "tool", name: evt.name, status: "calling", payload: evt.args }]
           });
           pushLog("tools", "tool_call", evt.name, evt.args);
-        } else if (evt.type === "tool_result") {
+          return;
+        }
+
+        if (evt.type === "tool_result") {
           dispatch({
             type: "assistant/addBlocks",
             sessionId: state.activeSessionId,
-            blocks: [
-              {
-                type: "tool",
-                name: evt.name,
-                status: evt.ok ? "ok" : "error",
-                payload: evt.result
-              }
-            ]
+            blocks: [{ type: "tool", name: evt.name, status: evt.ok ? "ok" : "error", payload: evt.result }]
           });
           pushLog("tools", "tool_result", `${evt.name}: ${evt.ok ? "ok" : "error"}`, evt.result);
-        } else if (evt.type === "done") {
-          dispatch({ type: "assistant/stream/finalize", sessionId: state.activeSessionId });
-          pushLog("events", "done", "stream end");
-        } else if (evt.type === "error") {
+          return;
+        }
+
+        if (evt.type === "error") {
           dispatch({ type: "assistant/stream/finalize", sessionId: state.activeSessionId });
           dispatch({
             type: "assistant/addBlocks",
@@ -145,6 +143,12 @@ export function useSendMessage() {
             blocks: [{ type: "text", text: `[error] ${evt.message}` }]
           });
           pushLog("events", "error", evt.message);
+          return;
+        }
+
+        if (evt.type === "done") {
+          dispatch({ type: "assistant/stream/finalize", sessionId: state.activeSessionId });
+          pushLog("events", "done", "stream end");
         }
       };
 
@@ -156,12 +160,23 @@ export function useSendMessage() {
         );
       } catch (err: any) {
         dispatch({ type: "assistant/stream/finalize", sessionId: state.activeSessionId });
+
+        const name = String(err?.name ?? "");
+        const msg = String(err?.message ?? err);
+
+        // AbortError is expected when the user sends a new message while streaming.
+        // Treat it as a cancellation instead of a visible error.
+        if (name === "AbortError") {
+          pushLog("events", "cancel", "request aborted");
+          return;
+        }
+
         dispatch({
           type: "assistant/addBlocks",
           sessionId: state.activeSessionId,
-          blocks: [{ type: "text", text: `[error] ${String(err?.message ?? err)}` }]
+          blocks: [{ type: "text", text: `[error] ${msg}` }]
         });
-        pushLog("events", "exception", String(err?.message ?? err));
+        pushLog("events", "exception", msg);
       }
     },
     [addUserMessage, dispatch, pushLog, runCommand, state.activeSessionId, state.model, state.transport]

@@ -12,11 +12,24 @@ type SettingsDraft = {
   // Dev-only (written to eclia.config.local.toml via the local backend).
   consoleHost: string;
   consolePort: string; // keep as string for input UX
+
+  // Inference (OpenAI-compatible). Secrets are stored in local TOML; key is never read back.
+  inferenceBaseUrl: string;
+  inferenceModelId: string;
+  inferenceApiKey: string; // input only; empty = unchanged
 };
 
 type DevConfig = {
   console: { host: string; port: number };
   api?: { port: number };
+  inference?: {
+    provider?: string;
+    openai_compat?: {
+      base_url?: string;
+      model?: string;
+      api_key_configured?: boolean;
+    };
+  };
 };
 
 type ConfigResponse =
@@ -40,7 +53,7 @@ function portNumber(s: string): number | null {
  * While dirty, leaving the page is blocked to avoid accidental loss.
  *
  * Dev config note:
- * - We intentionally write host/port to eclia.config.local.toml (gitignored).
+ * - We intentionally write startup config to eclia.config.local.toml (gitignored).
  * - eclia.config.toml is the committed defaults and is not modified by the UI.
  */
 export function SettingsView({ onBack }: { onBack: () => void }) {
@@ -53,14 +66,24 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const [cfgLoading, setCfgLoading] = React.useState(false);
   const [cfgError, setCfgError] = React.useState<string | null>(null);
   const [cfgSaved, setCfgSaved] = React.useState<string | null>(null);
-  const [cfgBase, setCfgBase] = React.useState<{ host: string; port: number } | null>(null);
+
+  const [cfgBase, setCfgBase] = React.useState<{
+    host: string;
+    port: number;
+    inferenceBaseUrl: string;
+    inferenceModelId: string;
+    apiKeyConfigured: boolean;
+  } | null>(null);
 
   const [draft, setDraft] = React.useState<SettingsDraft>(() => ({
     textureDisabled: state.settings.textureDisabled,
     transport: state.transport,
     model: state.model,
     consoleHost: "",
-    consolePort: ""
+    consolePort: "",
+    inferenceBaseUrl: "",
+    inferenceModelId: "",
+    inferenceApiKey: ""
   }));
 
   // Load TOML config into draft (best-effort).
@@ -81,11 +104,26 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         const host = j.config.console.host ?? "127.0.0.1";
         const port = j.config.console.port ?? 5173;
 
-        setCfgBase({ host, port });
+        const inf = j.config.inference?.openai_compat ?? {};
+        const baseUrl = String(inf.base_url ?? "https://api.openai.com/v1");
+        const modelId = String(inf.model ?? "gpt-4o-mini");
+        const keyConfigured = Boolean(inf.api_key_configured);
+
+        setCfgBase({
+          host,
+          port,
+          inferenceBaseUrl: baseUrl,
+          inferenceModelId: modelId,
+          apiKeyConfigured: keyConfigured
+        });
+
         setDraft((d) => ({
           ...d,
           consoleHost: host,
-          consolePort: String(port)
+          consolePort: String(port),
+          inferenceBaseUrl: baseUrl,
+          inferenceModelId: modelId,
+          inferenceApiKey: "" // never auto-fill secrets
         }));
       } catch {
         if (cancelled) return;
@@ -109,10 +147,17 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     draft.transport !== state.transport ||
     draft.model !== state.model;
 
-  const dirtyDev = cfgBase
+  const dirtyDevHostPort = cfgBase
     ? draft.consoleHost.trim() !== cfgBase.host || portNumber(draft.consolePort) !== cfgBase.port
     : false;
 
+  const dirtyDevInference = cfgBase
+    ? draft.inferenceBaseUrl.trim() !== cfgBase.inferenceBaseUrl ||
+      draft.inferenceModelId.trim() !== cfgBase.inferenceModelId ||
+      draft.inferenceApiKey.trim().length > 0
+    : false;
+
+  const dirtyDev = dirtyDevHostPort || dirtyDevInference;
   const dirty = dirtyUi || dirtyDev;
 
   // Keep draft in sync when external state changes, but only if the user
@@ -122,7 +167,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     setDraft((d) => ({
       ...d,
       textureDisabled: state.settings.textureDisabled,
-        transport: state.transport,
+      transport: state.transport,
       model: state.model
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -144,23 +189,34 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const gpuText =
     state.gpu.available === null ? "checking…" : state.gpu.available ? "WebGL2 available" : "unavailable";
 
-  const gpuLine = draft.textureDisabled ? "disabled by settings" : gpuText;
+  const gpuLine = draft.textureDisabled ? "Texture disabled (solid background)" : gpuText;
 
   const [saving, setSaving] = React.useState(false);
 
-  const devValid = draft.consoleHost.trim().length > 0 && isValidPort(draft.consolePort);
+  const hostPortValid = draft.consoleHost.trim().length > 0 && isValidPort(draft.consolePort);
+  const inferenceValid = draft.inferenceBaseUrl.trim().length > 0 && draft.inferenceModelId.trim().length > 0;
 
-  const canSave = dirty && !saving && (!dirtyDev || (devValid && !cfgLoading));
+  const canSave =
+    dirty &&
+    !saving &&
+    (!dirtyDev ||
+      (!!cfgBase &&
+        !cfgLoading &&
+        (!dirtyDevHostPort || hostPortValid) &&
+        (!dirtyDevInference || inferenceValid)));
 
   const discard = () => {
     // Revert draft to the last saved state (AppState + cfgBase).
     setDraft((d) => ({
       ...d,
       textureDisabled: state.settings.textureDisabled,
-        transport: state.transport,
+      transport: state.transport,
       model: state.model,
       consoleHost: cfgBase?.host ?? d.consoleHost,
-      consolePort: cfgBase ? String(cfgBase.port) : d.consolePort
+      consolePort: cfgBase ? String(cfgBase.port) : d.consolePort,
+      inferenceBaseUrl: cfgBase?.inferenceBaseUrl ?? d.inferenceBaseUrl,
+      inferenceModelId: cfgBase?.inferenceModelId ?? d.inferenceModelId,
+      inferenceApiKey: ""
     }));
     setCfgError(null);
     setCfgSaved(null);
@@ -174,20 +230,34 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     setCfgSaved(null);
 
     try {
-      // 1) Save TOML dev config first (most likely to fail).
+      // 1) Save TOML startup config first (most likely to fail).
       if (dirtyDev) {
         if (!cfgBase) throw new Error("Config service unavailable.");
-        if (!devValid) throw new Error("Invalid host/port.");
+
+        const body: any = {};
+
+        if (dirtyDevHostPort) {
+          if (!hostPortValid) throw new Error("Invalid host/port.");
+          body.console = {
+            host: draft.consoleHost.trim(),
+            port: Number(draft.consolePort)
+          };
+        }
+
+        if (dirtyDevInference) {
+          if (!inferenceValid) throw new Error("Invalid inference base URL or model id.");
+          body.inference = {
+            openai_compat: {
+              base_url: draft.inferenceBaseUrl.trim(),
+              model: draft.inferenceModelId.trim(),
+              // api_key is optional; empty means unchanged.
+              ...(draft.inferenceApiKey.trim().length ? { api_key: draft.inferenceApiKey.trim() } : {})
+            }
+          };
+        }
 
         setCfgLoading(true);
         try {
-          const body = {
-            console: {
-              host: draft.consoleHost.trim(),
-              port: Number(draft.consolePort)
-            }
-          };
-
           const r = await fetch("/api/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -197,9 +267,22 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           const j = (await r.json()) as ConfigResponse;
           if (!j.ok) throw new Error(j.hint ?? j.error);
 
-          const nextBase = { host: body.console.host, port: body.console.port };
+          const nextBase = {
+            host: body.console?.host ?? cfgBase.host,
+            port: body.console?.port ?? cfgBase.port,
+            inferenceBaseUrl: body.inference?.openai_compat?.base_url ?? cfgBase.inferenceBaseUrl,
+            inferenceModelId: body.inference?.openai_compat?.model ?? cfgBase.inferenceModelId,
+            apiKeyConfigured: cfgBase.apiKeyConfigured || Boolean(body.inference?.openai_compat?.api_key)
+          };
+
           setCfgBase(nextBase);
-          setCfgSaved("Saved to eclia.config.local.toml. Restart required to apply host/port changes.");
+          setDraft((d) => ({ ...d, inferenceApiKey: "" }));
+
+          setCfgSaved(
+            dirtyDevHostPort
+              ? "Saved to eclia.config.local.toml. Restart required to apply host/port changes."
+              : "Saved to eclia.config.local.toml."
+          );
         } finally {
           setCfgLoading(false);
         }
@@ -266,25 +349,25 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         <div className="card">
           <div className="card-title">Appearance</div>
 
-
-          <div className="row">
-            <div className="row-left">
-              <div className="row-main">GPU status</div>
-              <div className="row-sub muted">{gpuLine}</div>
-            </div>
-          </div>
-
           <div className="row">
             <div className="row-left">
               <div className="row-main">Disable background texture</div>
-              <div className="row-sub muted">Use a solid background (no contour lines).</div>
+              <div className="row-sub muted">Solid background fallback (useful for low-end GPUs).</div>
             </div>
+
             <input
               type="checkbox"
               checked={draft.textureDisabled}
               onChange={(e) => setDraft((d) => ({ ...d, textureDisabled: e.target.checked }))}
               aria-label="Disable background texture"
             />
+          </div>
+
+          <div className="row">
+            <div className="row-left">
+              <div className="row-main">GPU status</div>
+              <div className="row-sub muted">{gpuLine}</div>
+            </div>
           </div>
         </div>
 
@@ -320,6 +403,70 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
               </select>
             </label>
           </div>
+        </div>
+
+        <div className="card">
+          <div className="card-title">Inference (OpenAI-compatible)</div>
+
+          <div className="grid2">
+            <label className="field">
+              <div className="field-label">Base URL</div>
+              <input
+                className="select"
+                value={draft.inferenceBaseUrl}
+                onChange={(e) => setDraft((d) => ({ ...d, inferenceBaseUrl: e.target.value }))}
+                placeholder="https://api.openai.com/v1"
+                spellCheck={false}
+                disabled={cfgLoading || !cfgBase}
+              />
+            </label>
+
+            <label className="field">
+              <div className="field-label">Model id</div>
+              <input
+                className="select"
+                value={draft.inferenceModelId}
+                onChange={(e) => setDraft((d) => ({ ...d, inferenceModelId: e.target.value }))}
+                placeholder="gpt-4o-mini"
+                spellCheck={false}
+                disabled={cfgLoading || !cfgBase}
+              />
+            </label>
+          </div>
+
+          <div className="grid2">
+            <label className="field">
+              <div className="field-label">API key (local)</div>
+              <input
+                className="select"
+                type="password"
+                value={draft.inferenceApiKey}
+                onChange={(e) => setDraft((d) => ({ ...d, inferenceApiKey: e.target.value }))}
+                placeholder={cfgBase?.apiKeyConfigured ? "configured (leave blank to keep)" : "not set"}
+                spellCheck={false}
+                disabled={cfgLoading || !cfgBase}
+              />
+              <div className="field-sub muted">
+                {cfgBase?.apiKeyConfigured
+                  ? "A key is already configured (not shown). Enter a new one to replace it."
+                  : "No key detected. Set it here or in eclia.config.local.toml."}
+              </div>
+            </label>
+
+            <div className="field">
+              <div className="field-label">Status</div>
+              <div className="field-sub muted">
+                {cfgBase?.apiKeyConfigured ? "API key configured" : "API key missing"}
+              </div>
+              <div className="field-sub muted">
+                Tip: If you're using Minimax, set the correct Base URL for their OpenAI-compatible endpoint.
+              </div>
+            </div>
+          </div>
+
+          {dirtyDevInference && !inferenceValid ? (
+            <div className="devNoteText muted">Invalid inference base URL or model id.</div>
+          ) : null}
         </div>
 
         <div className="card">
@@ -360,7 +507,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
             {cfgError ? <div className="devNoteText muted">{cfgError}</div> : null}
 
-            {dirtyDev && !devValid ? (
+            {dirtyDevHostPort && !hostPortValid ? (
               <div className="devNoteText muted">Invalid host or port. Port must be 1–65535.</div>
             ) : null}
 
