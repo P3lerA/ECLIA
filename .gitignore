@@ -5,3 +5,4 @@ dist-ssr
 .DS_Store
 .vscode
 eclia.config.local.toml
+.eclia/

@@ -1,11 +1,9 @@
 import React from "react";
-import type { CodeBlock, TextBlock, ToolBlock } from "../types";
+import type { CodeBlock, TextBlock, ToolBlock, ThoughtBlock } from "../types";
 import type { BlockRendererRegistry } from "./BlockRendererRegistry";
 
 export function registerDefaultBlockRenderers(registry: BlockRendererRegistry) {
-  registry.register("text", (b: TextBlock) => (
-    <p className="block-text">{b.text}</p>
-  ));
+  registry.register("text", (b: TextBlock) => <p className="block-text">{b.text}</p>);
 
   registry.register("code", (b: CodeBlock) => (
     <div className="block-code">
@@ -19,10 +17,17 @@ export function registerDefaultBlockRenderers(registry: BlockRendererRegistry) {
   registry.register("tool", (b: ToolBlock) => (
     <div className="block-tool">
       <div className="block-tool-head">
-        <strong>Tool</strong> <span className="k">{b.name}</span>{" "}
-        <span className="muted">· {b.status}</span>
+        <strong>Tool</strong> <span className="k">{b.name}</span> <span className="muted">· {b.status}</span>
       </div>
       <pre className="code-lite">{JSON.stringify(b.payload ?? {}, null, 2)}</pre>
     </div>
+  ));
+
+  // Thought blocks are hidden/collapsed by default (dev-friendly).
+  registry.register("thought", (b: ThoughtBlock) => (
+    <details className="block-thought">
+      <summary className="muted">thought</summary>
+      <pre className="code-lite">{b.text}</pre>
+    </details>
   ));
 }

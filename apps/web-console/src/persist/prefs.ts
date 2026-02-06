@@ -22,6 +22,18 @@ export type StoredPrefsV1 = {
   transport?: string;
   model?: string;
 
+  /**
+   * Whether to apply context truncation.
+   * When false, the UI will send an effectively "unlimited" budget.
+   */
+  contextLimitEnabled?: boolean;
+
+  /**
+   * Approximate context budget (token estimator). Default: 20000.
+   * This is a UI preference and is sent to the gateway per request.
+   */
+  contextTokenLimit?: number;
+
   // Plugins (by id)
   plugins?: Record<string, boolean>;
 };
@@ -46,6 +58,14 @@ export function readStoredPrefs(): StoredPrefsV1 {
     if (typeof parsed.textureDisabled === "boolean") out.textureDisabled = parsed.textureDisabled;
     if (typeof parsed.transport === "string") out.transport = parsed.transport;
     if (typeof parsed.model === "string") out.model = parsed.model;
+
+    if (typeof (parsed as any).contextLimitEnabled === "boolean") {
+      out.contextLimitEnabled = Boolean((parsed as any).contextLimitEnabled);
+    }
+
+    if (typeof (parsed as any).contextTokenLimit === "number" && Number.isFinite((parsed as any).contextTokenLimit)) {
+      out.contextTokenLimit = Math.trunc((parsed as any).contextTokenLimit);
+    }
 
     if (isRecord(parsed.plugins)) {
       const map: Record<string, boolean> = {};

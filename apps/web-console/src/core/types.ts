@@ -1,14 +1,28 @@
-export type Role = "user" | "assistant" | "tool";
+export type Role = "system" | "user" | "assistant" | "tool";
+
+/**
+ * Origin metadata for blocks.
+ * Different vendors/adapters may encode raw content differently, so keeping origin
+ * per-block makes later UI parsing much easier.
+ */
+export type BlockOrigin = {
+  adapter: string; // e.g. "openai_compat" | "sglang" | "client"
+  vendor?: string; // e.g. "minimax" | "openai" | "custom"
+  baseUrl?: string;
+  model?: string;
+};
 
 export type TextBlock = {
   type: "text";
   text: string;
+  origin?: BlockOrigin;
 };
 
 export type CodeBlock = {
   type: "code";
   language?: string;
   code: string;
+  origin?: BlockOrigin;
 };
 
 export type ToolBlock = {
@@ -16,9 +30,21 @@ export type ToolBlock = {
   name: string;
   status: "calling" | "ok" | "error";
   payload?: unknown;
+  origin?: BlockOrigin;
 };
 
-export type Block = TextBlock | CodeBlock | ToolBlock;
+/**
+ * Internal reasoning chunk (e.g. <think>...</think>).
+ * Renderers should keep this hidden/collapsed by default.
+ */
+export type ThoughtBlock = {
+  type: "thought";
+  text: string;
+  visibility?: "internal" | "public";
+  origin?: BlockOrigin;
+};
+
+export type Block = TextBlock | CodeBlock | ToolBlock | ThoughtBlock;
 
 export type Message = {
   id: string;
@@ -37,6 +63,7 @@ export type Session = {
   title: string;
   meta: string;
   createdAt: number;
+  updatedAt?: number;
 
   /**
    * UI hint: whether this session has entered the "chat" mode (vs Landing screen).
@@ -60,10 +87,16 @@ export type ChatRequest = {
   sessionId: string;
   model: string;
   userText: string;
+
+  /**
+   * Runtime preference: approximate context budget.
+   * Default is 20k tokens (estimator-based).
+   */
+  contextTokenLimit?: number;
 };
 
 export type ChatEvent =
-  | { type: "meta"; at: number; sessionId: string; model: string }
+  | { type: "meta"; at: number; sessionId: string; model: string; usedTokens?: number; dropped?: number }
   | { type: "delta"; at: number; text: string }
   | { type: "tool_call"; at: number; name: string; args: unknown }
   | { type: "tool_result"; at: number; name: string; ok: boolean; result: unknown }

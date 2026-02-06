@@ -666,6 +666,33 @@ textarea:focus{
   font-weight: 650;
 }
 
+.field-label-row{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.inlineToggle{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  user-select: none;
+}
+
+.inlineToggle input{
+  width: 14px;
+  height: 14px;
+}
+
+.hint{
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 .devNote{
   margin-top: 14px;
   padding-top: 12px;

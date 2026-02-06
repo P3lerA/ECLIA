@@ -1,22 +1,25 @@
-import type {
-  Block,
-  InspectorTabId,
-  LogItem,
-  Message,
-  Session,
-  PluginConfig
-} from "../core/types";
+import type { Block, InspectorTabId, LogItem, Message, Session, PluginConfig } from "../core/types";
 import type { TransportId } from "../core/transport/TransportRegistry";
 import type { ThemeMode } from "../theme/theme";
 
-export type AppPage = "console" | "settings" | "plugins";
-
 export type AppSettings = {
-
   /**
    * Disable background textures (WebGL). When enabled, the background becomes a solid color.
    */
   textureDisabled: boolean;
+
+  /**
+   * Whether to apply context truncation.
+   *
+   * When disabled, the UI will send a very large budget to the gateway so the
+   * full session history is included (useful for debugging).
+   */
+  contextLimitEnabled: boolean;
+
+  /**
+   * Approximate context budget (token estimator). Default: 20000.
+   */
+  contextTokenLimit: number;
 };
 
 export type AppGPU = {
@@ -24,8 +27,6 @@ export type AppGPU = {
 };
 
 export type AppState = {
-  page: AppPage;
-
   themeMode: ThemeMode;
 
   model: string;
@@ -46,15 +47,20 @@ export type AppState = {
 };
 
 export type Action =
-  | { type: "nav/to"; page: AppPage }
   | { type: "theme/setMode"; mode: ThemeMode }
+  | { type: "sessions/replace"; sessions: Session[]; activeSessionId?: string }
+  | { type: "session/add"; session: Session; makeActive?: boolean }
+  | { type: "session/update"; sessionId: string; patch: Partial<Session> }
   | { type: "session/select"; sessionId: string }
-  | { type: "session/new" }
+  | { type: "session/new" } // local-only fallback
   | { type: "model/set"; model: string }
   | { type: "transport/set"; transport: TransportId }
   | { type: "settings/textureDisabled"; enabled: boolean }
+  | { type: "settings/contextLimitEnabled"; enabled: boolean }
+  | { type: "settings/contextTokenLimit"; value: number }
   | { type: "gpu/available"; available: boolean }
   | { type: "message/add"; sessionId: string; message: Message }
+  | { type: "messages/set"; sessionId: string; messages: Message[] }
   | { type: "assistant/stream/start"; sessionId: string; messageId: string }
   | { type: "assistant/stream/append"; sessionId: string; text: string }
   | { type: "assistant/stream/finalize"; sessionId: string }
@@ -66,38 +72,68 @@ export type Action =
 
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
-    case "nav/to":
-      return { ...state, page: action.page };
-
     case "theme/setMode":
       if (state.themeMode === action.mode) return state;
       return { ...state, themeMode: action.mode };
 
+    case "sessions/replace": {
+      const sessions = action.sessions;
+      const desired = action.activeSessionId ?? state.activeSessionId;
+      const active =
+        sessions.find((s) => s.id === desired)?.id ?? sessions[0]?.id ?? state.activeSessionId;
+      return { ...state, sessions, activeSessionId: active };
+    }
+
+    case "session/add": {
+      const exists = state.sessions.some((s) => s.id === action.session.id);
+      const sessions = exists
+        ? state.sessions.map((s) => (s.id === action.session.id ? action.session : s))
+        : [action.session, ...state.sessions];
+      return {
+        ...state,
+        sessions,
+        activeSessionId: action.makeActive ? action.session.id : state.activeSessionId
+      };
+    }
+
+    case "session/update": {
+      const sessions = state.sessions.map((s) =>
+        s.id === action.sessionId ? { ...s, ...action.patch } : s
+      );
+      return { ...state, sessions };
+    }
 
     case "settings/textureDisabled":
       if (state.settings.textureDisabled === action.enabled) return state;
       return { ...state, settings: { ...state.settings, textureDisabled: action.enabled } };
+
+    case "settings/contextLimitEnabled":
+      if (state.settings.contextLimitEnabled === action.enabled) return state;
+      return { ...state, settings: { ...state.settings, contextLimitEnabled: action.enabled } };
+
+    case "settings/contextTokenLimit": {
+      const v = clampInt(action.value, 256, 1_000_000);
+      if (state.settings.contextTokenLimit === v) return state;
+      return { ...state, settings: { ...state.settings, contextTokenLimit: v } };
+    }
 
     case "gpu/available":
       if (state.gpu.available === action.available) return state;
       return { ...state, gpu: { ...state.gpu, available: action.available } };
 
     case "session/select":
-      return { ...state, activeSessionId: action.sessionId, page: "console" };
+      return { ...state, activeSessionId: action.sessionId };
 
     case "session/new": {
-      const id = "s" + (state.sessions.length + 1);
+      const id = makeId();
       const now = Date.now();
-      const meta =
-        "just now · " +
-        new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      const session: Session = { id, title: "New session", meta, createdAt: now, started: false };
+      const meta = "just now";
+      const session: Session = { id, title: "New session", meta, createdAt: now, updatedAt: now, started: false };
       return {
         ...state,
         sessions: [session, ...state.sessions],
         activeSessionId: id,
-        page: "console",
-        messagesBySession: { ...state.messagesBySession, [id]: [] }
+        messagesBySession: { ...state.messagesBySession }
       };
     }
 
@@ -112,6 +148,18 @@ export function reducer(state: AppState, action: Action): AppState {
         p.id === action.pluginId ? { ...p, enabled: !p.enabled } : p
       );
       return { ...state, plugins: next };
+    }
+
+    case "messages/set": {
+      const sessions = action.messages.length > 0 ? ensureSessionStarted(state.sessions, action.sessionId) : state.sessions;
+      return {
+        ...state,
+        sessions,
+        messagesBySession: {
+          ...state.messagesBySession,
+          [action.sessionId]: action.messages
+        }
+      };
     }
 
     case "message/add": {
@@ -143,7 +191,6 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         sessions,
-        page: "console",
         messagesBySession: {
           ...state.messagesBySession,
           [action.sessionId]: [...list, msg]
@@ -161,7 +208,7 @@ export function reducer(state: AppState, action: Action): AppState {
       const first = blocks[0];
 
       if (first?.type === "text") {
-        blocks[0] = { ...first, text: first.text + action.text };
+        blocks[0] = { ...first, text: (first.text ?? "") + action.text };
       } else {
         blocks.unshift({ type: "text", text: action.text });
       }
@@ -195,7 +242,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case "assistant/addBlocks": {
       const list = state.messagesBySession[action.sessionId] ?? [];
       const msg: Message = {
-        id: crypto.randomUUID(),
+        id: makeId(),
         role: "assistant",
         createdAt: Date.now(),
         blocks: action.blocks
@@ -212,13 +259,9 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case "messages/clear": {
       const now = Date.now();
-      const meta =
-        "just now · " +
-        new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
       const sessions = state.sessions.map((s) =>
         s.id === action.sessionId
-          ? { ...s, title: "New session", meta, started: true }
+          ? { ...s, title: "New session", meta: "just now", createdAt: now, updatedAt: now, started: true }
           : s
       );
 
@@ -272,4 +315,17 @@ function findLastStreamingAssistantIndex(list: Message[]): number {
     if (list[i].role === "assistant" && list[i].streaming) return i;
   }
   return -1;
+}
+
+function clampInt(v: unknown, min: number, max: number): number {
+  const n = typeof v === "number" ? v : NaN;
+  if (!Number.isFinite(n)) return min;
+  const i = Math.trunc(n);
+  return Math.max(min, Math.min(max, i));
+}
+
+function makeId(): string {
+  const c: any = globalThis.crypto;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  return `m_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }

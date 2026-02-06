@@ -1,6 +1,6 @@
 import React from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
-import { AppStateProvider, useAppState } from "./state/AppState";
+import { AppStateProvider, useAppDispatch, useAppState } from "./state/AppState";
 import { LandingView } from "./features/landing/LandingView";
 import { ChatView } from "./features/chat/ChatView";
 import { MenuSheet } from "./features/menu/MenuSheet";
@@ -9,9 +9,11 @@ import { PluginsView } from "./features/plugins/PluginsView";
 import { BackgroundRoot } from "./features/background/BackgroundRoot";
 import { applyTheme, subscribeSystemThemeChange, writeStoredThemeMode } from "./theme/theme";
 import { writeStoredPrefs } from "./persist/prefs";
+import { apiCreateSession, apiGetSession, apiListSessions, toUiSession } from "./core/api/sessions";
 
 function AppInner() {
   const state = useAppState();
+  const dispatch = useAppDispatch();
   const navigate = useNavigate();
 
   // Theme: apply & persist (handles system changes in "system" mode).
@@ -32,9 +34,75 @@ function AppInner() {
       textureDisabled: state.settings.textureDisabled,
       transport: state.transport,
       model: state.model,
+      contextLimitEnabled: state.settings.contextLimitEnabled,
+      contextTokenLimit: state.settings.contextTokenLimit,
       plugins: Object.fromEntries(state.plugins.map((p) => [p.id, p.enabled]))
     });
-  }, [state.settings.textureDisabled, state.transport, state.model, state.plugins]);
+  }, [
+    state.settings.textureDisabled,
+    state.settings.contextLimitEnabled,
+    state.settings.contextTokenLimit,
+    state.transport,
+    state.model,
+    state.plugins
+  ]);
+
+  // Bootstrap sessions from the gateway (disk-backed).
+  React.useEffect(() => {
+    let cancelled = false;
+    const localId = state.activeSessionId;
+
+    (async () => {
+      try {
+        const metas = await apiListSessions(200);
+
+        if (cancelled) return;
+
+        if (metas.length === 0) {
+          const created = await apiCreateSession({ id: localId, title: "New session" });
+          if (cancelled) return;
+
+          const s = { ...toUiSession(created), started: false };
+          dispatch({ type: "sessions/replace", sessions: [s], activeSessionId: s.id });
+          return;
+        }
+
+        const sessions = metas.map((m) => ({ ...toUiSession(m), started: false }));
+        dispatch({ type: "sessions/replace", sessions, activeSessionId: localId });
+      } catch {
+        // Gateway might be offline; keep local placeholder sessions.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch]);
+
+  // Load messages for the active session on-demand.
+  React.useEffect(() => {
+    let cancelled = false;
+    const localId = state.activeSessionId;
+    const sid = state.activeSessionId;
+    if (!sid) return;
+
+    (async () => {
+      try {
+        const { session, messages } = await apiGetSession(sid);
+        if (cancelled) return;
+
+        const ui = toUiSession(session);
+        dispatch({ type: "session/update", sessionId: sid, patch: ui });
+        dispatch({ type: "messages/set", sessionId: sid, messages });
+      } catch {
+        // Ignore (session may be local-only, or gateway offline).
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [state.activeSessionId, dispatch]);
 
   const messages = state.messagesBySession[state.activeSessionId] ?? [];
   const active = state.sessions.find((s) => s.id === state.activeSessionId);

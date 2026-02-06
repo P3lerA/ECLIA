@@ -4,7 +4,13 @@ import { runtime } from "../../core/runtime";
 
 export function MessageBubble({ msg }: { msg: Message }) {
   const roleLabel =
-    msg.role === "user" ? "USER" : msg.role === "assistant" ? "ASSISTANT" : "TOOL";
+    msg.role === "user"
+      ? "USER"
+      : msg.role === "assistant"
+        ? "ASSISTANT"
+        : msg.role === "system"
+          ? "SYSTEM"
+          : "TOOL";
 
   const dotClass = msg.role === "assistant" ? "dot accent" : "dot";
 

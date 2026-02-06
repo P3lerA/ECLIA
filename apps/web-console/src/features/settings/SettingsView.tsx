@@ -1,5 +1,6 @@
 import React from "react";
 import { runtime } from "../../core/runtime";
+import { apiResetSession } from "../../core/api/sessions";
 import type { TransportId } from "../../core/transport/TransportRegistry";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 import { ThemeModeSwitch } from "../theme/ThemeModeSwitch";
@@ -8,6 +9,8 @@ type SettingsDraft = {
   textureDisabled: boolean;
   transport: TransportId;
   model: string;
+  contextTokenLimit: string;
+  contextLimitEnabled: boolean;
 
   // Dev-only (written to eclia.config.local.toml via the local backend).
   consoleHost: string;
@@ -48,6 +51,13 @@ function portNumber(s: string): number | null {
   return Math.trunc(Number(s));
 }
 
+function parseContextLimit(s: string): number {
+  const n = Number(s);
+  if (!Number.isFinite(n)) return 20000;
+  return Math.max(256, Math.min(1_000_000, Math.trunc(n)));
+}
+
+
 /**
  * Settings uses an explicit "Save" to commit changes.
  * While dirty, leaving the page is blocked to avoid accidental loss.
@@ -79,6 +89,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     textureDisabled: state.settings.textureDisabled,
     transport: state.transport,
     model: state.model,
+    contextTokenLimit: String(state.settings.contextTokenLimit ?? 20000),
+    contextLimitEnabled: Boolean(state.settings.contextLimitEnabled ?? true),
     consoleHost: "",
     consolePort: "",
     inferenceBaseUrl: "",
@@ -145,7 +157,9 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const dirtyUi =
     draft.textureDisabled !== state.settings.textureDisabled ||
     draft.transport !== state.transport ||
-    draft.model !== state.model;
+    draft.model !== state.model ||
+    draft.contextLimitEnabled !== state.settings.contextLimitEnabled ||
+    parseContextLimit(draft.contextTokenLimit) !== state.settings.contextTokenLimit;
 
   const dirtyDevHostPort = cfgBase
     ? draft.consoleHost.trim() !== cfgBase.host || portNumber(draft.consolePort) !== cfgBase.port
@@ -168,10 +182,18 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       ...d,
       textureDisabled: state.settings.textureDisabled,
       transport: state.transport,
-      model: state.model
+      model: state.model,
+      contextLimitEnabled: state.settings.contextLimitEnabled,
+      contextTokenLimit: String(state.settings.contextTokenLimit ?? 20000)
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.settings.textureDisabled, state.transport, state.model]);
+  }, [
+    state.settings.textureDisabled,
+    state.settings.contextLimitEnabled,
+    state.settings.contextTokenLimit,
+    state.transport,
+    state.model
+  ]);
 
   // Prevent accidental tab close / refresh while there are unsaved changes.
   React.useEffect(() => {
@@ -212,6 +234,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       textureDisabled: state.settings.textureDisabled,
       transport: state.transport,
       model: state.model,
+      contextLimitEnabled: state.settings.contextLimitEnabled,
+      contextTokenLimit: String(state.settings.contextTokenLimit ?? 20000),
       consoleHost: cfgBase?.host ?? d.consoleHost,
       consolePort: cfgBase ? String(cfgBase.port) : d.consolePort,
       inferenceBaseUrl: cfgBase?.inferenceBaseUrl ?? d.inferenceBaseUrl,
@@ -297,6 +321,15 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       }
       if (draft.model !== state.model) {
         dispatch({ type: "model/set", model: draft.model });
+      }
+
+      if (draft.contextLimitEnabled !== state.settings.contextLimitEnabled) {
+        dispatch({ type: "settings/contextLimitEnabled", enabled: draft.contextLimitEnabled });
+      }
+
+      const nextLimit = parseContextLimit(draft.contextTokenLimit);
+      if (nextLimit !== state.settings.contextTokenLimit) {
+        dispatch({ type: "settings/contextTokenLimit", value: nextLimit });
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to save config.";
@@ -402,6 +435,39 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                 <option value="router/gateway">router/gateway</option>
               </select>
             </label>
+
+            <div className="field" style={{ gridColumn: "1 / -1" }}>
+              <div className="field-label-row">
+                <div className="field-label">Context limit (tokens)</div>
+
+                <label className="inlineToggle">
+                  <input
+                    type="checkbox"
+                    checked={draft.contextLimitEnabled}
+                    onChange={(e) => setDraft((d) => ({ ...d, contextLimitEnabled: e.target.checked }))}
+                  />
+                  <span>Enabled</span>
+                </label>
+              </div>
+
+              <input
+                className="select"
+                inputMode="numeric"
+                type="number"
+                min={256}
+                max={1000000}
+                step={256}
+                value={draft.contextTokenLimit}
+                onChange={(e) => setDraft((d) => ({ ...d, contextTokenLimit: e.target.value }))}
+                disabled={!draft.contextLimitEnabled}
+              />
+
+              <div className="hint">
+                {draft.contextLimitEnabled
+                  ? "Approximate truncation budget sent to the gateway (estimator-based)."
+                  : "No truncation budget is applied (full session context is sent; may exceed provider limits)."}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -535,7 +601,14 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             <div className="menu-diag-actions">
               <button
                 className="btn subtle"
-                onClick={() => dispatch({ type: "messages/clear", sessionId: state.activeSessionId })}
+                onClick={async () => {
+                  try {
+                    await apiResetSession(state.activeSessionId);
+                  } catch {
+                    // ignore
+                  }
+                  dispatch({ type: "messages/clear", sessionId: state.activeSessionId });
+                }}
               >
                 Reset active session
               </button>

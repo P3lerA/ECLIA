@@ -2,184 +2,173 @@ import React from "react";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 import { runtime } from "../../core/runtime";
 import type { ChatEvent } from "../../core/types";
+import { apiCreateSession, apiGetSession, apiResetSession, toUiSession } from "../../core/api/sessions";
 
 export function useSendMessage() {
   const state = useAppState();
   const dispatch = useAppDispatch();
 
-  const acRef = React.useRef<AbortController | null>(null);
+  const sendText = React.useCallback(
+    async (text: string) => {
+      const trimmed = text.trim();
 
-  const pushLog = React.useCallback(
-    (tab: "events" | "tools" | "context", type: string, summary: string, data?: unknown) => {
-      dispatch({
-        type: "log/push",
-        item: { id: crypto.randomUUID(), tab, at: Date.now(), type, summary, data }
-      });
-    },
-    [dispatch]
-  );
+      if (!trimmed) return;
 
-  const addUserMessage = React.useCallback(
-    (content: string) => {
+      // Commands (client-side)
+      if (trimmed === "/clear") {
+        try {
+          await apiResetSession(state.activeSessionId);
+        } catch {
+          // If the gateway is down, still clear locally.
+        }
+        dispatch({ type: "messages/clear", sessionId: state.activeSessionId });
+        return;
+      }
+
+      if (trimmed === "/new") {
+        // Create a new session and return to Landing (started=false).
+        try {
+          const meta = await apiCreateSession("New session");
+          const session = { ...toUiSession(meta), started: false };
+          dispatch({ type: "session/add", session, makeActive: true });
+        } catch {
+          dispatch({ type: "session/new" });
+        }
+        return;
+      }
+
+      // Normal message
+      const sessionId = state.activeSessionId;
+
+      // User message (local echo)
       dispatch({
         type: "message/add",
-        sessionId: state.activeSessionId,
+        sessionId,
         message: {
           id: crypto.randomUUID(),
           role: "user",
           createdAt: Date.now(),
-          blocks: [{ type: "text", text: content }]
+          blocks: [{ type: "text", text: trimmed }]
         }
       });
-    },
-    [dispatch, state.activeSessionId]
-  );
 
-  const addAssistantBlocks = React.useCallback(
-    (blocks: any[]) => {
-      dispatch({ type: "assistant/addBlocks", sessionId: state.activeSessionId, blocks: blocks as any });
-    },
-    [dispatch, state.activeSessionId]
-  );
-
-  const runCommand = React.useCallback(
-    (cmd: string) => {
-      switch (cmd) {
-        case "/clear":
-          dispatch({ type: "messages/clear", sessionId: state.activeSessionId });
-          pushLog("events", "command", "reset session (clear)");
-          return true;
-
-        case "/help":
-          addAssistantBlocks([
-            {
-              type: "text",
-              text:
-                "Commands:\n" +
-                "- /help  show help\n" +
-                "- /clear clear current session\n" +
-                "- /new   start a fresh session (back to Landing)\n"
-            }
-          ]);
-          return true;
-
-        case "/new":
-          dispatch({ type: "session/new" });
-          pushLog("events", "command", "new session");
-          return true;
-
-        default:
-          return false;
-      }
-    },
-    [dispatch, state.activeSessionId, addAssistantBlocks, pushLog]
-  );
-
-  const sendText = React.useCallback(
-    async (raw: string) => {
-      const trimmed = raw.trim();
-      if (!trimmed) return;
-
-      // command
-      if (trimmed.startsWith("/") && runCommand(trimmed)) return;
-
-      addUserMessage(trimmed);
-
-      // Abort any in-flight request (supports both transport.abort and AbortController).
-      acRef.current?.abort();
-      runtime.transports.get(state.transport).abort?.();
-
-      const ac = new AbortController();
-      acRef.current = ac;
-
-      dispatch({
-        type: "assistant/stream/start",
-        sessionId: state.activeSessionId,
-        messageId: crypto.randomUUID()
-      });
-
-      pushLog("events", "send", `transport=${state.transport} model=${state.model}`, {
-        textLen: trimmed.length
-      });
+      // Assistant streaming placeholder
+      const assistantId = crypto.randomUUID();
+      dispatch({ type: "assistant/stream/start", sessionId, messageId: assistantId });
 
       const transport = runtime.transports.get(state.transport);
+      const abort = new AbortController();
 
       const onEvent = (evt: ChatEvent) => {
-        if (evt.type === "meta") {
-          pushLog("context", "meta", `session=${evt.sessionId} model=${evt.model}`, evt);
-          return;
-        }
+        dispatch({
+          type: "log/push",
+          item: {
+            id: crypto.randomUUID(),
+            tab:
+              evt.type === "tool_call" || evt.type === "tool_result"
+                ? "tools"
+                : evt.type === "meta"
+                  ? "context"
+                  : "events",
+            at: evt.at,
+            type: evt.type,
+            summary:
+              evt.type === "delta"
+                ? "delta"
+                : evt.type === "error"
+                  ? evt.message
+                  : evt.type === "meta"
+                    ? `meta ${evt.model}${evt.usedTokens ? ` ctx≈${evt.usedTokens}` : ""}`
+                    : evt.type,
+            data: evt
+          }
+        });
 
         if (evt.type === "delta") {
-          dispatch({ type: "assistant/stream/append", sessionId: state.activeSessionId, text: evt.text });
-          return;
+          dispatch({ type: "assistant/stream/append", sessionId, text: evt.text });
         }
 
         if (evt.type === "tool_call") {
           dispatch({
             type: "assistant/addBlocks",
-            sessionId: state.activeSessionId,
+            sessionId,
             blocks: [{ type: "tool", name: evt.name, status: "calling", payload: evt.args }]
           });
-          pushLog("tools", "tool_call", evt.name, evt.args);
-          return;
         }
 
         if (evt.type === "tool_result") {
           dispatch({
             type: "assistant/addBlocks",
-            sessionId: state.activeSessionId,
-            blocks: [{ type: "tool", name: evt.name, status: evt.ok ? "ok" : "error", payload: evt.result }]
+            sessionId,
+            blocks: [
+              {
+                type: "tool",
+                name: evt.name,
+                status: evt.ok ? "ok" : "error",
+                payload: evt.result
+              }
+            ]
           });
-          pushLog("tools", "tool_result", `${evt.name}: ${evt.ok ? "ok" : "error"}`, evt.result);
-          return;
-        }
-
-        if (evt.type === "error") {
-          dispatch({ type: "assistant/stream/finalize", sessionId: state.activeSessionId });
-          dispatch({
-            type: "assistant/addBlocks",
-            sessionId: state.activeSessionId,
-            blocks: [{ type: "text", text: `[error] ${evt.message}` }]
-          });
-          pushLog("events", "error", evt.message);
-          return;
         }
 
         if (evt.type === "done") {
-          dispatch({ type: "assistant/stream/finalize", sessionId: state.activeSessionId });
-          pushLog("events", "done", "stream end");
+          dispatch({ type: "assistant/stream/finalize", sessionId });
+        }
+
+        if (evt.type === "error") {
+          dispatch({
+            type: "assistant/addBlocks",
+            sessionId,
+            blocks: [{ type: "text", text: `[error] ${evt.message}` }]
+          });
+          dispatch({ type: "assistant/stream/finalize", sessionId });
         }
       };
 
+      // "Unlimited" here means "do not truncate in the gateway".
+      // The gateway still has its own safety clamps.
+      const effectiveContextBudget = state.settings.contextLimitEnabled ? state.settings.contextTokenLimit : 1000000;
+
       try {
         await transport.streamChat(
-          { sessionId: state.activeSessionId, model: state.model, userText: trimmed },
+          {
+            sessionId,
+            model: state.model,
+            userText: trimmed,
+            contextTokenLimit: effectiveContextBudget
+          },
           { onEvent },
-          ac.signal
+          abort.signal
         );
-      } catch (err: any) {
-        dispatch({ type: "assistant/stream/finalize", sessionId: state.activeSessionId });
-
-        const name = String(err?.name ?? "");
-        const msg = String(err?.message ?? err);
-
-        // AbortError is expected when the user sends a new message while streaming.
-        // Treat it as a cancellation instead of a visible error.
-        if (name === "AbortError") {
-          pushLog("events", "cancel", "request aborted");
-          return;
-        }
-
+      } catch (e) {
+        // Network / abort errors won't come as SSE "error" events.
+        const msg = e instanceof Error ? e.message : "Request failed";
         dispatch({
           type: "assistant/addBlocks",
-          sessionId: state.activeSessionId,
+          sessionId,
           blocks: [{ type: "text", text: `[error] ${msg}` }]
         });
-        pushLog("events", "exception", msg);
+        dispatch({ type: "assistant/stream/finalize", sessionId });
+      } finally {
+        // Best-effort: re-sync this session from the gateway so IDs/blocks stay canonical.
+        try {
+          const { session, messages } = await apiGetSession(sessionId);
+          const ui = toUiSession(session);
+          dispatch({ type: "session/update", sessionId, patch: { title: ui.title, updatedAt: ui.updatedAt, meta: ui.meta } });
+          dispatch({ type: "messages/set", sessionId, messages });
+        } catch {
+          // ignore
+        }
       }
     },
-    [addUserMessage, dispatch, pushLog, runCommand, state.activeSessionId, state.model, state.transport]
+    [
+      state.activeSessionId,
+      state.model,
+      state.transport,
+      state.settings.contextLimitEnabled,
+      state.settings.contextTokenLimit,
+      dispatch
+    ]
   );
 
   return { sendText };

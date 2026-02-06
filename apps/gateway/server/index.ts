@@ -1,10 +1,27 @@
 import http from "node:http";
+import path from "node:path";
+import crypto from "node:crypto";
 import { loadEcliaConfig, writeLocalEcliaConfig, preflightListen, joinUrl, resolveUpstreamModel, type EcliaConfigPatch } from "@eclia/config";
+import { SessionStore } from "./sessionStore";
+import type { SessionEventV1, StoredMessage } from "./sessionTypes";
+import { buildTruncatedContext } from "./context";
+import { blocksFromAssistantRaw, inferVendorFromBaseUrl, textBlock } from "./normalize";
 
 type ChatReqBody = {
   sessionId?: string;
   model?: string; // UI route key OR a real upstream model id
   userText?: string;
+
+  /**
+   * Client-side runtime preference (not stored in TOML).
+   * Token counting is vendor-specific; we use a conservative estimator.
+   */
+  contextTokenLimit?: number;
+
+  /**
+   * Legacy/compat: allow callers to send explicit messages (used by mock transport).
+   * If provided, the gateway will still persist the session, but context will be taken from storage.
+   */
   messages?: Array<{ role: "system" | "user" | "assistant" | "tool"; content: any }>;
 };
 
@@ -77,21 +94,151 @@ function safeText(v: any): string {
   return typeof v === "string" ? v : "";
 }
 
-async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
+function safeInt(v: any, fallback: number): number {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return fallback;
+  return Math.trunc(n);
+}
+
+function deriveTitle(userText: string): string {
+  const s = userText.replace(/\s+/g, " ").trim();
+  if (!s) return "New session";
+  const max = 64;
+  return s.length > max ? s.slice(0, max).trimEnd() + "…" : s;
+}
+
+type ToolCallAccum = { callId: string; name: string; argsRaw: string };
+
+function mergeToolCallDelta(
+  acc: Map<string, ToolCallAccum>,
+  tc: any
+): ToolCallAccum | null {
+  if (!tc || typeof tc !== "object") return null;
+
+  // Some providers send { index }, some send { id }.
+  const key = safeText(tc.id) || String(tc.index ?? "");
+  if (!key) return null;
+
+  const prev = acc.get(key) ?? { callId: key, name: "", argsRaw: "" };
+
+  const fn = tc.function ?? {};
+  const name = safeText(fn.name) || prev.name;
+  const argsDelta = safeText(fn.arguments);
+
+  const next: ToolCallAccum = {
+    callId: prev.callId,
+    name,
+    argsRaw: prev.argsRaw + argsDelta
+  };
+
+  acc.set(key, next);
+  return next;
+}
+
+async function handleSessions(req: http.IncomingMessage, res: http.ServerResponse, store: SessionStore) {
+  const u = new URL(req.url ?? "/", "http://localhost");
+  const pathname = u.pathname;
+
+  // /api/sessions
+  if (pathname === "/api/sessions" && req.method === "GET") {
+    const limit = safeInt(u.searchParams.get("limit"), 200);
+    const sessions = await store.listSessions(limit);
+    return json(res, 200, { ok: true, sessions });
+  }
+
+  if (pathname === "/api/sessions" && req.method === "POST") {
+    const body = (await readJson(req)) as any;
+    const title = typeof body?.title === "string" ? body.title : undefined;
+    const id = typeof body?.id === "string" ? body.id : undefined;
+
+    try {
+      let meta = id
+        ? await store.ensureSession(id, {
+            v: 1,
+            id,
+            title: title && title.trim() ? title.trim() : "New session",
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+          })
+        : await store.createSession(title);
+
+      // If caller provided a title and the existing session is still default, update it.
+      if (id && title && title.trim() && meta.title === "New session") {
+        meta = await store.updateMeta(id, { title: title.trim(), updatedAt: Date.now() });
+      }
+
+      return json(res, 200, { ok: true, session: meta });
+    } catch {
+      return json(res, 400, { ok: false, error: "invalid_session_id" });
+    }
+  }
+
+  // /api/sessions/:id
+  const m1 = pathname.match(/^\/api\/sessions\/([^/]+)$/);
+  if (m1 && req.method === "GET") {
+    const id = decodeURIComponent(m1[1]);
+    const detail = await store.readSession(id);
+    if (!detail) return json(res, 404, { ok: false, error: "not_found" });
+    return json(res, 200, { ok: true, session: detail.meta, messages: detail.messages });
+  }
+
+  // /api/sessions/:id/reset
+  const m2 = pathname.match(/^\/api\/sessions\/([^/]+)\/reset$/);
+  if (m2 && req.method === "POST") {
+    const id = decodeURIComponent(m2[1]);
+    try {
+      const meta = await store.resetSession(id);
+      return json(res, 200, { ok: true, session: meta });
+    } catch {
+      return json(res, 400, { ok: false, error: "invalid_session_id" });
+    }
+  }
+
+  return json(res, 404, { ok: false, error: "not_found" });
+}
+
+async function handleChat(req: http.IncomingMessage, res: http.ServerResponse, store: SessionStore) {
   const body = (await readJson(req)) as ChatReqBody;
 
-  const sessionId = String(body.sessionId ?? "");
-  const routeModel = String(body.model ?? "");
+  const sessionId = String(body.sessionId ?? "").trim();
+  const routeModel = String(body.model ?? "").trim();
   const userText = String(body.userText ?? "");
 
-  const { config } = loadEcliaConfig(process.cwd());
+  if (!sessionId) {
+    return json(res, 400, { ok: false, error: "missing_session", hint: "sessionId is required" });
+  }
+  if (!userText.trim()) {
+    return json(res, 400, { ok: false, error: "empty_message" });
+  }
 
-  res.writeHead(200, sseHeaders());
-  send(res, "meta", { sessionId, model: routeModel });
+  const { config, rootDir } = loadEcliaConfig(process.cwd());
+  const provider = config.inference.provider;
+
+  // Ensure store is initialized and session exists.
+  await store.init();
+  const prior = (await store.readSession(sessionId)) ?? { meta: await store.ensureSession(sessionId), messages: [] };
+
+  // If this is a brand new session, set a title from the first user message.
+  if (prior.messages.length === 0 && (prior.meta.title === "New session" || !prior.meta.title.trim())) {
+    await store.updateMeta(sessionId, { title: deriveTitle(userText) });
+  }
+
+  // Persist the user message first (so the session survives even if upstream fails).
+  const userMsg: StoredMessage = {
+    id: crypto.randomUUID(),
+    role: "user",
+    createdAt: Date.now(),
+    raw: userText,
+    blocks: [textBlock(userText, { adapter: "client" })]
+  };
+
+  const userEv: SessionEventV1 = { v: 1, id: crypto.randomUUID(), ts: userMsg.createdAt, type: "message", message: userMsg };
+  await store.appendEvent(sessionId, userEv);
 
   // Build OpenAI-compatible request.
-  const provider = config.inference.provider;
   if (provider !== "openai_compat") {
+    res.writeHead(200, sseHeaders());
+    send(res, "meta", { sessionId, model: routeModel });
     send(res, "error", { message: `Unsupported provider: ${provider}` });
     send(res, "done", {});
     res.end();
@@ -104,6 +251,8 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
   const upstreamModel = resolveUpstreamModel(routeModel, config);
 
   if (!apiKey.trim()) {
+    res.writeHead(200, sseHeaders());
+    send(res, "meta", { sessionId, model: routeModel });
     send(res, "error", {
       message:
         "Missing API key. Set inference.openai_compat.api_key in eclia.config.local.toml (or add it in Settings)."
@@ -113,15 +262,20 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
     return;
   }
 
-  const messages =
-    Array.isArray(body.messages) && body.messages.length
-      ? body.messages
-      : [{ role: "user", content: userText }];
+  const tokenLimit = safeInt(body.contextTokenLimit, 20000);
+  const history = [...prior.messages, userMsg];
+
+  const { messages: contextMessages, usedTokens, dropped } = buildTruncatedContext(history, tokenLimit);
+
+  res.writeHead(200, sseHeaders());
+  send(res, "meta", { sessionId, model: routeModel, usedTokens, dropped });
 
   const url = joinUrl(baseUrl, "/chat/completions");
 
-  // Observability: log only safe metadata (never log api keys).
-  console.log(`[gateway] POST /api/chat  session=${sessionId || "-"} model=${upstreamModel}`);
+  console.log(`[gateway] POST /api/chat  session=${sessionId} model=${upstreamModel} ctx≈${usedTokens} dropped=${dropped}`);
+
+  const upstreamAbort = new AbortController();
+  req.on("close", () => upstreamAbort.abort());
 
   let upstream: Response;
   try {
@@ -135,8 +289,9 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
       body: JSON.stringify({
         model: upstreamModel,
         stream: true,
-        messages
-      })
+        messages: contextMessages
+      }),
+      signal: upstreamAbort.signal
     });
   } catch (e: any) {
     send(res, "error", { message: `Upstream request failed: ${String(e?.message ?? e)}` });
@@ -159,6 +314,17 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
   const decoder = new TextDecoder("utf-8");
   let buffer = "";
 
+  let assistantText = "";
+  const toolCalls = new Map<string, ToolCallAccum>();
+  const emittedToolCalls = new Set<string>();
+
+  const origin = {
+    adapter: "openai_compat",
+    vendor: inferVendorFromBaseUrl(baseUrl),
+    baseUrl,
+    model: upstreamModel
+  };
+
   try {
     while (true) {
       const { value, done } = await reader.read();
@@ -175,7 +341,7 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
         if (data === "[DONE]") {
           send(res, "done", {});
           res.end();
-          return;
+          break;
         }
 
         let parsed: any = null;
@@ -188,15 +354,22 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
 
         const delta = parsed?.choices?.[0]?.delta;
         const content = safeText(delta?.content);
-        if (content) send(res, "delta", { text: content });
 
-        // Tool calls are forwarded as events (execution comes later).
-        const toolCalls = Array.isArray(delta?.tool_calls) ? delta.tool_calls : null;
-        if (toolCalls && toolCalls.length) {
-          for (const tc of toolCalls) {
-            const name = safeText(tc?.function?.name);
-            const argsText = safeText(tc?.function?.arguments);
-            if (name) send(res, "tool_call", { name, args: { raw: argsText } });
+        if (content) {
+          assistantText += content;
+          send(res, "delta", { text: content });
+        }
+
+        const tcList = Array.isArray(delta?.tool_calls) ? delta.tool_calls : null;
+        if (tcList && tcList.length) {
+          for (const tc of tcList) {
+            const merged = mergeToolCallDelta(toolCalls, tc);
+            if (!merged) continue;
+            // Emit tool_call once per call (UI currently treats this as a discrete block).
+            if (merged.name && !emittedToolCalls.has(merged.callId)) {
+              emittedToolCalls.add(merged.callId);
+              send(res, "tool_call", { name: merged.name, args: { raw: merged.argsRaw } });
+            }
           }
         }
 
@@ -204,9 +377,10 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
         if (finishReason === "stop") {
           send(res, "done", {});
           res.end();
-          return;
+          break;
         }
       }
+      if (res.writableEnded) break;
     }
   } catch (e: any) {
     send(res, "error", { message: `Stream error: ${String(e?.message ?? e)}` });
@@ -215,6 +389,42 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
       send(res, "done", {});
       res.end();
     }
+  }
+
+  // Persist assistant output (best-effort).
+  // Even if the client aborted early, keep what we received.
+  try {
+    if (!assistantText && toolCalls.size === 0) {
+      await store.updateMeta(sessionId, { updatedAt: Date.now(), lastModel: routeModel || upstreamModel });
+      return;
+    }
+
+    const assistantMsg: StoredMessage = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      createdAt: Date.now(),
+      raw: assistantText,
+      blocks: blocksFromAssistantRaw(assistantText, origin)
+    };
+
+    const ev: SessionEventV1 = { v: 1, id: crypto.randomUUID(), ts: assistantMsg.createdAt, type: "message", message: assistantMsg };
+    await store.appendEvent(sessionId, ev);
+
+    for (const call of toolCalls.values()) {
+      if (!call.name) continue;
+      const tev: SessionEventV1 = {
+        v: 1,
+        id: crypto.randomUUID(),
+        ts: Date.now(),
+        type: "tool_call",
+        call: { callId: call.callId, name: call.name, argsRaw: call.argsRaw }
+      };
+      await store.appendEvent(sessionId, tev);
+    }
+
+    await store.updateMeta(sessionId, { updatedAt: Date.now(), lastModel: routeModel || upstreamModel });
+  } catch (e) {
+    console.warn("[gateway] failed to persist assistant message:", e);
   }
 }
 
@@ -273,8 +483,13 @@ async function handleConfig(req: http.IncomingMessage, res: http.ServerResponse)
 }
 
 async function main() {
-  const { config } = loadEcliaConfig(process.cwd());
+  const { config, rootDir } = loadEcliaConfig(process.cwd());
   const port = config.api.port;
+
+  // Session store lives under <repo>/.eclia by default.
+  const dataDir = path.join(rootDir, ".eclia");
+  const store = new SessionStore(dataDir);
+  await store.init();
 
   const server = http.createServer(async (req, res) => {
     const url = req.url ?? "/";
@@ -290,11 +505,16 @@ async function main() {
       return;
     }
 
-    if (url === "/api/health" && req.method === "GET") return json(res, 200, { ok: true });
+    const u = new URL(url, "http://localhost");
+    const pathname = u.pathname;
 
-    if (url === "/api/config") return await handleConfig(req, res);
+    if (pathname === "/api/health" && req.method === "GET") return json(res, 200, { ok: true });
 
-    if (url === "/api/chat" && req.method === "POST") return await handleChat(req, res);
+    if (pathname === "/api/config") return await handleConfig(req, res);
+
+    if (pathname.startsWith("/api/sessions")) return await handleSessions(req, res, store);
+
+    if (pathname === "/api/chat" && req.method === "POST") return await handleChat(req, res, store);
 
     json(res, 404, { ok: false, error: "not_found" });
   });
@@ -303,6 +523,7 @@ async function main() {
     console.log(`[gateway] listening on http://localhost:${port}`);
     console.log(`[gateway] POST http://localhost:${port}/api/chat`);
     console.log(`[gateway] GET/PUT http://localhost:${port}/api/config`);
+    console.log(`[gateway] GET/POST http://localhost:${port}/api/sessions`);
   });
 }
 

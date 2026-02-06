@@ -1,6 +1,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppDispatch, useAppState } from "../../state/AppState";
+import { apiCreateSession, toUiSession } from "../../core/api/sessions";
 import { usePresence } from "../motion/usePresence";
 
 const FOCUSABLE =
@@ -82,8 +83,14 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
       <div className="menu-list">
         <button
           className="btn subtle"
-          onClick={() => {
-            dispatch({ type: "session/new" });
+          onClick={async () => {
+            try {
+              const meta = await apiCreateSession("New session");
+              const session = { ...toUiSession(meta), started: false };
+              dispatch({ type: "session/add", session, makeActive: true });
+            } catch {
+              dispatch({ type: "session/new" });
+            }
             onClose();
           }}
         >
