@@ -521,7 +521,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
             <div className="field">
               <div className="field-label">Status</div>
-              <div className="field-sub muted">
+              <div className="select statusBox muted" aria-live="polite">
                 {cfgBase?.apiKeyConfigured ? "API key configured" : "API key missing"}
               </div>
               <div className="field-sub muted">

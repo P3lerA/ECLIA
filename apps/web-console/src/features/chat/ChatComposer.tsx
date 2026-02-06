@@ -1,16 +1,24 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import { useSendMessage } from "./useSendMessage";
 
 export function ChatComposer({ onOpenMenu }: { onOpenMenu: () => void }) {
   const { sendText } = useSendMessage();
+  const navigate = useNavigate();
   const [text, setText] = React.useState("");
 
   const send = React.useCallback(async () => {
     const v = text;
-    if (!v.trim()) return;
+    const trimmed = v.trim();
+    if (!trimmed) return;
     setText("");
     await sendText(v);
-  }, [sendText, text]);
+
+    // /new creates a fresh session and should bring the user back to the landing view.
+    if (trimmed === "/new") {
+      navigate("/");
+    }
+  }, [navigate, sendText, text]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {

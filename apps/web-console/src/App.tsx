@@ -1,5 +1,5 @@
 import React from "react";
-import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate, useLocation, useParams } from "react-router-dom";
 import { AppStateProvider, useAppDispatch, useAppState } from "./state/AppState";
 import { LandingView } from "./features/landing/LandingView";
 import { ChatView } from "./features/chat/ChatView";
@@ -11,10 +11,63 @@ import { applyTheme, subscribeSystemThemeChange, writeStoredThemeMode } from "./
 import { writeStoredPrefs } from "./persist/prefs";
 import { apiCreateSession, apiGetSession, apiListSessions, toUiSession } from "./core/api/sessions";
 
+function getSessionIdFromPath(pathname: string): string | null {
+  // /session/<session-id>
+  const m = pathname.match(/^\/session\/([^/?#]+)/);
+  return m?.[1] ? decodeURIComponent(m[1]) : null;
+}
+
+function SessionRoute({ onOpenMenu }: { onOpenMenu: () => void }) {
+  const { sessionId } = useParams();
+  const location = useLocation();
+  const state = useAppState();
+  const dispatch = useAppDispatch();
+
+  const dockFromLanding = Boolean((location.state as any)?.dockFromLanding);
+
+  React.useEffect(() => {
+    if (!sessionId) return;
+
+    // Ensure the session exists in UI state early to avoid a "Session not found" flash
+    // on hard-refresh / direct-links.
+    const exists = state.sessions.some((s) => s.id === sessionId);
+    if (!exists) {
+      const now = Date.now();
+      dispatch({
+        type: "session/add",
+        session: {
+          id: sessionId,
+          title: "New session",
+          meta: "just now",
+          createdAt: now,
+          updatedAt: now,
+          started: false
+        }
+      });
+    }
+
+    if (state.activeSessionId !== sessionId) {
+      dispatch({ type: "session/select", sessionId });
+    }
+  }, [dispatch, sessionId, state.activeSessionId, state.sessions]);
+
+  return <ChatView onOpenMenu={onOpenMenu} dockFromLanding={dockFromLanding} />;
+}
+
 function AppInner() {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Keep a live ref so async bootstrap work doesn't capture a stale session id.
+  const activeIdRef = React.useRef(state.activeSessionId);
+  React.useEffect(() => {
+    activeIdRef.current = state.activeSessionId;
+  }, [state.activeSessionId]);
+
+  // Prefer the session id from the URL on initial load (direct linking / refresh).
+  const urlSessionId = React.useMemo(() => getSessionIdFromPath(location.pathname), [location.pathname]);
 
   // Theme: apply & persist (handles system changes in "system" mode).
   React.useEffect(() => {
@@ -50,7 +103,6 @@ function AppInner() {
   // Bootstrap sessions from the gateway (disk-backed).
   React.useEffect(() => {
     let cancelled = false;
-    const localId = state.activeSessionId;
 
     (async () => {
       try {
@@ -58,8 +110,10 @@ function AppInner() {
 
         if (cancelled) return;
 
+        const preferredId = urlSessionId ?? activeIdRef.current;
+
         if (metas.length === 0) {
-          const created = await apiCreateSession({ id: localId, title: "New session" });
+          const created = await apiCreateSession({ id: preferredId, title: "New session" });
           if (cancelled) return;
 
           const s = { ...toUiSession(created), started: false };
@@ -68,7 +122,22 @@ function AppInner() {
         }
 
         const sessions = metas.map((m) => ({ ...toUiSession(m), started: false }));
-        dispatch({ type: "sessions/replace", sessions, activeSessionId: localId });
+
+        // If the user refreshed a /session/<id> URL, preserve that session as the preferred
+        // selection even if the session list hasn't been hydrated yet.
+        if (urlSessionId && !sessions.some((s) => s.id === urlSessionId)) {
+          const now = Date.now();
+          sessions.unshift({
+            id: urlSessionId,
+            title: "New session",
+            meta: "just now",
+            createdAt: now,
+            updatedAt: now,
+            started: false,
+          });
+        }
+
+        dispatch({ type: "sessions/replace", sessions, activeSessionId: preferredId });
       } catch {
         // Gateway might be offline; keep local placeholder sessions.
       }
@@ -82,7 +151,6 @@ function AppInner() {
   // Load messages for the active session on-demand.
   React.useEffect(() => {
     let cancelled = false;
-    const localId = state.activeSessionId;
     const sid = state.activeSessionId;
     if (!sid) return;
 
@@ -133,10 +201,16 @@ function AppInner() {
               isLanding ? (
                 <LandingView onOpenMenu={() => setMenuOpen(true)} />
               ) : (
-                <ChatView onOpenMenu={() => setMenuOpen(true)} dockFromLanding={dockFromLanding} />
+                <Navigate
+                  to={`/session/${state.activeSessionId}`}
+                  replace
+                  state={{ dockFromLanding }}
+                />
               )
             }
           />
+
+          <Route path="/session/:sessionId" element={<SessionRoute onOpenMenu={() => setMenuOpen(true)} />} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

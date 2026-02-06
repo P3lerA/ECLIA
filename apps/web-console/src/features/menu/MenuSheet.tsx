@@ -91,6 +91,8 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
             } catch {
               dispatch({ type: "session/new" });
             }
+            // New sessions start on the landing view.
+            navigate("/");
             onClose();
           }}
         >
@@ -105,6 +107,7 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
               className={"menu-item" + (active ? " active" : "")}
               onClick={() => {
                 dispatch({ type: "session/select", sessionId: s.id });
+                navigate(`/session/${s.id}`);
                 onClose();
               }}
             >

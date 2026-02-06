@@ -6,6 +6,9 @@ export type SessionMeta = {
   createdAt: number;
   updatedAt: number;
   lastModel?: string;
+  // Optional extra metadata returned by the gateway.
+  // Keep optional for compatibility with older gateways.
+  messageCount?: number;
 };
 
 export type ListSessionsResponse =
@@ -76,12 +79,14 @@ export async function apiResetSession(sessionId: string): Promise<SessionMeta> {
  * UI uses a human-friendly meta string for now.
  */
 export function toUiSession(meta: SessionMeta): Session {
+  const started = typeof meta.messageCount === "number" ? meta.messageCount > 0 : undefined;
   return {
     id: meta.id,
     title: meta.title,
     createdAt: meta.createdAt,
     updatedAt: meta.updatedAt,
-    meta: formatSessionMeta(meta.updatedAt)
+    meta: formatSessionMeta(meta.updatedAt),
+    started
   };
 }
 

@@ -1,4 +1,5 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 import { runtime } from "../../core/runtime";
 import type { ChatEvent } from "../../core/types";
@@ -7,6 +8,7 @@ import { apiCreateSession, apiGetSession, apiResetSession, toUiSession } from ".
 export function useSendMessage() {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const navigate = useNavigate();
 
   const sendText = React.useCallback(
     async (text: string) => {
@@ -34,6 +36,7 @@ export function useSendMessage() {
         } catch {
           dispatch({ type: "session/new" });
         }
+        navigate("/", { replace: false });
         return;
       }
 
