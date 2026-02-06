@@ -23,24 +23,27 @@ export function ChatView({
 
   return (
     <div className="chatview">
-      <div className="chatview-content motion-page">
-      <div className="chatview-head">
-        <div className="brand brand-sm" data-text="ECLIA">
-          ECLIA
-        </div>
-        <div className="chatview-title">
-          <div className="title">{session.title}</div>
-          <div className="meta">{session.meta}</div>
-        </div>
+      {/* Fixed (like the composer) so page scrolling never pushes it away. */}
+      <div className="chatTopDock">
+        <div className="chatTopDock-inner">
+          <div className="chatview-head chatTopBar">
+            <div className="brand brand-md" data-text="ECLIA">
+              ECLIA
+            </div>
+            <div className="chatview-title">
+              <div className="title">{session.title}</div>
+              <div className="meta">{session.meta}</div>
+            </div>
 
-        <div className="chatview-actions" aria-label="Theme">
-          <ThemeModeSwitch compact />
+            <div className="chatview-actions" aria-label="Theme">
+              <ThemeModeSwitch compact />
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="chatview-body">
+      <div className="chatview-body motion-page">
         <MessageList messages={messages} />
-      </div>
       </div>
 
       <div

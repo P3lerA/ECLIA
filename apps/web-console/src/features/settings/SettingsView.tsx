@@ -437,10 +437,22 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             </label>
 
             <div className="field" style={{ gridColumn: "1 / -1" }}>
-              <div className="field-label-row">
-                <div className="field-label">Context limit (tokens)</div>
+              <div className="field-label">Context limit (tokens)</div>
 
-                <label className="inlineToggle">
+              <div className="contextLimitRow">
+                <input
+                  className="select contextLimitInput"
+                  inputMode="numeric"
+                  type="number"
+                  min={256}
+                  max={1000000}
+                  step={256}
+                  value={draft.contextTokenLimit}
+                  onChange={(e) => setDraft((d) => ({ ...d, contextTokenLimit: e.target.value }))}
+                  disabled={!draft.contextLimitEnabled}
+                />
+
+                <label className="inlineToggle" title="Enable/disable sending a truncation budget to the gateway">
                   <input
                     type="checkbox"
                     checked={draft.contextLimitEnabled}
@@ -449,18 +461,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                   <span>Enabled</span>
                 </label>
               </div>
-
-              <input
-                className="select"
-                inputMode="numeric"
-                type="number"
-                min={256}
-                max={1000000}
-                step={256}
-                value={draft.contextTokenLimit}
-                onChange={(e) => setDraft((d) => ({ ...d, contextTokenLimit: e.target.value }))}
-                disabled={!draft.contextLimitEnabled}
-              />
 
               <div className="hint">
                 {draft.contextLimitEnabled

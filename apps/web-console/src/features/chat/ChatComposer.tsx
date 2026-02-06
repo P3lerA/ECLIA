@@ -21,19 +21,20 @@ export function ChatComposer({ onOpenMenu }: { onOpenMenu: () => void }) {
 
   return (
     <footer className="composer composer-chat">
-      <div className="inputrow">
+      <div className="chatbar" role="group" aria-label="Composer">
         <textarea
+          className="chatbar-input"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder="Type a message…  Enter to send · Shift+Enter for newline · /help /clear(reset) /new(new session)"
         />
 
-        <div className="actions">
-          <button className="btn icon menuicon" onClick={onOpenMenu} aria-label="Menu">
+        <div className="chatbar-actions" aria-label="Actions">
+          <button className="chatbar-btn" onClick={onOpenMenu} aria-label="Menu">
             ☰
           </button>
-          <button className="btn icon send" onClick={() => void send()} aria-label="Send">
+          <button className="chatbar-btn" onClick={() => void send()} aria-label="Send">
             ↗
           </button>
         </div>

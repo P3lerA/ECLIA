@@ -9,6 +9,11 @@ body{
   background: var(--bg);
 }
 
+button, input, select, textarea{
+  font-family: inherit;
+  color: inherit;
+}
+
 /* Background layers */
 .bg-root{
   position: fixed;
@@ -91,7 +96,7 @@ body{
 }
 .brand-lg{ font-size: 48px; }
 .brand-sm{ font-size: 18px; }
-.brand-md{ font-size: 22px; }
+.brand-md{ font-size: 24px; }
 
 /* Buttons & inputs */
 .btn{
@@ -221,6 +226,9 @@ body{
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* Safe areas for fixed header/footer overlays */
+  --chat-top-space: calc(60px + env(safe-area-inset-top));
+  --chat-bottom-space: 156px;
 }
 .chatview-content{
   flex: 1;
@@ -232,7 +240,7 @@ body{
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 8px 0 14px;
+  padding: 0;
 }
 .chatview-title .title{
   font-weight: 700;
@@ -249,11 +257,38 @@ body{
   overflow: hidden;
 }
 
+/* Fixed chat header dock (mirrors the bottom composer dock) */
+.chatTopDock{
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  padding: calc(env(safe-area-inset-top) + 12px) 18px 12px;
+  pointer-events: none;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line-2);
+}
+.chatTopDock-inner{
+  width: min(980px, 100%);
+  pointer-events: auto;
+}
+.chatTopBar{
+  padding: 0;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
 /* Message list + bubble */
 .message-list{
   height: 100%;
   overflow: auto;
-  padding: 8px 4px 132px;
+  /* Top/bottom space for fixed header + fixed composer */
+  padding: calc(var(--chat-top-space) + 8px) 4px var(--chat-bottom-space);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -371,12 +406,60 @@ textarea:focus{
 }
 .actions{ display: flex; gap: 8px; }
 
+/* Chat composer: keep input + actions inside one framed bar (like Landing). */
+.chatbar{
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 18px;
+  box-shadow: var(--shadow-soft);
+}
+.chatbar:focus-within{
+  border-color: var(--line);
+  box-shadow: 0 0 0 3px var(--line-2), var(--shadow-soft);
+}
+.chatbar-input{
+  flex: 1;
+  resize: none;
+  min-height: 44px;
+  max-height: 140px;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 15px;
+  line-height: 20px;
+  padding: 12px 8px;
+}
+.chatbar-actions{
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding-bottom: 2px;
+}
+.chatbar-btn{
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
+}
+.chatbar-btn:hover{ background: var(--surface-hover); }
+
 /* Composer dock (fixed): prevents messages from pushing the composer off-screen. */
 .composerDock{
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
   z-index: 40;
   display: flex;
   justify-content: center;
@@ -388,7 +471,7 @@ textarea:focus{
   pointer-events: auto;
 }
 @media (max-width: 520px){
-  .composerDock{ bottom: 12px; }
+  .composerDock{ bottom: calc(12px + env(safe-area-inset-bottom)); }
 }
 
 
@@ -430,10 +513,13 @@ textarea:focus{
 .menusheet-head-actions{ display:flex; gap: 8px; align-items: center; }
 .menusheet-body{
   padding: 10px;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 
@@ -445,6 +531,9 @@ textarea:focus{
 }
 .menuNavView{
   width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   transition:
     opacity var(--motion-4) var(--ease-standard),
     transform var(--motion-4) var(--ease-standard);
@@ -666,31 +755,54 @@ textarea:focus{
   font-weight: 650;
 }
 
-.field-label-row{
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+
+.field-sub{
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.35;
+  margin-top: 6px;
+}
+
+.hint{
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.35;
+  margin-top: 8px;
 }
 
 .inlineToggle{
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
-  color: var(--muted);
   user-select: none;
-}
-
-.inlineToggle input{
-  width: 14px;
-  height: 14px;
-}
-
-.hint{
   font-size: 12px;
   color: var(--muted);
-  line-height: 1.4;
+}
+.inlineToggle span{
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+.inlineToggle input[type="checkbox"]{
+  width: 16px;
+  height: 16px;
+}
+
+.contextLimitRow{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.contextLimitRow .inlineToggle{
+  margin-left: auto;
+}
+.contextLimitInput{
+  width: min(340px, 50%);
+}
+
+@media (max-width: 560px){
+  .contextLimitRow{ flex-direction: column; align-items: stretch; }
+  .contextLimitRow .inlineToggle{ margin-left: 0; }
+  .contextLimitInput{ width: 100%; }
 }
 
 .devNote{
