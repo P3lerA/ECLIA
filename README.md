@@ -1,5 +1,6 @@
 <p align = "center">
-  <img src="./assets/eclia-day.png" width="300">
+  <img src="./assets/eclia-day.png#gh-dark-mode-only" width="300">
+  <img src="./assets/eclia-night.png#gh-light-mode-only" width="300">
 </p>
 
 <div align = "center">
