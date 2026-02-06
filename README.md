@@ -1,5 +1,5 @@
 <p align = "center">
-  <img src="./assets/eclia.png" width="300">
+  <img src="./assets/eclia-day.png" width="300">
 </p>
 
 <div align = "center">

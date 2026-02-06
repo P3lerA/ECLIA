@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>ECLIA Logo</title>
+
+    <!-- Google Fonts: Rubik (rounded-ish, tech-friendly) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Rubik:ital,wght@0,700;0,900;1,700;1,900&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      :root{
+        /* Change font here. Keep a solid fallback stack. */
+        --eclia-font: "Rubik", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+        /* Background for preview (set to transparent for PNG export if needed) */
+        --page-bg: #f6f7f8;
+
+        /* Accent (slightly more vivid) */
+        --accent: linear-gradient(90deg,
+          #ff004c 0%,
+          #ff7a00 28%,
+          #ffe600 46%,
+          #40ff2b 70%,
+          #00e5ff 100%
+        );
+        --accent-opacity: 1;
+
+
+        /* Depth */
+        --shadow-hi: 0 1px 0 rgba(255,255,255,0.78);
+        --shadow-lo: 0 10px 18px rgba(0,0,0,0.14);
+
+        /* Fine tune */
+        --letter-space: .18em;
+        --skew: -12deg; /* italic feel */
+      }
+
+      html, body { height: 100%; }
+
+      body{
+        margin:0;
+        display:grid;
+        place-items:center;
+        background: var(--page-bg);
+        font-family: var(--eclia-font);
+      }
+
+      /* If you want transparent background for PNG export */
+      body[data-bg="transparent"]{
+        background: transparent;
+      }
+
+      /* A fixed root so Playwright can screenshot just the logo area */
+      #logo{
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        gap:18px;
+        padding: 36px 44px;
+      }
+
+      .logo{
+        font-weight: 900;
+        letter-spacing: var(--letter-space);
+        font-style: italic;
+        transform: skewX(var(--skew));
+        color: #0a0a0b;
+        position: relative;
+        line-height: 1;
+        white-space: nowrap;
+        font-size: 64px;
+
+        /* Subtle 3D depth */
+        text-shadow: var(--shadow-hi), var(--shadow-lo);
+      }
+
+      /* 斜切淡白带（以前这里是灰色阴影层） */
+      .logo::before{
+        content: attr(data-text);
+        position: absolute;
+        inset: 0;
+
+        /* 淡白，带一点点立体感 */
+        background: linear-gradient(180deg,
+          rgba(255,255,255,0.92),
+          rgba(255,255,255,0.68)
+        );
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+
+        /* 只显示中间那条“cut”带：39%~62% */
+        -webkit-mask-image: linear-gradient(-18deg,
+          rgba(0,0,0,0) 0%,
+          rgba(0,0,0,0) 38%,
+          rgba(0,0,0,1) 39%,
+          rgba(0,0,0,1) 62%,
+          rgba(0,0,0,0) 63%,
+          rgba(0,0,0,0) 100%);
+        mask-image: linear-gradient(-18deg,
+          rgba(0,0,0,0) 0%,
+          rgba(0,0,0,0) 38%,
+          rgba(0,0,0,1) 39%,
+          rgba(0,0,0,1) 62%,
+          rgba(0,0,0,0) 63%,
+          rgba(0,0,0,0) 100%);
+
+        /* 让白带更“贴合”字面一点 */
+        filter: drop-shadow(0 0.8px 0 rgba(0,0,0,0.10));
+        pointer-events: none;
+      }
+
+      /* 彩色两段保持不变（但更鲜艳了） */
+      .logo::after{
+        content: attr(data-text);
+        position: absolute;
+        inset: 0;
+        background: var(--accent);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        opacity: var(--accent-opacity);
+
+        /* 显示两段：0~38% + 63~100%（中间留给白带） */
+        -webkit-mask-image: linear-gradient(-18deg,
+          rgba(0,0,0,1) 0%,
+          rgba(0,0,0,1) 38%,
+          rgba(0,0,0,0) 39%,
+          rgba(0,0,0,0) 62%,
+          rgba(0,0,0,1) 63%,
+          rgba(0,0,0,1) 100%);
+        mask-image: linear-gradient(-18deg,
+          rgba(0,0,0,1) 0%,
+          rgba(0,0,0,1) 38%,
+          rgba(0,0,0,0) 39%,
+          rgba(0,0,0,0) 62%,
+          rgba(0,0,0,1) 63%,
+          rgba(0,0,0,1) 100%);
+
+        pointer-events: none;
+      }
+
+
+      .mini{ font-size: 32px; }
+
+      .sub{
+        font-size:12px;
+        color:#6b7280;
+        max-width:760px;
+        text-align:center;
+        line-height:1.6;
+      }
+    </style>
+  </head>
+
+  <!-- Use data-bg="transparent" for transparent PNG export -->
+  <body data-bg="solid">
+    <div id="logo">
+      <div class="logo" data-text="ECLIA">ECLIA</div>
+    </div>
+  </body>
+</html>
