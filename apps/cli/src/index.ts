@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { ensureLocalConfig, loadEcliaConfig, resolveRepoRoot } from "./ecliaConfig";
+import { ensureLocalConfig, findProjectRoot, loadEcliaConfig } from "@eclia/config";
 
 function printHelp(): void {
   // Keep it short; this is a dev-focused CLI for now.
@@ -38,7 +38,7 @@ function run(cmd: string, args: string[], label?: string) {
 }
 
 function devAll() {
-  const repoRoot = resolveRepoRoot();
+  const repoRoot = findProjectRoot();
   ensureLocalConfig(repoRoot);
 
   // Start both processes.
@@ -55,9 +55,9 @@ function devAll() {
 }
 
 function doctor() {
-  const repoRoot = resolveRepoRoot();
+  const repoRoot = findProjectRoot();
   ensureLocalConfig(repoRoot);
-  const cfg = loadEcliaConfig(repoRoot);
+  const { config: cfg } = loadEcliaConfig(repoRoot);
 
   const host = cfg.console?.host ?? "127.0.0.1";
   const port = cfg.console?.port ?? "(default)";
@@ -86,14 +86,14 @@ switch (cmd) {
     break;
 
   case "web": {
-    const repoRoot = resolveRepoRoot();
+    const repoRoot = findProjectRoot();
     ensureLocalConfig(repoRoot);
     run("pnpm", ["-C", "apps/web-console", "dev"], "WEB");
     break;
   }
 
   case "gateway": {
-    const repoRoot = resolveRepoRoot();
+    const repoRoot = findProjectRoot();
     ensureLocalConfig(repoRoot);
     run("pnpm", ["-C", "apps/gateway", "dev"], "GATEWAY");
     break;
@@ -102,7 +102,7 @@ switch (cmd) {
   case "config": {
     const sub = argv[1];
     if (sub === "init") {
-      const repoRoot = resolveRepoRoot();
+      const repoRoot = findProjectRoot();
       ensureLocalConfig(repoRoot);
       console.log("ok: eclia.config.local.toml ensured");
       process.exit(0);

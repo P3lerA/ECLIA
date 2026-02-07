@@ -1,3 +1,5 @@
+/// <reference path="./iarna__toml.d.ts" />
+
 import fs from "node:fs";
 import path from "node:path";
 import net from "node:net";

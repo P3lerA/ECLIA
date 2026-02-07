@@ -1,6 +1,5 @@
 import http from "node:http";
-import net from "node:net";
-import { loadEcliaConfig, writeLocalEcliaConfig, type EcliaConfigPatch } from "./ecliaConfig";
+import { loadEcliaConfig, preflightListen, writeLocalEcliaConfig, type EcliaConfigPatch } from "@eclia/config";
 
 type ChatReqBody = {
   sessionId?: string;
@@ -24,46 +23,6 @@ function cleanHost(v: unknown): string | null {
   const s = v.trim();
   return s.length ? s : null;
 }
-
-function hintForListenError(code: string | undefined): string {
-  switch (code) {
-    case "EACCES":
-      return "Permission denied. On some systems, this port may be reserved by the OS. Try a higher port (e.g. 5173, 3000, 8080).";
-    case "EADDRINUSE":
-      return "Port is already in use. Pick another port or stop the process currently using it.";
-    case "EADDRNOTAVAIL":
-      return "Host/IP is not available on this machine.";
-    default:
-      return "Unable to bind to the requested host/port.";
-  }
-}
-
-async function probeTcpListen(host: string, port: number): Promise<{ ok: true } | { ok: false; code?: string; message: string; hint: string }> {
-  return await new Promise((resolve) => {
-    const srv = net.createServer();
-
-    const onError = (err: any) => {
-      const code = typeof err?.code === "string" ? err.code : undefined;
-      resolve({
-        ok: false,
-        code,
-        message: String(err?.message ?? "listen failed"),
-        hint: hintForListenError(code)
-      });
-    };
-
-    srv.once("error", onError);
-
-    try {
-      srv.listen({ host, port, exclusive: true }, () => {
-        srv.close(() => resolve({ ok: true }));
-      });
-    } catch (e: any) {
-      onError(e);
-    }
-  });
-}
-
 
 function readJson(req: http.IncomingMessage): Promise<any> {
   return new Promise((resolve) => {
@@ -126,11 +85,11 @@ const server = http.createServer(async (req, res) => {
 
   // Dev config read/write (write to eclia.config.local.toml).
   if (url === "/api/config" && req.method === "GET") {
-    const { config: live, paths } = loadEcliaConfig(process.cwd());
+    const { config: live, configPath, localPath } = loadEcliaConfig(process.cwd());
     json(res, 200, {
       ok: true,
       config: live,
-      paths,
+      paths: { base: configPath, local: localPath },
       restartRequired: true
     });
     return;
@@ -185,7 +144,7 @@ const server = http.createServer(async (req, res) => {
       const changed = changingConsole && (wantHost !== current.console.host || wantPort !== current.console.port);
 
       if (changed) {
-        const probe = await probeTcpListen(wantHost, wantPort);
+        const probe = await preflightListen(wantHost, wantPort);
         if (!probe.ok) {
           json(res, 400, {
             ok: false,

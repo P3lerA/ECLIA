@@ -61,6 +61,14 @@ export class SessionStore {
     await ensureDir(this.sessionsDir);
   }
 
+  /**
+   * Validate a session id before doing any filesystem operations.
+   * Useful for routers so they can return 400 (vs 404) on malformed ids.
+   */
+  isValidSessionId(sessionId: string): boolean {
+    return Boolean(safeId(sessionId));
+  }
+
   private dirFor(sessionId: string): string {
     const sid = safeId(sessionId);
     if (!sid) throw new Error("invalid_session_id");
@@ -132,7 +140,7 @@ export class SessionStore {
     return metas.slice(0, Math.max(1, Math.min(2000, limit)));
   }
 
-  async readSession(sessionId: string): Promise<SessionDetail | null> {
+  async readSession(sessionId: string, opts?: { includeTools?: boolean }): Promise<SessionDetail | null> {
     await this.init();
 
     const sid = safeId(sessionId);
@@ -145,17 +153,97 @@ export class SessionStore {
     }
 
     const events = await this.readEvents(sid);
+    const includeTools = Boolean(opts?.includeTools);
+
     const messages: StoredMessage[] = [];
+    let lastMsg: StoredMessage | null = null;
 
     for (const ev of events) {
+      if (!ev || (ev as any).v !== 1) continue;
+
+      if (ev.type === "reset") {
+        // Future-proofing: if we ever stop truncating the file on reset,
+        // treat reset as a hard boundary in the projection.
+        messages.length = 0;
+        lastMsg = null;
+        continue;
+      }
+
       if (ev.type === "message" && ev.message) {
-        messages.push(ev.message);
+        const msg = ev.message;
+        // Defensive: ensure blocks exist.
+        (msg as any).blocks = Array.isArray((msg as any).blocks) ? (msg as any).blocks : [];
+        messages.push(msg);
+        lastMsg = msg;
+        continue;
+      }
+
+      if (!includeTools) continue;
+
+      if (ev.type === "tool_call" && (ev as any).call) {
+        const call = (ev as any).call as any;
+        const name = typeof call?.name === "string" ? call.name : "tool";
+        const argsRaw = typeof call?.argsRaw === "string" ? call.argsRaw : "";
+        const callId = typeof call?.callId === "string" ? call.callId : "";
+
+        const block = {
+          type: "tool" as const,
+          name,
+          status: "calling" as const,
+          payload: { callId, raw: argsRaw }
+        };
+
+        if (lastMsg && lastMsg.role === "assistant") {
+          lastMsg.blocks.push(block as any);
+        } else {
+          const toolMsg: StoredMessage = {
+            id: crypto.randomUUID(),
+            role: "tool",
+            createdAt: ev.ts,
+            blocks: [block as any]
+          };
+          messages.push(toolMsg);
+          lastMsg = toolMsg;
+        }
+        continue;
+      }
+
+      if (ev.type === "tool_result" && (ev as any).result) {
+        const result = (ev as any).result as any;
+        const name = typeof result?.name === "string" ? result.name : "tool";
+        const callId = typeof result?.callId === "string" ? result.callId : "";
+        const ok = Boolean(result?.ok);
+        const output = result?.output;
+
+        const block = {
+          type: "tool" as const,
+          name,
+          status: ok ? ("ok" as const) : ("error" as const),
+          payload: { callId, ok, output }
+        };
+
+        if (lastMsg && lastMsg.role === "assistant") {
+          lastMsg.blocks.push(block as any);
+        } else {
+          const toolMsg: StoredMessage = {
+            id: crypto.randomUUID(),
+            role: "tool",
+            createdAt: ev.ts,
+            blocks: [block as any]
+          };
+          messages.push(toolMsg);
+          lastMsg = toolMsg;
+        }
+        continue;
       }
     }
 
-    messages.sort((a, b) => a.createdAt - b.createdAt);
+    // Keep a chronological view for the UI.
+    // Do a stable sort for deterministic ordering even if timestamps collide.
+    const stable = messages.map((m, i) => ({ m, i }));
+    stable.sort((a, b) => (a.m.createdAt - b.m.createdAt) || (a.i - b.i));
 
-    return { meta: coerceMeta(meta as any, sid), messages };
+    return { meta: coerceMeta(meta as any, sid), messages: stable.map((x) => x.m) };
   }
 
   async appendEvent(sessionId: string, ev: SessionEventV1): Promise<void> {

@@ -3,7 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { loadEcliaConfig, writeLocalEcliaConfig, preflightListen, joinUrl, resolveUpstreamModel, type EcliaConfigPatch } from "@eclia/config";
 import { SessionStore } from "./sessionStore";
-import type { SessionEventV1, StoredMessage } from "./sessionTypes";
+import type { SessionDetail, SessionEventV1, StoredMessage } from "./sessionTypes";
 import { buildTruncatedContext } from "./context";
 import { blocksFromAssistantRaw, inferVendorFromBaseUrl, textBlock } from "./normalize";
 
@@ -100,6 +100,14 @@ function safeInt(v: any, fallback: number): number {
   return Math.trunc(n);
 }
 
+function safeDecodeSegment(seg: string): string | null {
+  try {
+    return decodeURIComponent(seg);
+  } catch {
+    return null;
+  }
+}
+
 function deriveTitle(userText: string): string {
   const s = userText.replace(/\s+/g, " ").trim();
   if (!s) return "New session";
@@ -176,8 +184,12 @@ async function handleSessions(req: http.IncomingMessage, res: http.ServerRespons
   // /api/sessions/:id
   const m1 = pathname.match(/^\/api\/sessions\/([^/]+)$/);
   if (m1 && req.method === "GET") {
-    const id = decodeURIComponent(m1[1]);
-    const detail = await store.readSession(id);
+    const id = safeDecodeSegment(m1[1]);
+    if (!id) return json(res, 400, { ok: false, error: "invalid_session_id" });
+
+    if (!store.isValidSessionId(id)) return json(res, 400, { ok: false, error: "invalid_session_id" });
+
+    const detail = await store.readSession(id, { includeTools: true });
     if (!detail) return json(res, 404, { ok: false, error: "not_found" });
     return json(res, 200, { ok: true, session: detail.meta, messages: detail.messages });
   }
@@ -185,7 +197,10 @@ async function handleSessions(req: http.IncomingMessage, res: http.ServerRespons
   // /api/sessions/:id/reset
   const m2 = pathname.match(/^\/api\/sessions\/([^/]+)\/reset$/);
   if (m2 && req.method === "POST") {
-    const id = decodeURIComponent(m2[1]);
+    const id = safeDecodeSegment(m2[1]);
+    if (!id) return json(res, 400, { ok: false, error: "invalid_session_id" });
+
+    if (!store.isValidSessionId(id)) return json(res, 400, { ok: false, error: "invalid_session_id" });
     try {
       const meta = await store.resetSession(id);
       return json(res, 200, { ok: true, session: meta });
@@ -207,6 +222,9 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse, s
   if (!sessionId) {
     return json(res, 400, { ok: false, error: "missing_session", hint: "sessionId is required" });
   }
+  if (!store.isValidSessionId(sessionId)) {
+    return json(res, 400, { ok: false, error: "invalid_session_id" });
+  }
   if (!userText.trim()) {
     return json(res, 400, { ok: false, error: "empty_message" });
   }
@@ -216,7 +234,12 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse, s
 
   // Ensure store is initialized and session exists.
   await store.init();
-  const prior = (await store.readSession(sessionId)) ?? { meta: await store.ensureSession(sessionId), messages: [] };
+  let prior: SessionDetail;
+  try {
+    prior = (await store.readSession(sessionId)) ?? { meta: await store.ensureSession(sessionId), messages: [] };
+  } catch {
+    return json(res, 400, { ok: false, error: "invalid_session_id" });
+  }
 
   // If this is a brand new session, set a title from the first user message.
   if (prior.messages.length === 0 && (prior.meta.title === "New session" || !prior.meta.title.trim())) {

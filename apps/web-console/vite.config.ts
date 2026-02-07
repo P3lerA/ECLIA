@@ -1,105 +1,15 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import fs from "node:fs";
-import path from "node:path";
+import { loadEcliaConfig } from "@eclia/config";
 
-type AnyObj = Record<string, any>;
+// Note: Vite executes this config in Node.
+// We load the canonical TOML config (base + local overrides) via @eclia/config
+// so the console and gateway stay in sync.
+const { config } = loadEcliaConfig(process.cwd());
 
-function isObject(v: unknown): v is AnyObj {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function deepMerge(base: AnyObj, override: AnyObj): AnyObj {
-  const out: AnyObj = { ...base };
-  for (const [k, v] of Object.entries(override)) {
-    if (isObject(v) && isObject(out[k])) out[k] = deepMerge(out[k], v);
-    else out[k] = v;
-  }
-  return out;
-}
-
-function findRepoRoot(startDir: string): string {
-  let dir = startDir;
-  for (let i = 0; i < 30; i++) {
-    const hasConfig = fs.existsSync(path.join(dir, "eclia.config.toml"));
-    const hasWorkspace = fs.existsSync(path.join(dir, "pnpm-workspace.yaml"));
-    if (hasConfig || hasWorkspace) return dir;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return startDir;
-}
-
-// Minimal TOML parser (enough for our config files).
-// Supports: [section], nested via dots, and key = value where value is string/number/bool.
-function parseTomlLoose(text: string): AnyObj {
-  const out: AnyObj = {};
-  let ctx: AnyObj = out;
-
-  const lines = text.split(/\r?\n/);
-  for (let raw of lines) {
-    // strip comments (# ...), but keep quoted #.
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-
-    if (line.startsWith("[") && line.endsWith("]")) {
-      const section = line.slice(1, -1).trim();
-      const parts = section.split(".").map((s) => s.trim()).filter(Boolean);
-      ctx = out;
-      for (const p of parts) {
-        if (!isObject(ctx[p])) ctx[p] = {};
-        ctx = ctx[p];
-      }
-      continue;
-    }
-
-    const eq = line.indexOf("=");
-    if (eq === -1) continue;
-
-    const key = line.slice(0, eq).trim();
-    let val = line.slice(eq + 1).trim();
-
-    // Remove trailing inline comment (best-effort) if not quoted.
-    if (!(val.startsWith('"') || val.startsWith("'"))) {
-      const hash = val.indexOf("#");
-      if (hash !== -1) val = val.slice(0, hash).trim();
-    }
-
-    // Parse value
-    let parsed: any = val;
-
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      parsed = val.slice(1, -1);
-    } else if (/^(true|false)$/i.test(val)) {
-      parsed = val.toLowerCase() === "true";
-    } else if (/^-?\d[\d_]*(\.\d[\d_]*)?$/.test(val)) {
-      parsed = Number(val.replace(/_/g, ""));
-    } else {
-      parsed = val;
-    }
-
-    ctx[key] = parsed;
-  }
-
-  return out;
-}
-
-function loadEcliaConfig(): AnyObj {
-  const root = findRepoRoot(__dirname);
-  const basePath = path.join(root, "eclia.config.toml");
-  const localPath = path.join(root, "eclia.config.local.toml");
-
-  const base = fs.existsSync(basePath) ? parseTomlLoose(fs.readFileSync(basePath, "utf-8")) : {};
-  const local = fs.existsSync(localPath) ? parseTomlLoose(fs.readFileSync(localPath, "utf-8")) : {};
-
-  return deepMerge(base, local);
-}
-
-const cfg = loadEcliaConfig();
-const consoleHost = (cfg.console?.host as string) || "127.0.0.1";
-const consolePort = typeof cfg.console?.port === "number" ? (cfg.console.port as number) : 5173;
-const apiPort = typeof cfg.api?.port === "number" ? (cfg.api.port as number) : 8787;
+const consoleHost = config.console.host;
+const consolePort = config.console.port;
+const apiPort = config.api.port;
 
 export default defineConfig({
   plugins: [react()],
@@ -110,8 +20,8 @@ export default defineConfig({
     proxy: {
       "/api": {
         target: `http://localhost:${apiPort}`,
-        changeOrigin: true,
-      },
-    },
-  },
+        changeOrigin: true
+      }
+    }
+  }
 });
