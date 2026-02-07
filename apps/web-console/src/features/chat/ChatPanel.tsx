@@ -10,7 +10,7 @@ export function ChatPanel() {
   return (
     <>
       <section className="chat">
-        <MessageList messages={messages} />
+        <MessageList sessionId={session.id} messages={messages} />
       </section>
       <Composer />
     </>

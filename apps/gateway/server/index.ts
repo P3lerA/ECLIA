@@ -136,31 +136,87 @@ function deriveTitle(userText: string): string {
 
 type ToolCallAccum = { callId: string; index?: number; name: string; argsRaw: string };
 
-function mergeToolCallDelta(
-  acc: Map<string, ToolCallAccum>,
-  tc: any
-): ToolCallAccum | null {
+type ToolCallAccState = {
+  calls: Map<string, ToolCallAccum>;
+  indexToKey: Map<number, string>;
+  idToKey: Map<string, string>;
+  unindexedKeys: Set<string>;
+  nextAnon: number;
+};
+
+function createToolCallAccState(): ToolCallAccState {
+  return { calls: new Map(), indexToKey: new Map(), idToKey: new Map(), unindexedKeys: new Set(), nextAnon: 0 };
+}
+
+function mergePossiblyCumulative(prev: string, nextChunk: string): string {
+  if (!nextChunk) return prev;
+  if (!prev) return nextChunk;
+
+  // Some OpenAI-compatible providers stream cumulative strings (full value so far) rather than incremental deltas.
+  if (nextChunk.length > prev.length && nextChunk.startsWith(prev)) return nextChunk;
+
+  return prev + nextChunk;
+}
+
+function safeToolArgsChunk(v: any): string {
+  if (typeof v === "string") return v;
+  if (v === null || v === undefined) return "";
+  return safeJsonStringify(v);
+}
+
+function mergeToolCallDelta(state: ToolCallAccState, tc: any, position: number): ToolCallAccum | null {
   if (!tc || typeof tc !== "object") return null;
 
-  // Some providers send { index }, some send { id }.
-  const key = safeText(tc.id) || String(tc.index ?? "");
-  if (!key) return null;
+  const rawIndex = tc.index;
+  const index = typeof rawIndex === "number" && Number.isFinite(rawIndex) ? Math.trunc(rawIndex) : undefined;
+  const id = safeText(tc.id);
 
-  const nextIndex = typeof tc.index === "number" && Number.isFinite(tc.index) ? Math.trunc(tc.index) : undefined;
-  const prev = acc.get(key) ?? { callId: key, index: nextIndex, name: "", argsRaw: "" };
+  let key: string;
+
+  if (index !== undefined) {
+    key = state.indexToKey.get(index) || "";
+    if (!key && id) key = state.idToKey.get(id) || "";
+
+    // Heuristic: if we previously saw exactly one unindexed tool call, bind it to this index.
+    if (!key && !id && state.unindexedKeys.size === 1) {
+      const [onlyKey] = state.unindexedKeys;
+      key = onlyKey;
+    }
+
+    if (!key) key = `i:${index}`;
+
+    state.indexToKey.set(index, key);
+    if (id) state.idToKey.set(id, key);
+  } else if (id) {
+    key = state.idToKey.get(id) || `id:${id}`;
+    state.idToKey.set(id, key);
+    state.unindexedKeys.add(key);
+  } else {
+    key = `anon:${state.nextAnon++}:${position}`;
+  }
+
+  const prev = state.calls.get(key) ?? {
+    callId: id || (index !== undefined ? `call_index_${index}` : key),
+    index,
+    name: "",
+    argsRaw: ""
+  };
 
   const fn = tc.function ?? {};
   const name = safeText(fn.name) || prev.name;
-  const argsDelta = safeText(fn.arguments);
+  const argsChunk = safeToolArgsChunk(fn.arguments);
 
   const next: ToolCallAccum = {
-    callId: prev.callId,
-    index: prev.index ?? nextIndex,
+    callId: id || prev.callId,
+    index: prev.index ?? index,
     name,
-    argsRaw: prev.argsRaw + argsDelta
+    argsRaw: mergePossiblyCumulative(prev.argsRaw, argsChunk)
   };
 
-  acc.set(key, next);
+  state.calls.set(key, next);
+  if (next.index !== undefined) state.unindexedKeys.delete(key);
+  if (id) state.idToKey.set(id, key);
+
   return next;
 }
 
@@ -295,7 +351,7 @@ async function streamOpenAICompatTurn(args: {
   let buffer = "";
 
   let assistantText = "";
-  const toolCalls = new Map<string, ToolCallAccum>();
+  const toolCallsAcc = createToolCallAccState();
   let finishReason: string | null = null;
 
   while (true) {
@@ -310,7 +366,7 @@ async function streamOpenAICompatTurn(args: {
       const data = b.data.trim();
       if (!data) continue;
       if (data === "[DONE]") {
-        return { assistantText, toolCalls, finishReason };
+        return { assistantText, toolCalls: toolCallsAcc.calls, finishReason };
       }
 
       let parsed: any = null;
@@ -325,13 +381,21 @@ async function streamOpenAICompatTurn(args: {
       const content = safeText(delta?.content);
 
       if (content) {
-        assistantText += content;
-        args.onDelta(content);
+        // Some OpenAI-compatible providers stream cumulative strings (full content so far) rather than incremental deltas.
+        // Detect and only emit the new suffix.
+        if (assistantText && content.length > assistantText.length && content.startsWith(assistantText)) {
+          const newPart = content.slice(assistantText.length);
+          assistantText = content;
+          if (newPart) args.onDelta(newPart);
+        } else {
+          assistantText += content;
+          args.onDelta(content);
+        }
       }
 
       const tcList = Array.isArray(delta?.tool_calls) ? delta.tool_calls : null;
       if (tcList && tcList.length) {
-        for (const tc of tcList) mergeToolCallDelta(toolCalls, tc);
+        for (let i = 0; i < tcList.length; i++) mergeToolCallDelta(toolCallsAcc, tcList[i], i);
       }
 
       const fr = choice?.finish_reason;
@@ -339,7 +403,7 @@ async function streamOpenAICompatTurn(args: {
     }
   }
 
-  return { assistantText, toolCalls, finishReason };
+  return { assistantText, toolCalls: toolCallsAcc.calls, finishReason };
 }
 
 async function handleChat(req: http.IncomingMessage, res: http.ServerResponse, store: SessionStore, approvals: ToolApprovalHub) {

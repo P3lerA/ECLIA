@@ -43,7 +43,7 @@ export function ChatView({
       </div>
 
       <div className="chatview-body motion-page">
-        <MessageList messages={messages} />
+        <MessageList sessionId={session.id} messages={messages} />
       </div>
 
       <div
