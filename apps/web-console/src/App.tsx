@@ -89,12 +89,14 @@ function AppInner() {
       model: state.model,
       contextLimitEnabled: state.settings.contextLimitEnabled,
       contextTokenLimit: state.settings.contextTokenLimit,
+      execAccessMode: state.settings.execAccessMode,
       plugins: Object.fromEntries(state.plugins.map((p) => [p.id, p.enabled]))
     });
   }, [
     state.settings.textureDisabled,
     state.settings.contextLimitEnabled,
     state.settings.contextTokenLimit,
+    state.settings.execAccessMode,
     state.transport,
     state.model,
     state.plugins

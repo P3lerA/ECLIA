@@ -71,15 +71,33 @@ function normalizeEvent(eventName: string | null, payload: any): ChatEvent | nul
   const at = typeof payload?.at === "number" ? payload.at : Date.now();
   switch (eventName) {
     case "meta":
-      return { type: "meta", at, sessionId: String(payload.sessionId ?? ""), model: String(payload.model ?? "") };
+      return {
+        type: "meta",
+        at,
+        sessionId: String(payload.sessionId ?? ""),
+        model: String(payload.model ?? ""),
+        usedTokens: typeof payload.usedTokens === "number" ? payload.usedTokens : undefined,
+        dropped: typeof payload.dropped === "number" ? payload.dropped : undefined
+      };
+    case "assistant_start":
+      return { type: "assistant_start", at, messageId: String(payload.messageId ?? payload.id ?? "") };
+    case "assistant_end":
+      return { type: "assistant_end", at };
     case "delta":
       return { type: "delta", at, text: String(payload.text ?? "") };
     case "tool_call":
-      return { type: "tool_call", at, name: String(payload.name ?? ""), args: payload.args };
+      return {
+        type: "tool_call",
+        at,
+        callId: typeof payload.callId === "string" ? payload.callId : undefined,
+        name: String(payload.name ?? ""),
+        args: payload.args
+      };
     case "tool_result":
       return {
         type: "tool_result",
         at,
+        callId: typeof payload.callId === "string" ? payload.callId : undefined,
         name: String(payload.name ?? ""),
         ok: Boolean(payload.ok),
         result: payload.result

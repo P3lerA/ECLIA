@@ -1,11 +1,23 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useSendMessage } from "./useSendMessage";
+import { useAppDispatch, useAppState } from "../../state/AppState";
 
 export function ChatComposer({ onOpenMenu }: { onOpenMenu: () => void }) {
   const { sendText } = useSendMessage();
   const navigate = useNavigate();
   const [text, setText] = React.useState("");
+
+  const state = useAppState();
+  const dispatch = useAppDispatch();
+
+  const accessMode = state.settings.execAccessMode;
+  const toggleAccessMode = React.useCallback(() => {
+    dispatch({
+      type: "settings/execAccessMode",
+      mode: accessMode === "full" ? "safe" : "full"
+    });
+  }, [accessMode, dispatch]);
 
   const send = React.useCallback(async () => {
     const v = text;
@@ -39,6 +51,14 @@ export function ChatComposer({ onOpenMenu }: { onOpenMenu: () => void }) {
         />
 
         <div className="chatbar-actions" aria-label="Actions">
+          <button
+            className="chatbar-btn"
+            onClick={toggleAccessMode}
+            aria-label="Exec access mode"
+            title={`Exec access: ${accessMode === "full" ? "full" : "safe"}`}
+          >
+            {accessMode === "full" ? "⚡" : "🛡"}
+          </button>
           <button className="chatbar-btn" onClick={onOpenMenu} aria-label="Menu">
             ☰
           </button>

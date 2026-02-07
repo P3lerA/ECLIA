@@ -345,6 +345,22 @@ button, input, select, textarea{
   font-size: 12.5px;
   color: var(--text);
 }
+.block-tool-actions{
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.block-tool-actionsBtns{
+  display: flex;
+  gap: 8px;
+}
+.block-tool-actionsBtns .btn{
+  padding: 8px 10px;
+  font-size: 12px;
+  border-radius: 12px;
+}
 .block-tool-head .k{
   font-family: var(--mono);
   font-size: 12px;

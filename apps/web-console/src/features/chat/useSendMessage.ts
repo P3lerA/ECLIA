@@ -86,6 +86,17 @@ export function useSendMessage() {
           dispatch({ type: "assistant/stream/append", sessionId, text: evt.text });
         }
 
+        if (evt.type === "assistant_start") {
+          // A new assistant message phase (e.g. after tool execution).
+          // Finalize any existing streaming message to keep ordering sane.
+          dispatch({ type: "assistant/stream/finalize", sessionId });
+          dispatch({ type: "assistant/stream/start", sessionId, messageId: evt.messageId || crypto.randomUUID() });
+        }
+
+        if (evt.type === "assistant_end") {
+          dispatch({ type: "assistant/stream/finalize", sessionId });
+        }
+
         if (evt.type === "tool_call") {
           dispatch({
             type: "assistant/addBlocks",
@@ -133,6 +144,7 @@ export function useSendMessage() {
             sessionId,
             model: state.model,
             userText: trimmed,
+            toolAccessMode: state.settings.execAccessMode,
             contextTokenLimit: effectiveContextBudget
           },
           { onEvent },

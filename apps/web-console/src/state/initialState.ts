@@ -39,7 +39,8 @@ export function makeInitialState(): AppState {
     settings: {
       textureDisabled: Boolean(prefs.textureDisabled ?? false),
       contextLimitEnabled: typeof prefs.contextLimitEnabled === "boolean" ? prefs.contextLimitEnabled : true,
-      contextTokenLimit: typeof prefs.contextTokenLimit === "number" ? prefs.contextTokenLimit : 20000
+      contextTokenLimit: typeof prefs.contextTokenLimit === "number" ? prefs.contextTokenLimit : 20000,
+      execAccessMode: prefs.execAccessMode === "safe" ? "safe" : "full"
     },
 
     model: prefs.model ?? "openai-compatible",

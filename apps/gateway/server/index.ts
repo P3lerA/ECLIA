@@ -6,6 +6,10 @@ import { SessionStore } from "./sessionStore";
 import type { SessionDetail, SessionEventV1, StoredMessage } from "./sessionTypes";
 import { buildTruncatedContext } from "./context";
 import { blocksFromAssistantRaw, inferVendorFromBaseUrl, textBlock } from "./normalize";
+import { ToolApprovalHub, type ToolApprovalDecision } from "./tools/approvalHub";
+import { parseExecArgs, runExecTool } from "./tools/execTool";
+import { checkExecNeedsApproval, loadExecAllowlist, type ToolAccessMode } from "./tools/policy";
+import { EXEC_TOOL_NAME, EXECUTION_TOOL_NAME, TOOL_DEFINITIONS } from "./tools/toolSchemas";
 
 type ChatReqBody = {
   sessionId?: string;
@@ -17,6 +21,13 @@ type ChatReqBody = {
    * Token counting is vendor-specific; we use a conservative estimator.
    */
   contextTokenLimit?: number;
+
+  /**
+   * Tool access mode (client preference).
+   * - full: auto-run tools.
+   * - safe: auto-run allowlisted exec commands only; otherwise require user approval.
+   */
+  toolAccessMode?: ToolAccessMode;
 
   /**
    * Legacy/compat: allow callers to send explicit messages (used by mock transport).
@@ -100,6 +111,14 @@ function safeInt(v: any, fallback: number): number {
   return Math.trunc(n);
 }
 
+function safeJsonStringify(v: unknown): string {
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
+}
+
 function safeDecodeSegment(seg: string): string | null {
   try {
     return decodeURIComponent(seg);
@@ -115,7 +134,7 @@ function deriveTitle(userText: string): string {
   return s.length > max ? s.slice(0, max).trimEnd() + "…" : s;
 }
 
-type ToolCallAccum = { callId: string; name: string; argsRaw: string };
+type ToolCallAccum = { callId: string; index?: number; name: string; argsRaw: string };
 
 function mergeToolCallDelta(
   acc: Map<string, ToolCallAccum>,
@@ -127,7 +146,8 @@ function mergeToolCallDelta(
   const key = safeText(tc.id) || String(tc.index ?? "");
   if (!key) return null;
 
-  const prev = acc.get(key) ?? { callId: key, name: "", argsRaw: "" };
+  const nextIndex = typeof tc.index === "number" && Number.isFinite(tc.index) ? Math.trunc(tc.index) : undefined;
+  const prev = acc.get(key) ?? { callId: key, index: nextIndex, name: "", argsRaw: "" };
 
   const fn = tc.function ?? {};
   const name = safeText(fn.name) || prev.name;
@@ -135,6 +155,7 @@ function mergeToolCallDelta(
 
   const next: ToolCallAccum = {
     callId: prev.callId,
+    index: prev.index ?? nextIndex,
     name,
     argsRaw: prev.argsRaw + argsDelta
   };
@@ -212,7 +233,116 @@ async function handleSessions(req: http.IncomingMessage, res: http.ServerRespons
   return json(res, 404, { ok: false, error: "not_found" });
 }
 
-async function handleChat(req: http.IncomingMessage, res: http.ServerResponse, store: SessionStore) {
+async function handleToolApprovals(req: http.IncomingMessage, res: http.ServerResponse, approvals: ToolApprovalHub) {
+  if (req.method !== "POST") return json(res, 405, { ok: false, error: "method_not_allowed" });
+  const body = (await readJson(req)) as any;
+
+  const approvalId = String(body.approvalId ?? "").trim();
+  const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : undefined;
+  const decision: ToolApprovalDecision | null = body.decision === "approve" ? "approve" : body.decision === "deny" ? "deny" : null;
+
+  if (!approvalId || !decision) return json(res, 400, { ok: false, error: "bad_request" });
+
+  const r = approvals.decide({ approvalId, sessionId, decision });
+  if (r.ok) return json(res, 200, { ok: true });
+  if (r.error === "wrong_session") return json(res, 403, { ok: false, error: "wrong_session" });
+  return json(res, 404, { ok: false, error: "not_found" });
+}
+
+type UpstreamTurnResult = {
+  assistantText: string;
+  toolCalls: Map<string, ToolCallAccum>;
+  finishReason: string | null;
+};
+
+async function streamOpenAICompatTurn(args: {
+  url: string;
+  headers: Record<string, string>;
+  model: string;
+  messages: any[];
+  signal: AbortSignal;
+  tools: any[];
+  onDelta: (text: string) => void;
+}): Promise<UpstreamTurnResult> {
+  let upstream: Response;
+
+  upstream = await fetch(args.url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "text/event-stream",
+      ...args.headers
+    },
+    body: JSON.stringify({
+      model: args.model,
+      stream: true,
+      tool_choice: "auto",
+      tools: args.tools,
+      messages: args.messages
+    }),
+    signal: args.signal
+  });
+
+  if (!upstream.ok || !upstream.body) {
+    const text = await upstream.text().catch(() => "");
+    throw new Error(
+      `Upstream error: ${upstream.status} ${upstream.statusText}${text ? ` — ${text.slice(0, 200)}` : ""}`
+    );
+  }
+
+  const reader = upstream.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+
+  let assistantText = "";
+  const toolCalls = new Map<string, ToolCallAccum>();
+  let finishReason: string | null = null;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const { blocks, rest } = parseSSE(buffer);
+    buffer = rest;
+
+    for (const b of blocks) {
+      const data = b.data.trim();
+      if (!data) continue;
+      if (data === "[DONE]") {
+        return { assistantText, toolCalls, finishReason };
+      }
+
+      let parsed: any = null;
+      try {
+        parsed = JSON.parse(data);
+      } catch {
+        continue;
+      }
+
+      const choice = parsed?.choices?.[0];
+      const delta = choice?.delta;
+      const content = safeText(delta?.content);
+
+      if (content) {
+        assistantText += content;
+        args.onDelta(content);
+      }
+
+      const tcList = Array.isArray(delta?.tool_calls) ? delta.tool_calls : null;
+      if (tcList && tcList.length) {
+        for (const tc of tcList) mergeToolCallDelta(toolCalls, tc);
+      }
+
+      const fr = choice?.finish_reason;
+      if (typeof fr === "string" && fr) finishReason = fr;
+    }
+  }
+
+  return { assistantText, toolCalls, finishReason };
+}
+
+async function handleChat(req: http.IncomingMessage, res: http.ServerResponse, store: SessionStore, approvals: ToolApprovalHub) {
   const body = (await readJson(req)) as ChatReqBody;
 
   const sessionId = String(body.sessionId ?? "").trim();
@@ -229,7 +359,9 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse, s
     return json(res, 400, { ok: false, error: "empty_message" });
   }
 
-  const { config, rootDir } = loadEcliaConfig(process.cwd());
+  const toolAccessMode: ToolAccessMode = body.toolAccessMode === "safe" ? "safe" : "full";
+
+  const { config, raw, rootDir } = loadEcliaConfig(process.cwd());
   const provider = config.inference.provider;
 
   // Ensure store is initialized and session exists.
@@ -255,7 +387,13 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse, s
     blocks: [textBlock(userText, { adapter: "client" })]
   };
 
-  const userEv: SessionEventV1 = { v: 1, id: crypto.randomUUID(), ts: userMsg.createdAt, type: "message", message: userMsg };
+  const userEv: SessionEventV1 = {
+    v: 1,
+    id: crypto.randomUUID(),
+    ts: userMsg.createdAt,
+    type: "message",
+    message: userMsg
+  };
   await store.appendEvent(sessionId, userEv);
 
   // Build OpenAI-compatible request.
@@ -295,51 +433,17 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse, s
 
   const url = joinUrl(baseUrl, "/chat/completions");
 
-  console.log(`[gateway] POST /api/chat  session=${sessionId} model=${upstreamModel} ctx≈${usedTokens} dropped=${dropped}`);
+  console.log(`[gateway] POST /api/chat  session=${sessionId} model=${upstreamModel} ctx≈${usedTokens} dropped=${dropped} tools=on mode=${toolAccessMode}`);
+
+  const execAllowlist = loadExecAllowlist(raw);
 
   const upstreamAbort = new AbortController();
-  req.on("close", () => upstreamAbort.abort());
-
-  let upstream: Response;
-  try {
-    upstream = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Accept": "text/event-stream",
-        [authHeader]: authHeader.toLowerCase() === "authorization" ? `Bearer ${apiKey}` : apiKey
-      },
-      body: JSON.stringify({
-        model: upstreamModel,
-        stream: true,
-        messages: contextMessages
-      }),
-      signal: upstreamAbort.signal
-    });
-  } catch (e: any) {
-    send(res, "error", { message: `Upstream request failed: ${String(e?.message ?? e)}` });
-    send(res, "done", {});
-    res.end();
-    return;
-  }
-
-  if (!upstream.ok || !upstream.body) {
-    const text = await upstream.text().catch(() => "");
-    send(res, "error", {
-      message: `Upstream error: ${upstream.status} ${upstream.statusText}${text ? ` — ${text.slice(0, 200)}` : ""}`
-    });
-    send(res, "done", {});
-    res.end();
-    return;
-  }
-
-  const reader = upstream.body.getReader();
-  const decoder = new TextDecoder("utf-8");
-  let buffer = "";
-
-  let assistantText = "";
-  const toolCalls = new Map<string, ToolCallAccum>();
-  const emittedToolCalls = new Set<string>();
+  let clientClosed = false;
+  req.on("close", () => {
+    clientClosed = true;
+    upstreamAbort.abort();
+    approvals.cancelSession(sessionId);
+  });
 
   const origin = {
     adapter: "openai_compat",
@@ -348,106 +452,227 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse, s
     model: upstreamModel
   };
 
+  const headers: Record<string, string> = {
+    [authHeader]: authHeader.toLowerCase() === "authorization" ? `Bearer ${apiKey}` : apiKey
+  };
+
+  // We build the upstream transcript progressively so tool results are fed back correctly.
+  const upstreamMessages: any[] = [...contextMessages];
+
   try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+    // Multi-turn tool loop
+    while (!clientClosed) {
+      const turn = await streamOpenAICompatTurn({
+        url,
+        headers,
+        model: upstreamModel,
+        messages: upstreamMessages,
+        signal: upstreamAbort.signal,
+        tools: TOOL_DEFINITIONS,
+        onDelta: (text) => send(res, "delta", { text })
+      });
 
-      const { blocks, rest } = parseSSE(buffer);
-      buffer = rest;
+      const assistantText = turn.assistantText;
+      const toolCallsMap = turn.toolCalls;
 
-      for (const b of blocks) {
-        const data = b.data.trim();
-        if (!data) continue;
+      // Persist assistant message (even if empty; it anchors tool blocks).
+      const assistantMsg: StoredMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        createdAt: Date.now(),
+        raw: assistantText,
+        blocks: blocksFromAssistantRaw(assistantText, origin)
+      };
+      const assistantEv: SessionEventV1 = {
+        v: 1,
+        id: crypto.randomUUID(),
+        ts: assistantMsg.createdAt,
+        type: "message",
+        message: assistantMsg
+      };
+      await store.appendEvent(sessionId, assistantEv);
 
-        if (data === "[DONE]") {
-          send(res, "done", {});
-          res.end();
-          break;
-        }
+      // Close the current assistant streaming phase in the UI.
+      send(res, "assistant_end", {});
+
+      const toolCalls = Array.from(toolCallsMap.values()).filter((c) => c.name && c.name.trim());
+      toolCalls.sort((a, b) => (a.index ?? 999999) - (b.index ?? 999999));
+
+      if (toolCalls.length === 0) {
+        // No tool calls: final answer.
+        break;
+      }
+
+      // Append the assistant tool-call message to the upstream transcript.
+      const assistantToolCallMsg = {
+        role: "assistant",
+        content: assistantText,
+        tool_calls: toolCalls.map((c) => ({
+          id: c.callId,
+          type: "function",
+          function: { name: c.name, arguments: c.argsRaw }
+        }))
+      };
+      upstreamMessages.push(assistantToolCallMsg);
+
+      // Emit tool_call blocks (now we have complete args) and persist them.
+      const approvalWaiters = new Map<string, { approvalId: string; wait: ReturnType<ToolApprovalHub["create"]>["wait"] }>();
+      const parsedArgsByCall = new Map<string, any>();
+      const parsedExecArgsByCall = new Map<string, ReturnType<typeof parseExecArgs>>();
+      const parseErrorByCall = new Map<string, string | undefined>();
+
+      for (const call of toolCalls) {
+        const tev: SessionEventV1 = {
+          v: 1,
+          id: crypto.randomUUID(),
+          ts: Date.now(),
+          type: "tool_call",
+          call: { callId: call.callId, name: call.name, argsRaw: call.argsRaw }
+        };
+        await store.appendEvent(sessionId, tev);
 
         let parsed: any = null;
+        let parseError: string | undefined;
         try {
-          parsed = JSON.parse(data);
-        } catch {
-          // Some providers may send non-JSON lines; ignore.
-          continue;
+          parsed = call.argsRaw ? JSON.parse(call.argsRaw) : {};
+        } catch (e: any) {
+          parsed = {};
+          parseError = String(e?.message ?? e);
         }
+        parsedArgsByCall.set(call.callId, parsed);
+        parseErrorByCall.set(call.callId, parseError);
 
-        const delta = parsed?.choices?.[0]?.delta;
-        const content = safeText(delta?.content);
+        // For now, only exec/execution exists.
+        let approvalInfo: any = null;
 
-        if (content) {
-          assistantText += content;
-          send(res, "delta", { text: content });
-        }
+        if (call.name === EXEC_TOOL_NAME || call.name === EXECUTION_TOOL_NAME) {
+          const execArgs = parseExecArgs(parsed);
+          parsedExecArgsByCall.set(call.callId, execArgs);
 
-        const tcList = Array.isArray(delta?.tool_calls) ? delta.tool_calls : null;
-        if (tcList && tcList.length) {
-          for (const tc of tcList) {
-            const merged = mergeToolCallDelta(toolCalls, tc);
-            if (!merged) continue;
-            // Emit tool_call once per call (UI currently treats this as a discrete block).
-            if (merged.name && !emittedToolCalls.has(merged.callId)) {
-              emittedToolCalls.add(merged.callId);
-              send(res, "tool_call", { name: merged.name, args: { raw: merged.argsRaw } });
-            }
+          const check = checkExecNeedsApproval(execArgs, toolAccessMode, execAllowlist);
+
+          if (check.requireApproval) {
+            const { approvalId, wait } = approvals.create({ sessionId, timeoutMs: 5 * 60_000 });
+            approvalWaiters.set(call.callId, { approvalId, wait });
+            approvalInfo = { required: true, id: approvalId, reason: check.reason };
+          } else {
+            approvalInfo = { required: false, reason: check.reason, matchedAllowlist: check.matchedAllowlist };
           }
         }
 
-        const finishReason = parsed?.choices?.[0]?.finish_reason;
-        if (finishReason === "stop") {
-          send(res, "done", {});
-          res.end();
-          break;
-        }
+        send(res, "tool_call", {
+          callId: call.callId,
+          name: call.name,
+          args: {
+            sessionId,
+            raw: call.argsRaw,
+            parsed,
+            parseError,
+            approval: approvalInfo
+          }
+        });
       }
-      if (res.writableEnded) break;
+
+      // Execute tools sequentially and feed results back into the upstream transcript.
+      const toolMessages: any[] = [];
+      for (const call of toolCalls) {
+        if (clientClosed) break;
+
+        const name = call.name;
+        const parsed = parsedArgsByCall.get(call.callId) ?? {};
+        const parseError = parseErrorByCall.get(call.callId);
+        const execArgs = parsedExecArgsByCall.get(call.callId);
+
+        let ok = false;
+        let output: any = null;
+
+        if (name === EXEC_TOOL_NAME || name === EXECUTION_TOOL_NAME) {
+          if (parseError) {
+            ok = false;
+            output = {
+              type: "exec_result",
+              ok: false,
+              error: { code: "bad_arguments_json", message: `Invalid JSON arguments: ${parseError}` },
+              argsRaw: call.argsRaw
+            };
+          } else {
+            const check = checkExecNeedsApproval(execArgs ?? {}, toolAccessMode, execAllowlist);
+            const waiter = approvalWaiters.get(call.callId);
+
+            if (check.requireApproval) {
+              const decision = waiter ? await waiter.wait : { decision: "deny" as const, timedOut: false };
+              if (decision.decision !== "approve") {
+                ok = false;
+                output = {
+                  type: "exec_result",
+                  ok: false,
+                  error: {
+                    code: decision.timedOut ? "approval_timeout" : "denied_by_user",
+                    message: decision.timedOut ? "Approval timed out" : "User denied execution"
+                  },
+                  policy: { mode: toolAccessMode, ...check, approvalId: waiter?.approvalId },
+                  args: execArgs ?? parsed
+                };
+              } else {
+                const execOut = await runExecTool(parsed, { projectRoot: rootDir, signal: upstreamAbort.signal });
+                ok = Boolean(execOut.ok);
+                output = {
+                  type: "exec_result",
+                  ...execOut,
+                  policy: { mode: toolAccessMode, ...check, approvalId: waiter?.approvalId, decision: "approve" }
+                };
+              }
+            } else {
+              const execOut = await runExecTool(parsed, { projectRoot: rootDir, signal: upstreamAbort.signal });
+              ok = Boolean(execOut.ok);
+              output = {
+                type: "exec_result",
+                ...execOut,
+                policy: { mode: toolAccessMode, ...check }
+              };
+            }
+          }
+        } else {
+          ok = false;
+          output = { ok: false, error: { code: "unknown_tool", message: `Unknown tool: ${name}` } };
+        }
+
+        // Stream to UI
+        send(res, "tool_result", { callId: call.callId, name, ok, result: output });
+
+        // Persist
+        const rev: SessionEventV1 = {
+          v: 1,
+          id: crypto.randomUUID(),
+          ts: Date.now(),
+          type: "tool_result",
+          result: { callId: call.callId, name, ok, output }
+        };
+        await store.appendEvent(sessionId, rev);
+
+        // Feed back to model
+        toolMessages.push({ role: "tool", tool_call_id: call.callId, content: safeJsonStringify(output) });
+      }
+
+      upstreamMessages.push(...toolMessages);
+
+      // Start a fresh assistant streaming phase (the model's post-tool response).
+      send(res, "assistant_start", { messageId: crypto.randomUUID() });
     }
-  } catch (e: any) {
-    send(res, "error", { message: `Stream error: ${String(e?.message ?? e)}` });
-  } finally {
+
+    await store.updateMeta(sessionId, { updatedAt: Date.now(), lastModel: routeModel || upstreamModel });
+
     if (!res.writableEnded) {
       send(res, "done", {});
       res.end();
     }
-  }
-
-  // Persist assistant output (best-effort).
-  // Even if the client aborted early, keep what we received.
-  try {
-    if (!assistantText && toolCalls.size === 0) {
-      await store.updateMeta(sessionId, { updatedAt: Date.now(), lastModel: routeModel || upstreamModel });
-      return;
+  } catch (e: any) {
+    if (clientClosed) return;
+    if (!res.writableEnded) {
+      send(res, "error", { message: String(e?.message ?? e) });
+      send(res, "done", {});
+      res.end();
     }
-
-    const assistantMsg: StoredMessage = {
-      id: crypto.randomUUID(),
-      role: "assistant",
-      createdAt: Date.now(),
-      raw: assistantText,
-      blocks: blocksFromAssistantRaw(assistantText, origin)
-    };
-
-    const ev: SessionEventV1 = { v: 1, id: crypto.randomUUID(), ts: assistantMsg.createdAt, type: "message", message: assistantMsg };
-    await store.appendEvent(sessionId, ev);
-
-    for (const call of toolCalls.values()) {
-      if (!call.name) continue;
-      const tev: SessionEventV1 = {
-        v: 1,
-        id: crypto.randomUUID(),
-        ts: Date.now(),
-        type: "tool_call",
-        call: { callId: call.callId, name: call.name, argsRaw: call.argsRaw }
-      };
-      await store.appendEvent(sessionId, tev);
-    }
-
-    await store.updateMeta(sessionId, { updatedAt: Date.now(), lastModel: routeModel || upstreamModel });
-  } catch (e) {
-    console.warn("[gateway] failed to persist assistant message:", e);
   }
 }
 
@@ -514,6 +739,9 @@ async function main() {
   const store = new SessionStore(dataDir);
   await store.init();
 
+  // In-memory hub for interactive tool approvals.
+  const approvals = new ToolApprovalHub();
+
   const server = http.createServer(async (req, res) => {
     const url = req.url ?? "/";
 
@@ -537,7 +765,9 @@ async function main() {
 
     if (pathname.startsWith("/api/sessions")) return await handleSessions(req, res, store);
 
-    if (pathname === "/api/chat" && req.method === "POST") return await handleChat(req, res, store);
+    if (pathname === "/api/tool-approvals") return await handleToolApprovals(req, res, approvals);
+
+    if (pathname === "/api/chat" && req.method === "POST") return await handleChat(req, res, store, approvals);
 
     json(res, 404, { ok: false, error: "not_found" });
   });
@@ -545,6 +775,7 @@ async function main() {
   server.listen(port, "127.0.0.1", () => {
     console.log(`[gateway] listening on http://localhost:${port}`);
     console.log(`[gateway] POST http://localhost:${port}/api/chat`);
+    console.log(`[gateway] POST http://localhost:${port}/api/tool-approvals`);
     console.log(`[gateway] GET/PUT http://localhost:${port}/api/config`);
     console.log(`[gateway] GET/POST http://localhost:${port}/api/sessions`);
   });

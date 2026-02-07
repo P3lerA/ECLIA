@@ -34,6 +34,13 @@ export type StoredPrefsV1 = {
    */
   contextTokenLimit?: number;
 
+  /**
+   * Tool execution access mode (per UI, persisted locally).
+   * - full: allow the gateway to execute tools automatically.
+   * - safe: auto-run allowlisted commands, otherwise require user approval.
+   */
+  execAccessMode?: "full" | "safe";
+
   // Plugins (by id)
   plugins?: Record<string, boolean>;
 };
@@ -65,6 +72,10 @@ export function readStoredPrefs(): StoredPrefsV1 {
 
     if (typeof (parsed as any).contextTokenLimit === "number" && Number.isFinite((parsed as any).contextTokenLimit)) {
       out.contextTokenLimit = Math.trunc((parsed as any).contextTokenLimit);
+    }
+
+    if ((parsed as any).execAccessMode === "safe" || (parsed as any).execAccessMode === "full") {
+      out.execAccessMode = (parsed as any).execAccessMode;
     }
 
     if (isRecord(parsed.plugins)) {

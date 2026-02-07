@@ -20,6 +20,13 @@ export type AppSettings = {
    * Approximate context budget (token estimator). Default: 20000.
    */
   contextTokenLimit: number;
+
+  /**
+   * Tool access mode for potentially dangerous tools (starting with exec).
+   * - full: allow the gateway to execute automatically.
+   * - safe: only auto-run allowlisted commands, otherwise require approval.
+   */
+  execAccessMode: "full" | "safe";
 };
 
 export type AppGPU = {
@@ -58,6 +65,7 @@ export type Action =
   | { type: "settings/textureDisabled"; enabled: boolean }
   | { type: "settings/contextLimitEnabled"; enabled: boolean }
   | { type: "settings/contextTokenLimit"; value: number }
+  | { type: "settings/execAccessMode"; mode: "full" | "safe" }
   | { type: "gpu/available"; available: boolean }
   | { type: "message/add"; sessionId: string; message: Message }
   | { type: "messages/set"; sessionId: string; messages: Message[] }
@@ -116,6 +124,10 @@ export function reducer(state: AppState, action: Action): AppState {
       if (state.settings.contextTokenLimit === v) return state;
       return { ...state, settings: { ...state.settings, contextTokenLimit: v } };
     }
+
+    case "settings/execAccessMode":
+      if (state.settings.execAccessMode === action.mode) return state;
+      return { ...state, settings: { ...state.settings, execAccessMode: action.mode } };
 
     case "gpu/available":
       if (state.gpu.available === action.available) return state;

@@ -98,6 +98,13 @@ export type ChatRequest = {
   userText: string;
 
   /**
+   * Runtime tool access policy (client preference).
+   * - full: allow the gateway to execute tools automatically.
+   * - safe: auto-run allowlisted tools only; otherwise require user approval.
+   */
+  toolAccessMode?: "full" | "safe";
+
+  /**
    * Runtime preference: approximate context budget.
    * Default is 20k tokens (estimator-based).
    */
@@ -106,9 +113,11 @@ export type ChatRequest = {
 
 export type ChatEvent =
   | { type: "meta"; at: number; sessionId: string; model: string; usedTokens?: number; dropped?: number }
+  | { type: "assistant_start"; at: number; messageId: string }
+  | { type: "assistant_end"; at: number }
   | { type: "delta"; at: number; text: string }
-  | { type: "tool_call"; at: number; name: string; args: unknown }
-  | { type: "tool_result"; at: number; name: string; ok: boolean; result: unknown }
+  | { type: "tool_call"; at: number; callId?: string; name: string; args: unknown }
+  | { type: "tool_result"; at: number; callId?: string; name: string; ok: boolean; result: unknown }
   | { type: "done"; at: number }
   | { type: "error"; at: number; message: string };
 
