@@ -1,5 +1,5 @@
 import React from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 import { usePresence } from "../motion/usePresence";
 
@@ -12,6 +12,7 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
   const state = useAppState();
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const { present, motion } = usePresence(open, { exitMs: 220 });
 
@@ -100,12 +101,20 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
               key={s.id}
               className={"menu-item" + (active ? " active" : "")}
               onClick={() => {
-                dispatch({ type: "session/select", sessionId: s.id });
-
                 // Draft local sessions (no messages yet) should route to the landing view.
                 const hasLocalMsgs = (state.messagesBySession[s.id]?.length ?? 0) > 0;
                 const isDraft = Boolean(s.localOnly) && !hasLocalMsgs && !s.started;
-                navigate(isDraft ? "/" : `/session/${s.id}`);
+                if (isDraft) {
+                  // Landing has no session id in the URL, so we *do* use state here to pick
+                  // which draft session the landing composer will send messages to.
+                  dispatch({ type: "session/select", sessionId: s.id });
+                  navigate("/");
+                } else {
+                  navigate(`/session/${s.id}`, {
+                    // Nice touch: when jumping from Landing → Chat, trigger the dock animation.
+                    state: { dockFromLanding: location.pathname === "/" }
+                  });
+                }
                 onClose();
               }}
             >

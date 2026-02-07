@@ -1,5 +1,5 @@
 import React from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 import { runtime } from "../../core/runtime";
 import type { ChatEvent } from "../../core/types";
@@ -9,6 +9,7 @@ export function useSendMessage() {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const sendText = React.useCallback(
     async (text: string) => {
@@ -37,6 +38,18 @@ export function useSendMessage() {
 
       // Normal message
       const sessionId = state.activeSessionId;
+
+      // If the user is on the landing page, sending a message should transition into
+      // the chat route for the *current* active session. (Router-driven navigation.)
+      //
+      // Note: we do this early so the UI swaps views immediately, while the SSE stream
+      // continues to update global state.
+      if (location.pathname === "/") {
+        navigate(`/session/${encodeURIComponent(sessionId)}`, {
+          replace: true,
+          state: { dockFromLanding: true }
+        });
+      }
 
       // User message (local echo)
       dispatch({
@@ -181,6 +194,9 @@ export function useSendMessage() {
       state.transport,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
+      state.settings.execAccessMode,
+      location.pathname,
+      navigate,
       dispatch
     ]
   );
