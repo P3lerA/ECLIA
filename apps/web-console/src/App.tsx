@@ -9,7 +9,7 @@ import { PluginsView } from "./features/plugins/PluginsView";
 import { BackgroundRoot } from "./features/background/BackgroundRoot";
 import { applyTheme, subscribeSystemThemeChange, writeStoredThemeMode } from "./theme/theme";
 import { writeStoredPrefs } from "./persist/prefs";
-import { apiCreateSession, apiGetSession, apiListSessions, toUiSession } from "./core/api/sessions";
+import { apiGetSession, apiListSessions, toUiSession } from "./core/api/sessions";
 
 function getSessionIdFromPath(pathname: string): string | null {
   // /session/<session-id>
@@ -112,14 +112,9 @@ function AppInner() {
 
         const preferredId = urlSessionId ?? activeIdRef.current;
 
-        if (metas.length === 0) {
-          const created = await apiCreateSession({ id: preferredId, title: "New session" });
-          if (cancelled) return;
-
-          const s = { ...toUiSession(created), started: false };
-          dispatch({ type: "sessions/replace", sessions: [s], activeSessionId: s.id });
-          return;
-        }
+        // If the gateway has no persisted sessions yet, keep the local draft.
+        // A session directory should be created only when the first message is sent.
+        if (metas.length === 0) return;
 
         const sessions = metas.map((m) => ({ ...toUiSession(m), started: false }));
 
@@ -160,7 +155,7 @@ function AppInner() {
         if (cancelled) return;
 
         const ui = toUiSession(session);
-        dispatch({ type: "session/update", sessionId: sid, patch: ui });
+        dispatch({ type: "session/update", sessionId: sid, patch: { ...ui, localOnly: false } });
         dispatch({ type: "messages/set", sessionId: sid, messages });
       } catch {
         // Ignore (session may be local-only, or gateway offline).

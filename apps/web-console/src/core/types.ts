@@ -66,6 +66,15 @@ export type Session = {
   updatedAt?: number;
 
   /**
+   * localOnly=true means this session only exists in the browser state.
+   * It has not been created in the gateway store yet.
+   *
+   * This allows the UI to show a "draft" session (Landing screen) without
+   * creating an empty .eclia/sessions/<id>/ directory on disk.
+   */
+  localOnly?: boolean;
+
+  /**
    * UI hint: whether this session has entered the "chat" mode (vs Landing screen).
    * A cleared session can still be started=true (empty chat but stays in Chat view).
    */

@@ -52,7 +52,7 @@ export type Action =
   | { type: "session/add"; session: Session; makeActive?: boolean }
   | { type: "session/update"; sessionId: string; patch: Partial<Session> }
   | { type: "session/select"; sessionId: string }
-  | { type: "session/new" } // local-only fallback
+  | { type: "session/new" } // create a local-only draft session (no gateway folder until first message)
   | { type: "model/set"; model: string }
   | { type: "transport/set"; transport: TransportId }
   | { type: "settings/textureDisabled"; enabled: boolean }
@@ -125,13 +125,33 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, activeSessionId: action.sessionId };
 
     case "session/new": {
+      // Drop any previous *empty* local-only draft sessions.
+      // This prevents "New session" spam in the UI when the user clicks the
+      // button multiple times without sending anything.
+      const kept = state.sessions.filter((s) => {
+        if (!s.localOnly) return true;
+        const msgs = state.messagesBySession[s.id];
+        const hasMsgs = Array.isArray(msgs) && msgs.length > 0;
+        if (hasMsgs) return true;
+        // Keep if the UI explicitly entered chat mode (e.g. user cleared)
+        return Boolean(s.started);
+      });
+
       const id = makeId();
       const now = Date.now();
       const meta = "just now";
-      const session: Session = { id, title: "New session", meta, createdAt: now, updatedAt: now, started: false };
+      const session: Session = {
+        id,
+        title: "New session",
+        meta,
+        createdAt: now,
+        updatedAt: now,
+        localOnly: true,
+        started: false
+      };
       return {
         ...state,
-        sessions: [session, ...state.sessions],
+        sessions: [session, ...kept],
         activeSessionId: id,
         messagesBySession: { ...state.messagesBySession }
       };

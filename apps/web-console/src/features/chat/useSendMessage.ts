@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 import { runtime } from "../../core/runtime";
 import type { ChatEvent } from "../../core/types";
-import { apiCreateSession, apiGetSession, apiResetSession, toUiSession } from "../../core/api/sessions";
+import { apiGetSession, apiResetSession, toUiSession } from "../../core/api/sessions";
 
 export function useSendMessage() {
   const state = useAppState();
@@ -28,14 +28,9 @@ export function useSendMessage() {
       }
 
       if (trimmed === "/new") {
-        // Create a new session and return to Landing (started=false).
-        try {
-          const meta = await apiCreateSession("New session");
-          const session = { ...toUiSession(meta), started: false };
-          dispatch({ type: "session/add", session, makeActive: true });
-        } catch {
-          dispatch({ type: "session/new" });
-        }
+        // New session should be a *draft* (no gateway folder) until the first message.
+        // This prevents a pile of empty .eclia/sessions/<id>/ directories.
+        dispatch({ type: "session/new" });
         navigate("/", { replace: false });
         return;
       }
@@ -157,7 +152,11 @@ export function useSendMessage() {
         try {
           const { session, messages } = await apiGetSession(sessionId);
           const ui = toUiSession(session);
-          dispatch({ type: "session/update", sessionId, patch: { title: ui.title, updatedAt: ui.updatedAt, meta: ui.meta } });
+          dispatch({
+            type: "session/update",
+            sessionId,
+            patch: { title: ui.title, updatedAt: ui.updatedAt, meta: ui.meta, localOnly: false }
+          });
           dispatch({ type: "messages/set", sessionId, messages });
         } catch {
           // ignore

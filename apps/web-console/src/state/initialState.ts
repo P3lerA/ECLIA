@@ -23,6 +23,7 @@ export function makeInitialState(): AppState {
       meta: "just now",
       createdAt: now,
       updatedAt: now,
+      localOnly: true,
       started: false
     }
   ];
