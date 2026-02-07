@@ -2,6 +2,7 @@ import React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 import { runtime } from "../../core/runtime";
+import { makeId } from "../../core/ids";
 import type { ChatEvent } from "../../core/types";
 import { apiGetSession, apiResetSession, toUiSession } from "../../core/api/sessions";
 
@@ -56,7 +57,7 @@ export function useSendMessage() {
         type: "message/add",
         sessionId,
         message: {
-          id: crypto.randomUUID(),
+          id: makeId(),
           role: "user",
           createdAt: Date.now(),
           blocks: [{ type: "text", text: trimmed }]
@@ -64,7 +65,7 @@ export function useSendMessage() {
       });
 
       // Assistant streaming placeholder
-      const assistantId = crypto.randomUUID();
+      const assistantId = makeId();
       dispatch({ type: "assistant/stream/start", sessionId, messageId: assistantId });
 
       const transport = runtime.transports.get(state.transport);
@@ -74,7 +75,7 @@ export function useSendMessage() {
         dispatch({
           type: "log/push",
           item: {
-            id: crypto.randomUUID(),
+            id: makeId(),
             tab:
               evt.type === "tool_call" || evt.type === "tool_result"
                 ? "tools"
@@ -103,7 +104,7 @@ export function useSendMessage() {
           // A new assistant message phase (e.g. after tool execution).
           // Finalize any existing streaming message to keep ordering sane.
           dispatch({ type: "assistant/stream/finalize", sessionId });
-          dispatch({ type: "assistant/stream/start", sessionId, messageId: evt.messageId || crypto.randomUUID() });
+          dispatch({ type: "assistant/stream/start", sessionId, messageId: evt.messageId || makeId() });
         }
 
         if (evt.type === "assistant_end") {

@@ -1,6 +1,7 @@
 import React from "react";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 import { runtime } from "../../core/runtime";
+import { makeId } from "../../core/ids";
 import type { ChatEvent } from "../../core/types";
 
 export function Composer() {
@@ -14,7 +15,7 @@ export function Composer() {
     (tab: "events" | "tools" | "context", type: string, summary: string, data?: unknown) => {
       dispatch({
         type: "log/push",
-        item: { id: crypto.randomUUID(), tab, at: Date.now(), type, summary, data }
+        item: { id: makeId(), tab, at: Date.now(), type, summary, data }
       });
     },
     [dispatch]
@@ -26,7 +27,7 @@ export function Composer() {
         type: "message/add",
         sessionId: state.activeSessionId,
         message: {
-          id: crypto.randomUUID(),
+          id: makeId(),
           role: "user",
           createdAt: Date.now(),
           blocks: [{ type: "text", text: content }]
@@ -78,7 +79,7 @@ export function Composer() {
     dispatch({
       type: "assistant/stream/start",
       sessionId: state.activeSessionId,
-      messageId: crypto.randomUUID()
+      messageId: makeId()
     });
 
     pushLog("events", "send", `transport=${state.transport} model=${state.model}`, {
