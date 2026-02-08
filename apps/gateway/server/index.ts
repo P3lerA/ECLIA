@@ -1,4 +1,5 @@
 import http from "node:http";
+import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { loadEcliaConfig, writeLocalEcliaConfig, preflightListen, joinUrl, resolveUpstreamModel, type EcliaConfigPatch } from "@eclia/config";
@@ -118,6 +119,264 @@ function safeJsonStringify(v: unknown): string {
   } catch {
     return String(v);
   }
+}
+
+const MAX_INLINE_TEXT_BYTES = 24_000;
+const PREVIEW_TEXT_BYTES = 12_000;
+const MAX_SD_IMAGES = 4;
+
+type ArtifactRef = {
+  kind: "image" | "text" | "json";
+  path: string; // repo-relative path
+  bytes: number;
+  mime?: string;
+  sha256?: string;
+};
+
+function ensureDir(dir: string) {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch {
+    // ignore
+  }
+}
+
+function normalizeRelPath(p: string): string {
+  // Ensure a stable path format across platforms (use forward slashes).
+  return p.split(path.sep).join("/");
+}
+
+
+function safeFileToken(s: string): string {
+  const cleaned = String(s ?? "").replace(/[^a-zA-Z0-9._-]+/g, "_");
+  // Keep filenames reasonably short (some platforms have low limits).
+  return cleaned.length > 80 ? cleaned.slice(0, 80) : cleaned;
+}
+
+function sha256Hex(data: Buffer | string, encoding?: BufferEncoding): string {
+  const h = crypto.createHash("sha256");
+  if (typeof data === "string") h.update(data, encoding ?? "utf8");
+  else h.update(data);
+  return h.digest("hex");
+}
+
+function writeArtifact(
+  rootDir: string,
+  artifactsRoot: string,
+  relFile: string,
+  data: Buffer | string,
+  opts?: { encoding?: BufferEncoding }
+): { absPath: string; relPath: string; bytes: number; sha256: string } {
+  const absPath = path.join(artifactsRoot, relFile);
+  ensureDir(path.dirname(absPath));
+
+  if (typeof data === "string") fs.writeFileSync(absPath, data, opts?.encoding ?? "utf8");
+  else fs.writeFileSync(absPath, data);
+
+  const bytes = typeof data === "string" ? Buffer.byteLength(data, opts?.encoding ?? "utf8") : data.length;
+  const sha256 = sha256Hex(data, opts?.encoding);
+  const relPath = normalizeRelPath(path.relative(rootDir, absPath));
+
+  return { absPath, relPath, bytes, sha256 };
+}
+
+function truncateUtf8(s: string, maxBytes: number): string {
+  const buf = Buffer.from(s, "utf8");
+  if (buf.length <= maxBytes) return s;
+  return buf.subarray(0, maxBytes).toString("utf8");
+}
+
+function sniffImage(buf: Buffer): { ext: string; mime: string } {
+  // PNG
+  if (
+    buf.length >= 8 &&
+    buf[0] === 0x89 &&
+    buf[1] === 0x50 &&
+    buf[2] === 0x4e &&
+    buf[3] === 0x47 &&
+    buf[4] === 0x0d &&
+    buf[5] === 0x0a &&
+    buf[6] === 0x1a &&
+    buf[7] === 0x0a
+  ) {
+    return { ext: "png", mime: "image/png" };
+  }
+  // JPEG
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return { ext: "jpg", mime: "image/jpeg" };
+  }
+  // GIF
+  if (buf.length >= 6) {
+    const sig = buf.subarray(0, 6).toString("ascii");
+    if (sig === "GIF87a" || sig === "GIF89a") return { ext: "gif", mime: "image/gif" };
+  }
+  // WebP (RIFF....WEBP)
+  if (buf.length >= 12) {
+    const riff = buf.subarray(0, 4).toString("ascii");
+    const webp = buf.subarray(8, 12).toString("ascii");
+    if (riff === "RIFF" && webp === "WEBP") return { ext: "webp", mime: "image/webp" };
+  }
+  return { ext: "bin", mime: "application/octet-stream" };
+}
+
+function tryExtractStableDiffusionImages(args: {
+  stdout: string;
+  rootDir: string;
+  artifactsRoot: string;
+  sessionId: string;
+  callId: string;
+}): { stdout: string; artifacts: ArtifactRef[] } | null {
+  const s = args.stdout;
+  if (!s || s.length < 10) return null;
+  if (s[0] !== "{" || s.indexOf('"images"') < 0) return null;
+
+  let obj: any = null;
+  try {
+    obj = JSON.parse(s);
+  } catch {
+    return null;
+  }
+
+  if (!obj || typeof obj !== "object" || !Array.isArray(obj.images)) return null;
+
+  const rawImages = obj.images.filter((x: any) => typeof x === "string" && x.length > 100);
+  if (!rawImages.length) return null;
+
+  const artifacts: ArtifactRef[] = [];
+  const saved: Array<{ path: string; bytes: number; mime: string; sha256: string }> = [];
+
+  for (let i = 0; i < Math.min(rawImages.length, MAX_SD_IMAGES); i++) {
+    let b64 = String(rawImages[i]).trim();
+
+    // Accept data URLs as well: data:image/png;base64,....
+    const m = b64.match(/^data:([^;]+);base64,(.*)$/);
+    if (m) b64 = m[2];
+
+    // Remove whitespace defensively.
+    b64 = b64.replace(/\s+/g, "");
+
+    let buf: Buffer;
+    try {
+      buf = Buffer.from(b64, "base64");
+    } catch {
+      continue;
+    }
+    if (buf.length < 16) continue;
+
+    const { ext, mime } = sniffImage(buf);
+    const relFile = path.join(args.sessionId, `${safeFileToken(args.callId)}_sd_${i + 1}.${ext}`);
+    const w = writeArtifact(args.rootDir, args.artifactsRoot, relFile, buf);
+
+    artifacts.push({ kind: "image", path: w.relPath, bytes: w.bytes, mime, sha256: w.sha256 });
+    saved.push({ path: w.relPath, bytes: w.bytes, mime, sha256: w.sha256 });
+  }
+
+  if (!saved.length) return null;
+
+  const metaObj = { ...obj, images: saved };
+  const metaRelFile = path.join(args.sessionId, `${safeFileToken(args.callId)}_sd_response.json`);
+  const meta = writeArtifact(args.rootDir, args.artifactsRoot, metaRelFile, JSON.stringify(metaObj, null, 2));
+
+  artifacts.push({
+    kind: "json",
+    path: meta.relPath,
+    bytes: meta.bytes,
+    mime: "application/json",
+    sha256: meta.sha256
+  });
+
+  const summary = {
+    note: "Stable Diffusion response contained base64 images; extracted to artifacts.",
+    images: saved,
+    meta: meta.relPath
+  };
+
+  return { stdout: JSON.stringify(summary, null, 2), artifacts };
+}
+
+function externalizeLargeTextField(args: {
+  rootDir: string;
+  artifactsRoot: string;
+  sessionId: string;
+  callId: string;
+  output: any;
+  field: "stdout" | "stderr";
+  artifacts: ArtifactRef[];
+}) {
+  const v = args.output?.[args.field];
+  if (typeof v !== "string" || !v) return;
+
+  const bytes = Buffer.byteLength(v, "utf8");
+  if (bytes <= MAX_INLINE_TEXT_BYTES) return;
+
+  const relFile = path.join(args.sessionId, `${safeFileToken(args.callId)}_${args.field}.txt`);
+  const w = writeArtifact(args.rootDir, args.artifactsRoot, relFile, v);
+
+  args.artifacts.push({ kind: "text", path: w.relPath, bytes: w.bytes, mime: "text/plain", sha256: w.sha256 });
+
+  const preview = truncateUtf8(v, PREVIEW_TEXT_BYTES);
+  args.output[args.field] = `${preview}\n...[truncated, full ${args.field} saved to ${w.relPath}]`;
+
+  // Keep the toolhost's own truncation flags as-is; we add a separate marker.
+  args.output.redacted = { ...(args.output.redacted ?? {}), [args.field]: true };
+}
+
+function sanitizeExecResultForUiAndModel(args: {
+  rootDir: string;
+  sessionId: string;
+  callId: string;
+  output: any;
+}): any {
+  const out = args.output;
+  if (!out || typeof out !== "object" || out.type !== "exec_result") return out;
+
+  const artifactsRoot = path.join(args.rootDir, ".eclia", "artifacts");
+  ensureDir(artifactsRoot);
+
+  const artifacts: ArtifactRef[] = Array.isArray((out as any).artifacts) ? (out as any).artifacts : [];
+
+  // Special-case: Stable Diffusion WebUI API returns base64 images in JSON.
+  // Extract them to files so we don't freeze the UI or blow up the model context.
+  if (typeof (out as any).stdout === "string") {
+    const sd = tryExtractStableDiffusionImages({
+      stdout: (out as any).stdout,
+      rootDir: args.rootDir,
+      artifactsRoot,
+      sessionId: args.sessionId,
+      callId: args.callId
+    });
+
+    if (sd) {
+      (out as any).stdout = sd.stdout;
+      (out as any).redacted = { ...(out as any).redacted, stdout: true };
+      artifacts.push(...sd.artifacts);
+    }
+  }
+
+  // Generic safety: large stdout/stderr gets externalized to artifacts.
+  externalizeLargeTextField({
+    rootDir: args.rootDir,
+    artifactsRoot,
+    sessionId: args.sessionId,
+    callId: args.callId,
+    output: out,
+    field: "stdout",
+    artifacts
+  });
+
+  externalizeLargeTextField({
+    rootDir: args.rootDir,
+    artifactsRoot,
+    sessionId: args.sessionId,
+    callId: args.callId,
+    output: out,
+    field: "stderr",
+    artifacts
+  });
+
+  if (artifacts.length) (out as any).artifacts = artifacts;
+
+  return out;
 }
 
 function safeDecodeSegment(seg: string): string | null {
@@ -767,6 +1026,13 @@ async function handleChat(
           output = { ok: false, error: { code: "unknown_tool", message: `Unknown tool: ${name}` } };
         }
 
+// Prevent huge tool payloads (e.g. base64 images) from freezing the UI or blowing up the model context.
+if (output && typeof output === "object" && (output as any).type === "exec_result") {
+  output = sanitizeExecResultForUiAndModel({ rootDir, sessionId, callId: call.callId, output });
+}
+
+
+
         // Stream to UI
         send(res, "tool_result", { callId: call.callId, name, ok, result: output });
 
@@ -866,12 +1132,14 @@ async function main() {
 
   // MCP exec toolhost (stdio) ------------------------------------------------
 
-  const toolhostEntry = path.join(rootDir, "apps", "toolhost-exec", "server", "index.js");
+  const toolhostApp = process.platform === "win32" ? "toolhost-exec-win32" : "toolhost-exec-posix";
+  const toolhostEntry = path.join(rootDir, "apps", toolhostApp, "server", "index.js");
   const mcpExec = await McpStdioClient.spawn({
     command: process.execPath,
     argv: [toolhostEntry],
     cwd: rootDir,
-    env: process.env
+    env: process.env,
+    label: toolhostApp
   });
 
   // Discover tools (MCP tools/list) and adapt them to upstream OpenAI tool schema.

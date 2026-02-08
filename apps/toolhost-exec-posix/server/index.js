@@ -114,16 +114,12 @@ function resolveCwd(projectRoot, cwdArg) {
   return { ok: true, cwd: next };
 }
 
-function withHomebrewPath(env) {
+function withHomebrewPathDarwin(env) {
   // Apple Silicon default Homebrew prefix.
+  // NOTE: Only applies on macOS (darwin).
   const brewBins = ["/opt/homebrew/bin", "/opt/homebrew/sbin"];
 
-  const key = Object.prototype.hasOwnProperty.call(env, "PATH")
-    ? "PATH"
-    : Object.prototype.hasOwnProperty.call(env, "Path")
-      ? "Path"
-      : "PATH";
-
+  const key = "PATH";
   const current = String(env[key] ?? "");
   const delim = path.delimiter;
   const parts = current.split(delim).filter(Boolean);
@@ -132,13 +128,13 @@ function withHomebrewPath(env) {
   return { ...env, [key]: nextParts.join(delim) };
 }
 
+function applyPlatformPathFixes(env) {
+  if (process.platform === "darwin") return withHomebrewPathDarwin(env);
+  return env;
+}
+
 
 function defaultShell() {
-  if (process.platform === "win32") {
-    const file = process.env.ComSpec || "cmd.exe";
-    return { file, argsPrefix: ["/d", "/s", "/c"] };
-  }
-
   if (process.platform === "darwin") {
     return { file: "/bin/zsh", argsPrefix: ["-lc"] };
   }
@@ -149,7 +145,7 @@ function defaultShell() {
 
 function killTree(child) {
   try {
-    if (process.platform !== "win32" && child.pid) {
+    if (child.pid) {
       // When spawned with { detached: true }, the child becomes its own process group.
       // A negative PID targets the entire group.
       process.kill(-child.pid, "SIGKILL");
@@ -259,7 +255,7 @@ async function runExecTool(rawArgs, signal) {
     };
   }
 
-  const env = withHomebrewPath({ ...process.env, ...args.env });
+  const env = applyPlatformPathFixes({ ...process.env, ...args.env });
 
   let child;
   try {
@@ -267,9 +263,8 @@ async function runExecTool(rawArgs, signal) {
       cwd,
       shell: false,
       env,
-      windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
-      detached: process.platform !== "win32"
+      detached: true
     });
   } catch (e) {
     return {
@@ -447,7 +442,7 @@ let initialized = false;
 let shuttingDown = false;
 
 function log(...args) {
-  process.stderr.write(`[toolhost-exec] ${args.join(" ")}\n`);
+  process.stderr.write(`[toolhost-exec-posix] ${args.join(" ")}\n`);
 }
 
 async function handleRequest(msg) {
@@ -467,7 +462,7 @@ async function handleRequest(msg) {
       result: {
         protocolVersion: pv,
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "eclia-toolhost-exec", title: "ECLIA Exec Toolhost", version: "0.1.0" }
+        serverInfo: { name: "eclia-toolhost-exec-posix", title: "ECLIA Exec Toolhost (POSIX)", version: "0.1.0" }
       }
     };
   }

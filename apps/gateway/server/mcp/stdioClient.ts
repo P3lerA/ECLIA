@@ -39,6 +39,7 @@ export type McpCallToolResult = {
 
 export class McpStdioClient {
   private child: ChildProcessWithoutNullStreams;
+  private label: string;
   private nextId = 1;
   private pending = new Map<
     JsonRpcId,
@@ -46,8 +47,9 @@ export class McpStdioClient {
   >();
   private closed = false;
 
-  private constructor(child: ChildProcessWithoutNullStreams) {
+  private constructor(child: ChildProcessWithoutNullStreams, label: string) {
     this.child = child;
+    this.label = label;
 
     const rl = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
     rl.on("line", (line) => this.onLine(line));
@@ -56,13 +58,13 @@ export class McpStdioClient {
       // MCP stdio reserves stderr for logs.
       // Keep it visible in gateway logs for diagnosis.
       const s = buf.toString("utf-8");
-      if (s.trim()) console.warn("[toolhost-exec]", s.trimEnd());
+      if (s.trim()) console.warn(`[${this.label}]`, s.trimEnd());
     });
 
     const onExit = (why: string) => {
       if (this.closed) return;
       this.closed = true;
-      const err = new Error(`MCP toolhost exited (${why})`);
+      const err = new Error(`MCP toolhost '${this.label}' exited (${why})`);
       for (const [, p] of this.pending) {
         if (p.timer) clearTimeout(p.timer);
         p.reject(err);
@@ -74,14 +76,20 @@ export class McpStdioClient {
     child.on("error", (e) => onExit(String(e?.message ?? e)));
   }
 
-  static async spawn(args: { command: string; argv: string[]; cwd?: string; env?: NodeJS.ProcessEnv }): Promise<McpStdioClient> {
+  static async spawn(args: {
+    command: string;
+    argv: string[];
+    cwd?: string;
+    env?: NodeJS.ProcessEnv;
+    label?: string;
+  }): Promise<McpStdioClient> {
     const child = spawn(args.command, args.argv, {
       cwd: args.cwd,
       env: args.env,
       stdio: ["pipe", "pipe", "pipe"]
     });
 
-    const client = new McpStdioClient(child);
+    const client = new McpStdioClient(child, args.label ?? "toolhost");
 
     // Lifecycle: initialize -> initialized
     const initRes = await client.request("initialize", {
