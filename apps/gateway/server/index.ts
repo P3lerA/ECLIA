@@ -7,10 +7,9 @@ import type { SessionDetail, SessionEventV1, StoredMessage } from "./sessionType
 import { buildTruncatedContext } from "./context";
 import { blocksFromAssistantRaw, inferVendorFromBaseUrl, textBlock } from "./normalize";
 import { ToolApprovalHub, type ToolApprovalDecision } from "./tools/approvalHub";
-import { parseExecArgs } from "./tools/execTool";
+import { parseExecArgs, runExecTool } from "./tools/execTool";
 import { checkExecNeedsApproval, loadExecAllowlist, type ToolAccessMode } from "./tools/policy";
-import { EXEC_TOOL_NAME, EXECUTION_TOOL_NAME } from "./tools/toolSchemas";
-import { McpStdioClient, type McpToolDef } from "./mcp/stdioClient";
+import { EXEC_TOOL_NAME, EXECUTION_TOOL_NAME, TOOL_DEFINITIONS } from "./tools/toolSchemas";
 
 type ChatReqBody = {
   sessionId?: string;
@@ -407,20 +406,7 @@ async function streamOpenAICompatTurn(args: {
   return { assistantText, toolCalls: toolCallsAcc.calls, finishReason };
 }
 
-async function handleChat(
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
-  store: SessionStore,
-  approvals: ToolApprovalHub,
-  toolhost: {
-    mcp: McpStdioClient;
-    toolsForModel: any[];
-    nameToMcpTool: (name: string) => string;
-  }
-) {
-  const mcpExec = toolhost.mcp;
-  const toolsForModel = toolhost.toolsForModel;
-  const nameToMcpTool = toolhost.nameToMcpTool;
+async function handleChat(req: http.IncomingMessage, res: http.ServerResponse, store: SessionStore, approvals: ToolApprovalHub) {
   const body = (await readJson(req)) as ChatReqBody;
 
   const sessionId = String(body.sessionId ?? "").trim();
@@ -546,7 +532,7 @@ async function handleChat(
         model: upstreamModel,
         messages: upstreamMessages,
         signal: upstreamAbort.signal,
-        tools: toolsForModel,
+        tools: TOOL_DEFINITIONS,
         onDelta: (text) => send(res, "delta", { text })
       });
 
@@ -677,56 +663,6 @@ async function handleChat(
             const check = checkExecNeedsApproval(execArgs ?? {}, toolAccessMode, execAllowlist);
             const waiter = approvalWaiters.get(call.callId);
 
-            const invokeExec = async (): Promise<{ ok: boolean; result: any }> => {
-              const mcpToolName = nameToMcpTool(name);
-              const callTimeoutMs = Math.max(
-                5_000,
-                Math.min(60 * 60_000, (execArgs?.timeoutMs ?? 60_000) + 15_000)
-              );
-
-              let mcpOut: any;
-              try {
-                mcpOut = await mcpExec.callTool(mcpToolName, parsed, { timeoutMs: callTimeoutMs });
-              } catch (e: any) {
-                const msg = String(e?.message ?? e);
-                return {
-                  ok: false,
-                  result: {
-                    type: "exec_result",
-                    ok: false,
-                    error: { code: "toolhost_error", message: msg },
-                    args: execArgs ?? parsed
-                  }
-                };
-              }
-
-              const firstText = Array.isArray(mcpOut?.content)
-                ? (mcpOut.content.find((c: any) => c && c.type === "text" && typeof c.text === "string") as any)?.text
-                : "";
-
-              let execOut: any = null;
-              try {
-                execOut = firstText ? JSON.parse(firstText) : null;
-              } catch {
-                execOut = null;
-              }
-
-              if (!execOut || typeof execOut !== "object") {
-                return {
-                  ok: false,
-                  result: {
-                    type: "exec_result",
-                    ok: false,
-                    error: { code: "toolhost_bad_result", message: "Toolhost returned an invalid result" },
-                    raw: firstText || safeJsonStringify(mcpOut)
-                  }
-                };
-              }
-
-              const nextOk = Boolean(execOut.ok) && !mcpOut?.isError;
-              return { ok: nextOk, result: { ...execOut, ok: nextOk } };
-            };
-
             if (check.requireApproval) {
               const decision = waiter ? await waiter.wait : { decision: "deny" as const, timedOut: false };
               if (decision.decision !== "approve") {
@@ -742,22 +678,20 @@ async function handleChat(
                   args: execArgs ?? parsed
                 };
               } else {
-                const r = await invokeExec();
-                ok = r.ok;
+                const execOut = await runExecTool(parsed, { projectRoot: rootDir, signal: upstreamAbort.signal });
+                ok = Boolean(execOut.ok);
                 output = {
                   type: "exec_result",
-                  ...r.result,
-                  ok,
+                  ...execOut,
                   policy: { mode: toolAccessMode, ...check, approvalId: waiter?.approvalId, decision: "approve" }
                 };
               }
             } else {
-              const r = await invokeExec();
-              ok = r.ok;
+              const execOut = await runExecTool(parsed, { projectRoot: rootDir, signal: upstreamAbort.signal });
+              ok = Boolean(execOut.ok);
               output = {
                 type: "exec_result",
-                ...r.result,
-                ok,
+                ...execOut,
                 policy: { mode: toolAccessMode, ...check }
               };
             }
@@ -864,55 +798,6 @@ async function main() {
   const { config, rootDir } = loadEcliaConfig(process.cwd());
   const port = config.api.port;
 
-  // MCP exec toolhost (stdio) ------------------------------------------------
-
-  const toolhostEntry = path.join(rootDir, "apps", "toolhost-exec", "server", "index.js");
-  const mcpExec = await McpStdioClient.spawn({
-    command: process.execPath,
-    argv: [toolhostEntry],
-    cwd: rootDir,
-    env: process.env
-  });
-
-  // Discover tools (MCP tools/list) and adapt them to upstream OpenAI tool schema.
-  const mcpTools = await mcpExec.listTools();
-  const execTool = mcpTools.find((t) => t && t.name === "exec");
-  if (!execTool) {
-    console.error(`[gateway] fatal: toolhost did not expose required tool: exec`);
-    process.exit(1);
-  }
-
-  const parameters = (execTool as McpToolDef).inputSchema ?? { type: "object" };
-
-  const toolsForModel = [
-    {
-      type: "function",
-      function: {
-        name: EXEC_TOOL_NAME,
-        description:
-          execTool.description ||
-          "Execute a command on the local machine. Prefer 'cmd'+'args' for safety. Returns stdout/stderr/exitCode.",
-        parameters
-      }
-    },
-    {
-      type: "function",
-      function: {
-        name: EXECUTION_TOOL_NAME,
-        description:
-          execTool.description ||
-          "Alias of 'exec'. Execute a command on the local machine. Prefer 'cmd'+'args' for safety.",
-        parameters
-      }
-    }
-  ];
-
-  const toolhost = {
-    mcp: mcpExec,
-    toolsForModel,
-    nameToMcpTool: (name: string) => (name === EXECUTION_TOOL_NAME ? EXEC_TOOL_NAME : name)
-  };
-
   // Session store lives under <repo>/.eclia by default.
   const dataDir = path.join(rootDir, ".eclia");
   const store = new SessionStore(dataDir);
@@ -946,7 +831,7 @@ async function main() {
 
     if (pathname === "/api/tool-approvals") return await handleToolApprovals(req, res, approvals);
 
-    if (pathname === "/api/chat" && req.method === "POST") return await handleChat(req, res, store, approvals, toolhost);
+    if (pathname === "/api/chat" && req.method === "POST") return await handleChat(req, res, store, approvals);
 
     json(res, 404, { ok: false, error: "not_found" });
   });
