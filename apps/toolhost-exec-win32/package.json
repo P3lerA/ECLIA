@@ -1,9 +1,0 @@
-{
-  "name": "toolhost-exec-win32",
-  "private": true,
-  "version": "0.1.0",
-  "type": "module",
-  "scripts": {
-    "dev": "node server/index.js"
-  }
-}
