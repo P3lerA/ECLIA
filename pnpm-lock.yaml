@@ -36,6 +36,9 @@ importers:
       '@eclia/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@eclia/tool-protocol':
+        specifier: workspace:*
+        version: link:../../packages/tool-protocol
     devDependencies:
       '@types/node':
         specifier: ^20.19.0
@@ -47,9 +50,17 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
-  apps/toolhost-exec-posix: {}
+  apps/toolhost-exec-posix:
+    dependencies:
+      '@eclia/tool-protocol':
+        specifier: workspace:*
+        version: link:../../packages/tool-protocol
 
-  apps/toolhost-exec-win32: {}
+  apps/toolhost-exec-win32:
+    dependencies:
+      '@eclia/tool-protocol':
+        specifier: workspace:*
+        version: link:../../packages/tool-protocol
 
   apps/web-console:
     dependencies:
@@ -96,6 +107,8 @@ importers:
       '@iarna/toml':
         specifier: ^2.2.5
         version: 2.2.5
+
+  packages/tool-protocol: {}
 
 packages:
 

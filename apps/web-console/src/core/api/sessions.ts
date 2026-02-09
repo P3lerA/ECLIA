@@ -39,6 +39,9 @@ export async function apiCreateSession(
   arg?: string | { title?: string; id?: string }
 ): Promise<SessionMeta> {
   const payload: any = {};
+  // Let the gateway know this session is attached to the web console.
+  // (Tools like `send` can use this metadata to route outputs later.)
+  payload.origin = { kind: "web" };
   if (typeof arg === "string") {
     payload.title = arg;
   } else if (arg && typeof arg === "object") {

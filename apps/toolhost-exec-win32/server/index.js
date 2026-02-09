@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { parseExecArgs, artifactRefFromRepoRelPath } from "@eclia/tool-protocol";
+
 
 /**
  * Minimal MCP stdio server that exposes a single tool: `exec`.
@@ -53,50 +55,6 @@ function nowMs() {
 }
 
 // --- Exec implementation ----------------------------------------------------
-
-function clampInt(v, fallback, min, max) {
-  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
-  if (!Number.isFinite(n)) return fallback;
-  const i = Math.trunc(n);
-  if (i < min) return min;
-  if (i > max) return max;
-  return i;
-}
-
-function toStringArray(v) {
-  if (!Array.isArray(v)) return [];
-  return v.map((x) => String(x));
-}
-
-function normalizeEnv(extra) {
-  if (!isRecord(extra)) return {};
-  const out = {};
-  for (const [k, v] of Object.entries(extra)) {
-    if (typeof v === "string") out[k] = v;
-  }
-  return out;
-}
-
-/**
- * Best-effort arg normalization.
- * - Defaults match gateway's previous in-process exec.
- */
-function parseExecArgs(raw) {
-  const obj = isRecord(raw) ? raw : {};
-  const cmd = typeof obj.cmd === "string" && obj.cmd.trim() ? obj.cmd.trim() : undefined;
-  const command = typeof obj.command === "string" && obj.command.trim() ? obj.command.trim() : undefined;
-
-  return {
-    cmd,
-    args: toStringArray(obj.args),
-    command,
-    cwd: typeof obj.cwd === "string" && obj.cwd.trim() ? obj.cwd.trim() : undefined,
-    timeoutMs: clampInt(obj.timeoutMs, 60_000, 1_000, 60 * 60_000),
-    maxStdoutBytes: clampInt(obj.maxStdoutBytes, 200_000, 1_000, 20_000_000),
-    maxStderrBytes: clampInt(obj.maxStderrBytes, 200_000, 1_000, 20_000_000),
-    env: normalizeEnv(obj.env)
-  };
-}
 
 function resolveCwd(projectRoot, cwdArg) {
   const root = path.resolve(projectRoot);
@@ -223,9 +181,13 @@ function collectArtifacts(artifactDirAbs, projectRootAbs) {
         const st = fs.statSync(abs);
         const mime = guessMimeFromPath(abs);
         const rel = normalizeRelPath(path.relative(projectRootAbs, abs));
+        const { uri, ref } = artifactRefFromRepoRelPath(rel);
         artifacts.push({
           kind: kindFromMime(mime, abs),
           path: rel,
+          uri,
+          ref,
+          role: "artifact",
           bytes: st.size,
           mime,
           sha256: sha256FileMaybe(abs, 5_000_000)
@@ -237,6 +199,23 @@ function collectArtifacts(artifactDirAbs, projectRootAbs) {
   }
 
   return artifacts;
+}
+
+function resourceLinksFromArtifacts(artifacts) {
+  if (!Array.isArray(artifacts) || !artifacts.length) return [];
+  const out = [];
+  for (const a of artifacts) {
+    const uri = typeof a?.uri === "string" ? a.uri : "";
+    if (!uri) continue;
+
+    const p = typeof a?.path === "string" ? a.path : "";
+    const name = typeof a?.name === "string" && a.name.trim() ? a.name.trim() : p ? path.basename(p) : "artifact";
+    const mimeType = typeof a?.mime === "string" ? a.mime : undefined;
+    const description = typeof a?.ref === "string" && a.ref ? a.ref : p ? p : undefined;
+
+    out.push({ type: "resource_link", uri, name, mimeType, description });
+  }
+  return out;
 }
 
 function readEcliaMeta(rawArgs) {
@@ -371,12 +350,21 @@ async function runExecTool(rawArgs, signal) {
         }
       : baseEnv;
 
+  // IMPORTANT:
+  // When spawning cmd.exe, Node's default Windows argument quoting can break
+  // complex strings (especially nested quotes), which in turn breaks PowerShell
+  // "-Command" payloads. Using verbatim args makes cmd.exe parsing much more
+  // predictable.
+  const isCmdExe =
+    typeof effectiveFile === "string" && path.basename(effectiveFile).toLowerCase() === "cmd.exe";
+
   let child;
   try {
     child = spawn(effectiveFile, effectiveArgs, {
       cwd,
       shell: false,
       env,
+      windowsVerbatimArguments: isCmdExe,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
       detached: false
@@ -528,7 +516,7 @@ async function runExecTool(rawArgs, signal) {
 const EXEC_TOOL_DEF = {
   name: "exec",
   title: "Execute Command",
-  description: "Execute a command on this machine (Windows). Prefer cmd+args. For large/binary outputs, write files to %ECLIA_ARTIFACT_DIR% (or $env:ECLIA_ARTIFACT_DIR in PowerShell). Avoid printing huge base64 blobs; decode to a file instead. Files created there will be returned as artifacts (downloadable). Returns stdout/stderr/exitCode.",
+  description: "Execute a command on this machine (Windows). Prefer cmd+args. For large/binary outputs, write files to %ECLIA_ARTIFACT_DIR% (or $env:ECLIA_ARTIFACT_DIR in PowerShell). Avoid printing huge base64 blobs; decode to a file instead. Files created there will be returned as artifacts. Each artifact includes: path (repo-relative), uri (eclia://artifact/...), and ref (<eclia://artifact/...>) for copy/paste referencing. Returns stdout/stderr/exitCode.",
   inputSchema: {
     type: "object",
     properties: {
@@ -625,13 +613,18 @@ async function handleRequest(msg) {
 
     const r = await runExecTool(toolArgs, undefined);
 
-    // Result content is a single JSON object encoded as text.
-    // This keeps the gateway's tool_result handling stable, while remaining MCP compliant.
+    // MCP-native output:
+    // - structuredContent is the canonical machine-readable payload
+    // - content includes a JSON text fallback + resource_link blocks for artifacts
+    const artifacts = Array.isArray(r?.artifacts) ? r.artifacts : [];
+    const content = [{ type: "text", text: JSON.stringify(r) }, ...resourceLinksFromArtifacts(artifacts)];
+
     return {
       jsonrpc: "2.0",
       id,
       result: {
-        content: [{ type: "text", text: JSON.stringify(r) }],
+        structuredContent: r,
+        content,
         isError: !r.ok
       }
     };

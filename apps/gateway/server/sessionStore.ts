@@ -46,6 +46,7 @@ function coerceMeta(v: any, fallbackId: string): SessionMetaV1 {
     title: typeof v?.title === "string" && v.title.trim() ? v.title : "New session",
     createdAt: typeof v?.createdAt === "number" ? v.createdAt : now,
     updatedAt: typeof v?.updatedAt === "number" ? v.updatedAt : now,
+    origin: v?.origin && typeof v.origin === "object" ? v.origin : undefined,
     lastModel: typeof v?.lastModel === "string" ? v.lastModel : undefined
   };
 }

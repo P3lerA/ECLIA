@@ -5,5 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node server/index.js"
+  },
+  "dependencies": {
+    "@eclia/tool-protocol": "workspace:*"
   }
 }

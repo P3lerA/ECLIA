@@ -1,30 +1,10 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { parseExecArgs, type NormalizedExecToolArgs } from "@eclia/tool-protocol";
+export { parseExecArgs } from "@eclia/tool-protocol";
 
-export type ExecToolArgs = {
-  /**
-   * Preferred: run an executable directly (no intermediate shell).
-   */
-  cmd?: string;
-  args?: string[];
+export type ExecToolArgs = NormalizedExecToolArgs;
 
-  /**
-   * Power form: run via shell (zsh -lc on macOS).
-   */
-  command?: string;
-
-  /**
-   * Working directory:
-   * - relative paths resolve from projectRoot
-   * - absolute paths are allowed (explicit escape hatch)
-   */
-  cwd?: string;
-
-  timeoutMs?: number;
-  maxStdoutBytes?: number;
-  maxStderrBytes?: number;
-  env?: Record<string, string>;
-};
 
 export type ExecToolResult = {
   ok: boolean;
@@ -42,58 +22,6 @@ export type ExecToolResult = {
   aborted: boolean;
   error?: { code: string; message: string };
 };
-
-function isRecord(v: unknown): v is Record<string, any> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function clampInt(v: unknown, fallback: number, min: number, max: number): number {
-  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
-  if (!Number.isFinite(n)) return fallback;
-  const i = Math.trunc(n);
-  if (i < min) return min;
-  if (i > max) return max;
-  return i;
-}
-
-function toStringArray(v: unknown): string[] {
-  if (!Array.isArray(v)) return [];
-  const out: string[] = [];
-  for (const x of v) {
-    if (typeof x === "string") out.push(x);
-    else if (typeof x === "number" && Number.isFinite(x)) out.push(String(x));
-  }
-  return out;
-}
-
-function normalizeEnv(extra: unknown): Record<string, string> {
-  if (!isRecord(extra)) return {};
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(extra)) {
-    if (typeof v === "string") out[k] = v;
-  }
-  return out;
-}
-
-/**
- * Best-effort arg normalization. This is used by the policy checker.
- */
-export function parseExecArgs(raw: unknown): ExecToolArgs {
-  const obj = isRecord(raw) ? raw : {};
-  const cmd = typeof obj.cmd === "string" && obj.cmd.trim() ? obj.cmd.trim() : undefined;
-  const command = typeof obj.command === "string" && obj.command.trim() ? obj.command.trim() : undefined;
-
-  return {
-    cmd,
-    args: toStringArray(obj.args),
-    command,
-    cwd: typeof obj.cwd === "string" && obj.cwd.trim() ? obj.cwd.trim() : undefined,
-    timeoutMs: clampInt(obj.timeoutMs, 60_000, 1_000, 60 * 60_000),
-    maxStdoutBytes: clampInt(obj.maxStdoutBytes, 200_000, 1_000, 20_000_000),
-    maxStderrBytes: clampInt(obj.maxStderrBytes, 200_000, 1_000, 20_000_000),
-    env: normalizeEnv(obj.env)
-  };
-}
 
 function resolveCwd(projectRoot: string, cwdArg?: string): { ok: true; cwd: string } | { ok: false; error: string } {
   const root = path.resolve(projectRoot);

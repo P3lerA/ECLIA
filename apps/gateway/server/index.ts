@@ -10,6 +10,7 @@ import { buildTruncatedContext } from "./context";
 import { blocksFromAssistantRaw, inferVendorFromBaseUrl, textBlock } from "./normalize";
 import { ToolApprovalHub, type ToolApprovalDecision } from "./tools/approvalHub";
 import { parseExecArgs } from "./tools/execTool";
+import { artifactRefFromRepoRelPath } from "@eclia/tool-protocol";
 import { checkExecNeedsApproval, loadExecAllowlist, type ToolAccessMode } from "./tools/policy";
 import { EXEC_TOOL_NAME, EXECUTION_TOOL_NAME } from "./tools/toolSchemas";
 import { McpStdioClient, type McpToolDef } from "./mcp/stdioClient";
@@ -62,8 +63,27 @@ function sseHeaders() {
   return {
     "Content-Type": "text/event-stream; charset=utf-8",
     "Cache-Control": "no-cache, no-transform",
-    "Connection": "keep-alive"
+    "Connection": "keep-alive",
+
+    // Reduce the chance that proxies buffer SSE.
+    // (Some reverse proxies like nginx honor this header.)
+    "X-Accel-Buffering": "no"
   };
+}
+
+function initSse(res: http.ServerResponse) {
+  try {
+    // Push headers immediately.
+    (res as any).flushHeaders?.();
+  } catch {
+    // ignore
+  }
+  try {
+    // Reduce packet coalescing (Nagle) for more responsive streaming.
+    (res.socket as any)?.setNoDelay?.(true);
+  } catch {
+    // ignore
+  }
 }
 
 function send(res: http.ServerResponse, event: string, data: any) {
@@ -129,6 +149,9 @@ const MAX_SHA256_BYTES = 5_000_000;
 type ArtifactRef = {
   kind: "image" | "text" | "json" | "file";
   path: string; // repo-relative path
+  uri?: string;
+  ref?: string;
+  role?: string;
   bytes: number;
   mime?: string;
   sha256?: string;
@@ -209,7 +232,18 @@ async function externalizeLargeTextField(args: {
     encoding: "utf8"
   });
 
-  args.artifacts.push({ kind: "text", path: w.relPath, bytes: w.bytes, mime: "text/plain", sha256: w.sha256 });
+  const { uri, ref } = artifactRefFromRepoRelPath(w.relPath);
+
+  args.artifacts.push({
+    kind: "text",
+    path: w.relPath,
+    uri,
+    ref,
+    role: args.field,
+    bytes: w.bytes,
+    mime: "text/plain",
+    sha256: w.sha256
+  });
 
   const preview = truncateUtf8(v, PREVIEW_TEXT_BYTES);
   args.output[args.field] = `${preview}\n...[truncated, full ${args.field} saved to ${w.relPath}]`;
@@ -453,6 +487,7 @@ async function handleSessions(req: http.IncomingMessage, res: http.ServerRespons
     const body = (await readJson(req)) as any;
     const title = typeof body?.title === "string" ? body.title : undefined;
     const id = typeof body?.id === "string" ? body.id : undefined;
+    const origin = body?.origin && typeof body.origin === "object" ? body.origin : undefined;
 
     try {
       let meta = id
@@ -461,9 +496,15 @@ async function handleSessions(req: http.IncomingMessage, res: http.ServerRespons
             id,
             title: title && title.trim() ? title.trim() : "New session",
             createdAt: Date.now(),
-            updatedAt: Date.now()
+            updatedAt: Date.now(),
+            origin
           })
         : await store.createSession(title);
+
+      if (!id && origin) {
+        // For new sessions, persist origin metadata (used by tools like `send`).
+        meta = await store.updateMeta(meta.id, { origin });
+      }
 
       // If caller provided a title and the existing session is still default, update it.
       if (id && title && title.trim() && meta.title === "New session") {
@@ -694,6 +735,7 @@ async function handleChat(
   // Build OpenAI-compatible request.
   if (provider !== "openai_compat") {
     res.writeHead(200, sseHeaders());
+    initSse(res);
     send(res, "meta", { sessionId, model: routeModel });
     send(res, "error", { message: `Unsupported provider: ${provider}` });
     send(res, "done", {});
@@ -708,6 +750,7 @@ async function handleChat(
 
   if (!apiKey.trim()) {
     res.writeHead(200, sseHeaders());
+    initSse(res);
     send(res, "meta", { sessionId, model: routeModel });
     send(res, "error", {
       message:
@@ -724,6 +767,7 @@ async function handleChat(
   const { messages: contextMessages, usedTokens, dropped } = buildTruncatedContext(history, tokenLimit);
 
   res.writeHead(200, sseHeaders());
+  initSse(res);
   send(res, "meta", { sessionId, model: routeModel, usedTokens, dropped });
 
   const url = joinUrl(baseUrl, "/chat/completions");
@@ -926,11 +970,17 @@ async function handleChat(
                 ? (mcpOut.content.find((c: any) => c && c.type === "text" && typeof c.text === "string") as any)?.text
                 : "";
 
+              // Prefer MCP structuredContent when available (canonical machine-readable payload).
+              // Fall back to parsing the first text block for backward compatibility.
               let execOut: any = null;
-              try {
-                execOut = firstText ? JSON.parse(firstText) : null;
-              } catch {
-                execOut = null;
+              if (mcpOut && typeof mcpOut === "object" && (mcpOut as any).structuredContent && typeof (mcpOut as any).structuredContent === "object") {
+                execOut = (mcpOut as any).structuredContent;
+              } else {
+                try {
+                  execOut = firstText ? JSON.parse(firstText) : null;
+                } catch {
+                  execOut = null;
+                }
               }
 
               if (!execOut || typeof execOut !== "object") {

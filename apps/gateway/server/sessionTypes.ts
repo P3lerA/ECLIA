@@ -85,6 +85,17 @@ export type SessionMetaV1 = {
   updatedAt: number;
 
   /**
+   * Optional: where this session lives (used by tools like `send`).
+   * Examples:
+   * - { kind: "web" }
+   * - { kind: "discord", channelId: "...", threadId: "..." }
+   */
+  origin?: {
+    kind: string;
+    [k: string]: unknown;
+  };
+
+  /**
    * Optional: last used route key / upstream model, for UX.
    */
   lastModel?: string;
