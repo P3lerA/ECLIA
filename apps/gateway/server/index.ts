@@ -1,5 +1,6 @@
 import http from "node:http";
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { loadEcliaConfig, writeLocalEcliaConfig, preflightListen, joinUrl, resolveUpstreamModel, type EcliaConfigPatch } from "@eclia/config";
@@ -123,29 +124,20 @@ function safeJsonStringify(v: unknown): string {
 
 const MAX_INLINE_TEXT_BYTES = 24_000;
 const PREVIEW_TEXT_BYTES = 12_000;
-const MAX_SD_IMAGES = 4;
+const MAX_SHA256_BYTES = 5_000_000;
 
 type ArtifactRef = {
-  kind: "image" | "text" | "json";
+  kind: "image" | "text" | "json" | "file";
   path: string; // repo-relative path
   bytes: number;
   mime?: string;
   sha256?: string;
 };
 
-function ensureDir(dir: string) {
-  try {
-    fs.mkdirSync(dir, { recursive: true });
-  } catch {
-    // ignore
-  }
-}
-
 function normalizeRelPath(p: string): string {
   // Ensure a stable path format across platforms (use forward slashes).
   return p.split(path.sep).join("/");
 }
-
 
 function safeFileToken(s: string): string {
   const cleaned = String(s ?? "").replace(/[^a-zA-Z0-9._-]+/g, "_");
@@ -160,23 +152,30 @@ function sha256Hex(data: Buffer | string, encoding?: BufferEncoding): string {
   return h.digest("hex");
 }
 
-function writeArtifact(
-  rootDir: string,
-  artifactsRoot: string,
-  relFile: string,
-  data: Buffer | string,
-  opts?: { encoding?: BufferEncoding }
-): { absPath: string; relPath: string; bytes: number; sha256: string } {
-  const absPath = path.join(artifactsRoot, relFile);
-  ensureDir(path.dirname(absPath));
+async function writeArtifact(args: {
+  rootDir: string;
+  artifactsRoot: string;
+  relFile: string;
+  data: Buffer | string;
+  encoding?: BufferEncoding;
+}): Promise<{ absPath: string; relPath: string; bytes: number; sha256?: string }> {
+  const absPath = path.join(args.artifactsRoot, args.relFile);
+  try {
+    await fsp.mkdir(path.dirname(absPath), { recursive: true });
+  } catch {
+    // ignore
+  }
 
-  if (typeof data === "string") fs.writeFileSync(absPath, data, opts?.encoding ?? "utf8");
-  else fs.writeFileSync(absPath, data);
+  if (typeof args.data === "string") await fsp.writeFile(absPath, args.data, args.encoding ?? "utf8");
+  else await fsp.writeFile(absPath, args.data);
 
-  const bytes = typeof data === "string" ? Buffer.byteLength(data, opts?.encoding ?? "utf8") : data.length;
-  const sha256 = sha256Hex(data, opts?.encoding);
-  const relPath = normalizeRelPath(path.relative(rootDir, absPath));
+  const bytes =
+    typeof args.data === "string" ? Buffer.byteLength(args.data, args.encoding ?? "utf8") : args.data.length;
 
+  // Hashing huge strings/buffers is expensive and (for our purposes) not always worth it.
+  const sha256 = bytes <= MAX_SHA256_BYTES ? sha256Hex(args.data, args.encoding) : undefined;
+
+  const relPath = normalizeRelPath(path.relative(args.rootDir, absPath));
   return { absPath, relPath, bytes, sha256 };
 }
 
@@ -186,115 +185,7 @@ function truncateUtf8(s: string, maxBytes: number): string {
   return buf.subarray(0, maxBytes).toString("utf8");
 }
 
-function sniffImage(buf: Buffer): { ext: string; mime: string } {
-  // PNG
-  if (
-    buf.length >= 8 &&
-    buf[0] === 0x89 &&
-    buf[1] === 0x50 &&
-    buf[2] === 0x4e &&
-    buf[3] === 0x47 &&
-    buf[4] === 0x0d &&
-    buf[5] === 0x0a &&
-    buf[6] === 0x1a &&
-    buf[7] === 0x0a
-  ) {
-    return { ext: "png", mime: "image/png" };
-  }
-  // JPEG
-  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
-    return { ext: "jpg", mime: "image/jpeg" };
-  }
-  // GIF
-  if (buf.length >= 6) {
-    const sig = buf.subarray(0, 6).toString("ascii");
-    if (sig === "GIF87a" || sig === "GIF89a") return { ext: "gif", mime: "image/gif" };
-  }
-  // WebP (RIFF....WEBP)
-  if (buf.length >= 12) {
-    const riff = buf.subarray(0, 4).toString("ascii");
-    const webp = buf.subarray(8, 12).toString("ascii");
-    if (riff === "RIFF" && webp === "WEBP") return { ext: "webp", mime: "image/webp" };
-  }
-  return { ext: "bin", mime: "application/octet-stream" };
-}
-
-function tryExtractStableDiffusionImages(args: {
-  stdout: string;
-  rootDir: string;
-  artifactsRoot: string;
-  sessionId: string;
-  callId: string;
-}): { stdout: string; artifacts: ArtifactRef[] } | null {
-  const s = args.stdout;
-  if (!s || s.length < 10) return null;
-  if (s[0] !== "{" || s.indexOf('"images"') < 0) return null;
-
-  let obj: any = null;
-  try {
-    obj = JSON.parse(s);
-  } catch {
-    return null;
-  }
-
-  if (!obj || typeof obj !== "object" || !Array.isArray(obj.images)) return null;
-
-  const rawImages = obj.images.filter((x: any) => typeof x === "string" && x.length > 100);
-  if (!rawImages.length) return null;
-
-  const artifacts: ArtifactRef[] = [];
-  const saved: Array<{ path: string; bytes: number; mime: string; sha256: string }> = [];
-
-  for (let i = 0; i < Math.min(rawImages.length, MAX_SD_IMAGES); i++) {
-    let b64 = String(rawImages[i]).trim();
-
-    // Accept data URLs as well: data:image/png;base64,....
-    const m = b64.match(/^data:([^;]+);base64,(.*)$/);
-    if (m) b64 = m[2];
-
-    // Remove whitespace defensively.
-    b64 = b64.replace(/\s+/g, "");
-
-    let buf: Buffer;
-    try {
-      buf = Buffer.from(b64, "base64");
-    } catch {
-      continue;
-    }
-    if (buf.length < 16) continue;
-
-    const { ext, mime } = sniffImage(buf);
-    const relFile = path.join(args.sessionId, `${safeFileToken(args.callId)}_sd_${i + 1}.${ext}`);
-    const w = writeArtifact(args.rootDir, args.artifactsRoot, relFile, buf);
-
-    artifacts.push({ kind: "image", path: w.relPath, bytes: w.bytes, mime, sha256: w.sha256 });
-    saved.push({ path: w.relPath, bytes: w.bytes, mime, sha256: w.sha256 });
-  }
-
-  if (!saved.length) return null;
-
-  const metaObj = { ...obj, images: saved };
-  const metaRelFile = path.join(args.sessionId, `${safeFileToken(args.callId)}_sd_response.json`);
-  const meta = writeArtifact(args.rootDir, args.artifactsRoot, metaRelFile, JSON.stringify(metaObj, null, 2));
-
-  artifacts.push({
-    kind: "json",
-    path: meta.relPath,
-    bytes: meta.bytes,
-    mime: "application/json",
-    sha256: meta.sha256
-  });
-
-  const summary = {
-    note: "Stable Diffusion response contained base64 images; extracted to artifacts.",
-    images: saved,
-    meta: meta.relPath
-  };
-
-  return { stdout: JSON.stringify(summary, null, 2), artifacts };
-}
-
-function externalizeLargeTextField(args: {
+async function externalizeLargeTextField(args: {
   rootDir: string;
   artifactsRoot: string;
   sessionId: string;
@@ -310,7 +201,13 @@ function externalizeLargeTextField(args: {
   if (bytes <= MAX_INLINE_TEXT_BYTES) return;
 
   const relFile = path.join(args.sessionId, `${safeFileToken(args.callId)}_${args.field}.txt`);
-  const w = writeArtifact(args.rootDir, args.artifactsRoot, relFile, v);
+  const w = await writeArtifact({
+    rootDir: args.rootDir,
+    artifactsRoot: args.artifactsRoot,
+    relFile,
+    data: v,
+    encoding: "utf8"
+  });
 
   args.artifacts.push({ kind: "text", path: w.relPath, bytes: w.bytes, mime: "text/plain", sha256: w.sha256 });
 
@@ -321,40 +218,26 @@ function externalizeLargeTextField(args: {
   args.output.redacted = { ...(args.output.redacted ?? {}), [args.field]: true };
 }
 
-function sanitizeExecResultForUiAndModel(args: {
+async function sanitizeExecResultForUiAndModel(args: {
   rootDir: string;
   sessionId: string;
   callId: string;
   output: any;
-}): any {
+}): Promise<any> {
   const out = args.output;
   if (!out || typeof out !== "object" || out.type !== "exec_result") return out;
 
   const artifactsRoot = path.join(args.rootDir, ".eclia", "artifacts");
-  ensureDir(artifactsRoot);
+  try {
+    await fsp.mkdir(artifactsRoot, { recursive: true });
+  } catch {
+    // ignore
+  }
 
   const artifacts: ArtifactRef[] = Array.isArray((out as any).artifacts) ? (out as any).artifacts : [];
 
-  // Special-case: Stable Diffusion WebUI API returns base64 images in JSON.
-  // Extract them to files so we don't freeze the UI or blow up the model context.
-  if (typeof (out as any).stdout === "string") {
-    const sd = tryExtractStableDiffusionImages({
-      stdout: (out as any).stdout,
-      rootDir: args.rootDir,
-      artifactsRoot,
-      sessionId: args.sessionId,
-      callId: args.callId
-    });
-
-    if (sd) {
-      (out as any).stdout = sd.stdout;
-      (out as any).redacted = { ...(out as any).redacted, stdout: true };
-      artifacts.push(...sd.artifacts);
-    }
-  }
-
   // Generic safety: large stdout/stderr gets externalized to artifacts.
-  externalizeLargeTextField({
+  await externalizeLargeTextField({
     rootDir: args.rootDir,
     artifactsRoot,
     sessionId: args.sessionId,
@@ -364,7 +247,7 @@ function sanitizeExecResultForUiAndModel(args: {
     artifacts
   });
 
-  externalizeLargeTextField({
+  await externalizeLargeTextField({
     rootDir: args.rootDir,
     artifactsRoot,
     sessionId: args.sessionId,
@@ -478,6 +361,81 @@ function mergeToolCallDelta(state: ToolCallAccState, tc: any, position: number):
   if (id) state.idToKey.set(id, key);
 
   return next;
+}
+
+
+function guessMimeFromPath(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  switch (ext) {
+    case ".png":
+      return "image/png";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".gif":
+      return "image/gif";
+    case ".webp":
+      return "image/webp";
+    case ".svg":
+      return "image/svg+xml";
+    case ".json":
+      return "application/json";
+    case ".txt":
+    case ".log":
+    case ".md":
+      return "text/plain; charset=utf-8";
+    case ".html":
+    case ".htm":
+      return "text/html; charset=utf-8";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+async function handleArtifacts(req: http.IncomingMessage, res: http.ServerResponse, rootDir: string) {
+  if (req.method !== "GET" && req.method !== "HEAD") return json(res, 405, { ok: false, error: "method_not_allowed" });
+
+  const u = new URL(req.url ?? "/", "http://localhost");
+  const rel = u.searchParams.get("path") ?? "";
+  if (!rel) return json(res, 400, { ok: false, error: "missing_path" });
+
+  // Normalize path separators (Windows clients may send backslashes).
+  const relNorm = rel.replace(/\\/g, "/");
+
+  // Resolve to an absolute path and restrict to <root>/.eclia/artifacts/**.
+  const artifactsRoot = path.resolve(rootDir, ".eclia", "artifacts");
+  const abs = path.resolve(rootDir, relNorm);
+
+  if (abs !== artifactsRoot && !abs.startsWith(artifactsRoot + path.sep)) {
+    return json(res, 403, { ok: false, error: "forbidden" });
+  }
+
+  let st: fs.Stats;
+  try {
+    st = await fsp.stat(abs);
+  } catch {
+    return json(res, 404, { ok: false, error: "not_found" });
+  }
+
+  if (!st.isFile()) return json(res, 404, { ok: false, error: "not_found" });
+
+  const mime = guessMimeFromPath(abs);
+  const filename = path.basename(abs);
+  const inline = mime.startsWith("image/") || mime.startsWith("text/") || mime === "application/json";
+
+  res.setHeader("Content-Type", mime);
+  res.setHeader("Content-Length", String(st.size));
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Disposition", `${inline ? "inline" : "attachment"}; filename="${filename}"`);
+
+  if (req.method === "HEAD") {
+    res.writeHead(200);
+    res.end();
+    return;
+  }
+
+  res.writeHead(200);
+  fs.createReadStream(abs).pipe(res);
 }
 
 async function handleSessions(req: http.IncomingMessage, res: http.ServerResponse, store: SessionStore) {
@@ -945,7 +903,12 @@ async function handleChat(
 
               let mcpOut: any;
               try {
-                mcpOut = await mcpExec.callTool(mcpToolName, parsed, { timeoutMs: callTimeoutMs });
+                const mcpArgs =
+                  parsed && typeof parsed === "object" && !Array.isArray(parsed)
+                    ? { ...(parsed as any), __eclia: { sessionId, callId: call.callId } }
+                    : { __eclia: { sessionId, callId: call.callId } };
+
+                mcpOut = await mcpExec.callTool(mcpToolName, mcpArgs, { timeoutMs: callTimeoutMs });
               } catch (e: any) {
                 const msg = String(e?.message ?? e);
                 return {
@@ -1028,7 +991,7 @@ async function handleChat(
 
 // Prevent huge tool payloads (e.g. base64 images) from freezing the UI or blowing up the model context.
 if (output && typeof output === "object" && (output as any).type === "exec_result") {
-  output = sanitizeExecResultForUiAndModel({ rootDir, sessionId, callId: call.callId, output });
+  output = await sanitizeExecResultForUiAndModel({ rootDir, sessionId, callId: call.callId, output });
 }
 
 
@@ -1209,6 +1172,8 @@ async function main() {
     if (pathname === "/api/health" && req.method === "GET") return json(res, 200, { ok: true });
 
     if (pathname === "/api/config") return await handleConfig(req, res);
+
+    if (pathname === "/api/artifacts") return await handleArtifacts(req, res, rootDir);
 
     if (pathname.startsWith("/api/sessions")) return await handleSessions(req, res, store);
 

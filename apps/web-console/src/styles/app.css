@@ -374,6 +374,41 @@ button, input, select, textarea{
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+.block-tool-artifacts{
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.artifact-item{
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 8px 10px;
+}
+.artifact-meta{
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.artifact-kind{
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+.artifact-img{
+  margin-top: 8px;
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  display: block;
+}
 .block-code{ margin-top: 8px; }
 .block-code-head{
   font-size: 12px;

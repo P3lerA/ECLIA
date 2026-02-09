@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 
 /**
  * Minimal MCP stdio server that exposes a single tool: `exec`.
@@ -135,10 +136,137 @@ function killTree(child) {
 }
 
 
+
+
+function normalizeRelPath(p) {
+  return p.split(path.sep).join("/");
+}
+
+function safePathSegment(s) {
+  const cleaned = String(s ?? "").replace(/[^a-zA-Z0-9._-]+/g, "_");
+  return cleaned.length > 80 ? cleaned.slice(0, 80) : cleaned;
+}
+
+function guessMimeFromPath(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  switch (ext) {
+    case ".png":
+      return "image/png";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".gif":
+      return "image/gif";
+    case ".webp":
+      return "image/webp";
+    case ".svg":
+      return "image/svg+xml";
+    case ".json":
+      return "application/json";
+    case ".txt":
+    case ".log":
+    case ".md":
+      return "text/plain";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+function kindFromMime(mime, filePath) {
+  if (typeof mime === "string" && mime.startsWith("image/")) return "image";
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".json") return "json";
+  if (typeof mime === "string" && mime.startsWith("text/")) return "text";
+  return "file";
+}
+
+function sha256FileMaybe(absPath, maxBytes) {
+  try {
+    const st = fs.statSync(absPath);
+    if (!st.isFile()) return undefined;
+    if (typeof maxBytes === "number" && st.size > maxBytes) return undefined;
+    const buf = fs.readFileSync(absPath);
+    const h = crypto.createHash("sha256");
+    h.update(buf);
+    return h.digest("hex");
+  } catch {
+    return undefined;
+  }
+}
+
+function collectArtifacts(artifactDirAbs, projectRootAbs) {
+  const artifacts = [];
+  const maxFiles = 32;
+
+  const queue = [artifactDirAbs];
+  while (queue.length && artifacts.length < maxFiles) {
+    const dir = queue.shift();
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const ent of entries) {
+      if (artifacts.length >= maxFiles) break;
+      const abs = path.join(dir, ent.name);
+
+      if (ent.isDirectory()) {
+        queue.push(abs);
+        continue;
+      }
+
+      if (!ent.isFile()) continue;
+
+      try {
+        const st = fs.statSync(abs);
+        const mime = guessMimeFromPath(abs);
+        const rel = normalizeRelPath(path.relative(projectRootAbs, abs));
+        artifacts.push({
+          kind: kindFromMime(mime, abs),
+          path: rel,
+          bytes: st.size,
+          mime,
+          sha256: sha256FileMaybe(abs, 5_000_000)
+        });
+      } catch {
+        // ignore this entry
+      }
+    }
+  }
+
+  return artifacts;
+}
+
+function readEcliaMeta(rawArgs) {
+  if (!rawArgs || typeof rawArgs !== "object") return { sessionId: "", callId: "" };
+  const m = rawArgs.__eclia;
+  if (!m || typeof m !== "object") return { sessionId: "", callId: "" };
+  const sessionId = typeof m.sessionId === "string" ? m.sessionId : "";
+  const callId = typeof m.callId === "string" ? m.callId : "";
+  return { sessionId, callId };
+}
+
 async function runExecTool(rawArgs, signal) {
   const t0 = nowMs();
+  const meta = readEcliaMeta(rawArgs);
   const args = parseExecArgs(rawArgs);
   const projectRoot = process.cwd();
+
+  const artifactsRoot = path.join(projectRoot, ".eclia", "artifacts");
+  const artifactDirAbs =
+    meta.sessionId && meta.callId
+      ? path.join(artifactsRoot, safePathSegment(meta.sessionId), safePathSegment(meta.callId))
+      : null;
+
+  if (artifactDirAbs) {
+    try {
+      fs.mkdirSync(artifactDirAbs, { recursive: true });
+    } catch {
+      // ignore
+    }
+  }
 
   const cwdRes = resolveCwd(projectRoot, args.cwd);
   if (!cwdRes.ok) {
@@ -232,7 +360,16 @@ async function runExecTool(rawArgs, signal) {
     };
   }
 
-  const env = applyPlatformPathFixes({ ...process.env, ...args.env });
+  const baseEnv = applyPlatformPathFixes({ ...process.env, ...args.env });
+  const env =
+    artifactDirAbs
+      ? {
+          ...baseEnv,
+          ECLIA_ARTIFACT_DIR: artifactDirAbs,
+          ECLIA_SESSION_ID: meta.sessionId,
+          ECLIA_TOOL_CALL_ID: meta.callId
+        }
+      : baseEnv;
 
   let child;
   try {
@@ -347,6 +484,24 @@ async function runExecTool(rawArgs, signal) {
 
   const ok = !error;
 
+  let artifacts = [];
+  let artifactDir = undefined;
+
+  if (artifactDirAbs) {
+    artifacts = collectArtifacts(artifactDirAbs, projectRoot);
+
+    if (artifacts.length) {
+      artifactDir = normalizeRelPath(path.relative(projectRoot, artifactDirAbs));
+    } else {
+      // Avoid leaving lots of empty folders behind.
+      try {
+        fs.rmSync(artifactDirAbs, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
+    }
+  }
+
   return {
     type: "exec_result",
     ok,
@@ -362,6 +517,8 @@ async function runExecTool(rawArgs, signal) {
     shell: usedShell,
     requested,
     executed: { cmd: effectiveFile, args: effectiveArgs, command: commandStr || undefined },
+    artifactDir,
+    artifacts: artifacts.length ? artifacts : undefined,
     error
   };
 }
@@ -371,7 +528,7 @@ async function runExecTool(rawArgs, signal) {
 const EXEC_TOOL_DEF = {
   name: "exec",
   title: "Execute Command",
-  description: "Execute a command on the local machine. Prefer cmd+args. Returns stdout/stderr/exitCode.",
+  description: "Execute a command on this machine (Windows). Prefer cmd+args. For large/binary outputs, write files to %ECLIA_ARTIFACT_DIR% (or $env:ECLIA_ARTIFACT_DIR in PowerShell). Avoid printing huge base64 blobs; decode to a file instead. Files created there will be returned as artifacts (downloadable). Returns stdout/stderr/exitCode.",
   inputSchema: {
     type: "object",
     properties: {
