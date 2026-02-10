@@ -132,28 +132,56 @@ function truncateForDiscord(s: string, max: number = 1900): string {
   return t.slice(0, max - 20) + "\n…(truncated)";
 }
 
+function explainFetchError(e: any): string {
+  const msg = String(e?.message ?? e);
+  const c: any = e && typeof e === "object" ? (e as any).cause : null;
+  if (c && typeof c === "object") {
+    const code = c.code || c.errno;
+    const cmsg = c.message;
+    const parts = [code, cmsg].filter(Boolean).join(": ");
+    return parts ? `${msg} (${parts})` : msg;
+  }
+  return msg;
+}
+
+
 async function runGatewayChat(args: {
   gatewayUrl: string;
   sessionId: string;
   userText: string;
   model?: string;
   toolAccessMode?: "safe" | "full";
+  streamMode?: "full" | "final";
+  origin?: any;
   streamToDiscord?: (partial: string) => Promise<void>;
 }): Promise<{ text: string; meta?: any }>
 {
-  const resp = await fetch(`${args.gatewayUrl}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      sessionId: args.sessionId,
-      userText: args.userText,
-      model: args.model,
-      toolAccessMode: args.toolAccessMode ?? "safe"
-    })
-  });
+  let resp: Response;
+  try {
+    resp = await fetch(`${args.gatewayUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: args.sessionId,
+        userText: args.userText,
+        model: args.model,
+        toolAccessMode: args.toolAccessMode ?? "full",
+        streamMode: args.streamMode ?? (args.streamToDiscord ? "full" : "final"),
+        origin: args.origin
+      })
+    });
+  } catch (e: any) {
+    throw new Error(`fetch_failed: ${explainFetchError(e)}`);
+  }
+
+  if (!resp.ok) {
+    const t = await resp.text().catch(() => "");
+    throw new Error(`gateway_http_${resp.status}: ${t ? t.slice(0, 240) : resp.statusText}`);
+  }
 
   let current = "";
   let lastCompleted = "";
+  let finalText = "";
   let meta: any = undefined;
   let lastEditAt = 0;
 
@@ -183,7 +211,18 @@ async function runGatewayChat(args: {
       }
     }
     if (ev.event === "assistant_end") {
+      // Legacy gateway: end-of-turn marker for streamed responses
       lastCompleted = current;
+    }
+    if (ev.event === "final") {
+      // New gateway mode: final-only response
+      try {
+        const j = JSON.parse(ev.data) as any;
+        const text = typeof j?.text === "string" ? j.text : "";
+        if (text) finalText = text;
+      } catch {
+        // ignore
+      }
     }
     if (ev.event === "error") {
       try {
@@ -196,7 +235,7 @@ async function runGatewayChat(args: {
     if (ev.event === "done") break;
   }
 
-  const text = (lastCompleted || current).trim();
+  const text = (finalText || lastCompleted || current).trim();
   return { text, meta };
 }
 
@@ -305,9 +344,10 @@ async function main() {
 
   const gatewayUrl = guessGatewayUrl();
   const streamEdits = boolEnv("ECLIA_DISCORD_STREAM");
+  const streamMode: "full" | "final" = streamEdits ? "full" : "final";
   const allowPrefix = boolEnv("ECLIA_DISCORD_ALLOW_MESSAGE_PREFIX");
   const prefix = env("ECLIA_DISCORD_PREFIX", "!eclia");
-  const toolAccessMode = (env("ECLIA_DISCORD_TOOL_ACCESS_MODE", "safe") as any) === "full" ? "full" : "safe";
+  const toolAccessMode = (env("ECLIA_DISCORD_TOOL_ACCESS_MODE", "full") as any) === "safe" ? "safe" : "full";
 
   console.log(`[adapter-discord] gateway: ${gatewayUrl}`);
 
@@ -340,9 +380,6 @@ async function main() {
 
     try {
       await interaction.deferReply();
-
-      await ensureGatewaySession(gatewayUrl, sessionId, origin);
-
       const streamFn = streamEdits
         ? async (partial: string) => {
             try {
@@ -354,11 +391,15 @@ async function main() {
         : undefined;
 
       const out = await runGatewayChat({
+
         gatewayUrl,
         sessionId,
+        origin,
+        streamMode,
         userText: prompt,
         toolAccessMode,
         streamToDiscord: streamFn
+      
       });
 
       const text = out.text || "(empty)";
@@ -396,8 +437,6 @@ async function main() {
 
       try {
         const reply = await message.reply("…");
-        await ensureGatewaySession(gatewayUrl, sessionId, origin);
-
         const streamFn = streamEdits
           ? async (partial: string) => {
               try {
@@ -409,12 +448,16 @@ async function main() {
           : undefined;
 
         const out = await runGatewayChat({
+
           gatewayUrl,
           sessionId,
+        origin,
+        streamMode,
           userText: prompt,
           toolAccessMode,
           streamToDiscord: streamFn
-        });
+        
+      });
 
         const text = out.text || "(empty)";
         if (text.length <= 1900) {

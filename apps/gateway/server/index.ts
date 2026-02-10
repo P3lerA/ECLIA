@@ -34,6 +34,19 @@ type ChatReqBody = {
   toolAccessMode?: ToolAccessMode;
 
   /**
+   * Stream mode for SSE responses.
+   * - full: stream deltas + tool events (web console).
+   * - final: only send the final assistant output (adapters like discord).
+   */
+  streamMode?: "full" | "final";
+
+  /**
+   * Optional session origin metadata.
+   * If the session has no origin yet, the gateway will persist it.
+   */
+  origin?: { kind: string; [k: string]: unknown };
+
+  /**
    * Legacy/compat: allow callers to send explicit messages (used by mock transport).
    * If provided, the gateway will still persist the session, but context will be taken from storage.
    */
@@ -703,6 +716,14 @@ async function handleChat(
   }
 
   const toolAccessMode: ToolAccessMode = body.toolAccessMode === "safe" ? "safe" : "full";
+  const streamMode: "full" | "final" = body.streamMode === "final" ? "final" : "full";
+  const requestedOrigin =
+    body.origin &&
+    typeof body.origin === "object" &&
+    !Array.isArray(body.origin) &&
+    typeof (body.origin as any).kind === "string"
+      ? (body.origin as any)
+      : undefined;
 
   const { config, raw, rootDir } = loadEcliaConfig(process.cwd());
   const provider = config.inference.provider;
@@ -711,7 +732,26 @@ async function handleChat(
   await store.init();
   let prior: SessionDetail;
   try {
-    prior = (await store.readSession(sessionId)) ?? { meta: await store.ensureSession(sessionId), messages: [] };
+    const existing = await store.readSession(sessionId);
+    if (existing) {
+      prior = existing;
+      // If this session was created without origin metadata (e.g. older sessions), persist it now.
+      if (requestedOrigin && !existing.meta.origin) {
+        prior.meta = await store.updateMeta(sessionId, { origin: requestedOrigin, updatedAt: Date.now() });
+      }
+    } else {
+      const seed = requestedOrigin
+        ? ({
+            v: 1,
+            id: sessionId,
+            title: "New session",
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            origin: requestedOrigin
+          } as any)
+        : undefined;
+      prior = { meta: await store.ensureSession(sessionId, seed), messages: [] };
+    }
   } catch {
     return json(res, 400, { ok: false, error: "invalid_session_id" });
   }
@@ -815,7 +855,9 @@ async function handleChat(
         messages: upstreamMessages,
         signal: upstreamAbort.signal,
         tools: toolsForModel,
-        onDelta: (text) => send(res, "delta", { text })
+        onDelta: (text) => {
+          if (streamMode === "full") send(res, "delta", { text });
+        }
       });
 
       const assistantText = turn.assistantText;
@@ -839,13 +881,14 @@ async function handleChat(
       await store.appendEvent(sessionId, assistantEv);
 
       // Close the current assistant streaming phase in the UI.
-      send(res, "assistant_end", {});
+      if (streamMode === "full") send(res, "assistant_end", {});
 
       const toolCalls = Array.from(toolCallsMap.values()).filter((c) => c.name && c.name.trim());
       toolCalls.sort((a, b) => (a.index ?? 999999) - (b.index ?? 999999));
 
       if (toolCalls.length === 0) {
         // No tool calls: final answer.
+        if (streamMode === "final") send(res, "final", { text: assistantText });
         break;
       }
 
@@ -906,7 +949,7 @@ async function handleChat(
           }
         }
 
-        send(res, "tool_call", {
+        if (streamMode === "full") send(res, "tool_call", {
           callId: call.callId,
           name: call.name,
           args: {
@@ -1054,7 +1097,7 @@ if (output && typeof output === "object" && (output as any).type === "exec_resul
 
 
         // Stream to UI
-        send(res, "tool_result", { callId: call.callId, name, ok, result: output });
+        if (streamMode === "full") send(res, "tool_result", { callId: call.callId, name, ok, result: output });
 
         // Persist
         const rev: SessionEventV1 = {
@@ -1073,7 +1116,7 @@ if (output && typeof output === "object" && (output as any).type === "exec_resul
       upstreamMessages.push(...toolMessages);
 
       // Start a fresh assistant streaming phase (the model's post-tool response).
-      send(res, "assistant_start", { messageId: crypto.randomUUID() });
+      if (streamMode === "full") send(res, "assistant_start", { messageId: crypto.randomUUID() });
     }
 
     await store.updateMeta(sessionId, { updatedAt: Date.now(), lastModel: routeModel || upstreamModel });
