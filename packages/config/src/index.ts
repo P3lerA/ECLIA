@@ -30,6 +30,13 @@ export type EcliaConfig = {
       auth_header?: string; // default: Authorization
     };
   };
+  adapters: {
+    discord: {
+      enabled: boolean;
+      app_id?: string; // non-secret (application id / client id)
+      bot_token?: string; // secret (prefer local overrides)
+    };
+  };
 };
 
 export type EcliaConfigPatch = Partial<{
@@ -38,6 +45,9 @@ export type EcliaConfigPatch = Partial<{
   inference: Partial<{
     provider: EcliaConfig["inference"]["provider"];
     openai_compat: Partial<EcliaConfig["inference"]["openai_compat"]>;
+  }>;
+  adapters: Partial<{
+    discord: Partial<EcliaConfig["adapters"]["discord"]>;
   }>;
 }>;
 
@@ -50,6 +60,11 @@ export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
       base_url: "https://api.openai.com/v1",
       model: "gpt-4o-mini",
       auth_header: "Authorization"
+    }
+  },
+  adapters: {
+    discord: {
+      enabled: false
     }
   }
 };
@@ -78,6 +93,17 @@ function coerceString(v: unknown, fallback: string): string {
   return s.length ? s : fallback;
 }
 
+
+function coerceBool(v: unknown, fallback: boolean): boolean {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (s === "1" || s === "true" || s === "yes" || s === "on") return true;
+    if (s === "0" || s === "false" || s === "no" || s === "off") return false;
+  }
+  return fallback;
+}
 function deepMerge(a: Record<string, any>, b: Record<string, any>): Record<string, any> {
   const out: Record<string, any> = { ...a };
   for (const [k, v] of Object.entries(b)) {
@@ -95,6 +121,9 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
   const infRaw = isRecord(raw.inference) ? raw.inference : {};
 
   const openaiRaw = isRecord((infRaw as any).openai_compat) ? (infRaw as any).openai_compat : {};
+
+  const adaptersRaw = isRecord(raw.adapters) ? raw.adapters : {};
+  const discordRaw = isRecord((adaptersRaw as any).discord) ? (adaptersRaw as any).discord : {};
 
   const provider = (infRaw as any).provider === "openai_compat" ? "openai_compat" : base.inference.provider;
 
@@ -114,9 +143,20 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
         api_key: typeof openaiRaw.api_key === "string" ? openaiRaw.api_key : undefined,
         auth_header: coerceString(openaiRaw.auth_header, base.inference.openai_compat.auth_header ?? "Authorization")
       }
+    },
+    adapters: {
+      discord: {
+        enabled: coerceBool(discordRaw.enabled, base.adapters.discord.enabled),
+        app_id:
+          typeof discordRaw.app_id === "string" && discordRaw.app_id.trim().length
+            ? discordRaw.app_id.trim()
+            : undefined,
+        bot_token: typeof discordRaw.bot_token === "string" ? discordRaw.bot_token : undefined
+      }
     }
   };
 }
+
 
 /**
  * Find repository/project root from any working directory.
@@ -231,6 +271,13 @@ export function writeLocalEcliaConfig(
         model: normalized.inference.openai_compat.model,
         auth_header: normalized.inference.openai_compat.auth_header
       }
+    },
+    adapters: {
+      ...(isRecord((nextLocal as any).adapters) ? (nextLocal as any).adapters : {}),
+      discord: {
+        ...(isRecord((nextLocal as any)?.adapters?.discord) ? (nextLocal as any).adapters.discord : {}),
+        enabled: normalized.adapters.discord.enabled
+      }
     }
   };
 
@@ -238,6 +285,18 @@ export function writeLocalEcliaConfig(
   const hasKey = typeof (nextLocal as any)?.inference?.openai_compat?.api_key === "string";
   if (hasKey) {
     (toWrite as any).inference.openai_compat.api_key = (nextLocal as any).inference.openai_compat.api_key;
+  }
+
+  // adapters.discord.bot_token: only write if present in patch OR already present in file
+  const hasDiscordToken = typeof (nextLocal as any)?.adapters?.discord?.bot_token === "string";
+  if (hasDiscordToken) {
+    (toWrite as any).adapters.discord.bot_token = (nextLocal as any).adapters.discord.bot_token;
+  }
+
+  // adapters.discord.app_id: only write if present in patch OR already present in file
+  const hasDiscordAppId = typeof (nextLocal as any)?.adapters?.discord?.app_id === "string";
+  if (hasDiscordAppId) {
+    (toWrite as any).adapters.discord.app_id = (nextLocal as any).adapters.discord.app_id;
   }
 
   fs.writeFileSync(localPath, TOML.stringify(toWrite), "utf-8");

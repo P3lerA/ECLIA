@@ -20,6 +20,11 @@ type SettingsDraft = {
   inferenceBaseUrl: string;
   inferenceModelId: string;
   inferenceApiKey: string; // input only; empty = unchanged
+
+  // Adapters (Discord). Secrets stored in local TOML; token is never read back.
+  adapterDiscordEnabled: boolean;
+  adapterDiscordAppId: string; // application id / client id (non-secret)
+  adapterDiscordBotToken: string; // input only; empty = unchanged
 };
 
 type DevConfig = {
@@ -31,6 +36,14 @@ type DevConfig = {
       base_url?: string;
       model?: string;
       api_key_configured?: boolean;
+    };
+  };
+  adapters?: {
+    discord?: {
+      enabled?: boolean;
+      app_id?: string;
+      app_id_configured?: boolean;
+      bot_token_configured?: boolean;
     };
   };
 };
@@ -83,6 +96,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     inferenceBaseUrl: string;
     inferenceModelId: string;
     apiKeyConfigured: boolean;
+
+    discordEnabled: boolean;
+    discordAppId: string;
+    discordTokenConfigured: boolean;
   } | null>(null);
 
   const [draft, setDraft] = React.useState<SettingsDraft>(() => ({
@@ -95,7 +112,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     consolePort: "",
     inferenceBaseUrl: "",
     inferenceModelId: "",
-    inferenceApiKey: ""
+    inferenceApiKey: "",
+    adapterDiscordEnabled: false,
+    adapterDiscordAppId: "",
+    adapterDiscordBotToken: ""
   }));
 
   // Load TOML config into draft (best-effort).
@@ -121,12 +141,20 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         const modelId = String(inf.model ?? "gpt-4o-mini");
         const keyConfigured = Boolean(inf.api_key_configured);
 
+        const disc = j.config.adapters?.discord ?? {};
+        const discordEnabled = Boolean((disc as any).enabled ?? false);
+        const discordAppId = String((disc as any).app_id ?? "").trim();
+        const discordTokenConfigured = Boolean((disc as any).bot_token_configured);
+
         setCfgBase({
           host,
           port,
           inferenceBaseUrl: baseUrl,
           inferenceModelId: modelId,
-          apiKeyConfigured: keyConfigured
+          apiKeyConfigured: keyConfigured,
+          discordEnabled,
+          discordAppId,
+          discordTokenConfigured
         });
 
         setDraft((d) => ({
@@ -135,7 +163,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           consolePort: String(port),
           inferenceBaseUrl: baseUrl,
           inferenceModelId: modelId,
-          inferenceApiKey: "" // never auto-fill secrets
+          inferenceApiKey: "", // never auto-fill secrets
+          adapterDiscordEnabled: discordEnabled,
+          adapterDiscordAppId: discordAppId,
+          adapterDiscordBotToken: "" // never auto-fill secrets
         }));
       } catch {
         if (cancelled) return;
@@ -171,7 +202,13 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       draft.inferenceApiKey.trim().length > 0
     : false;
 
-  const dirtyDev = dirtyDevHostPort || dirtyDevInference;
+  const dirtyDevDiscord = cfgBase
+    ? draft.adapterDiscordEnabled !== cfgBase.discordEnabled ||
+      draft.adapterDiscordAppId.trim() !== cfgBase.discordAppId ||
+      draft.adapterDiscordBotToken.trim().length > 0
+    : false;
+
+  const dirtyDev = dirtyDevHostPort || dirtyDevInference || dirtyDevDiscord;
   const dirty = dirtyUi || dirtyDev;
 
   // Keep draft in sync when external state changes, but only if the user
@@ -218,6 +255,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const hostPortValid = draft.consoleHost.trim().length > 0 && isValidPort(draft.consolePort);
   const inferenceValid = draft.inferenceBaseUrl.trim().length > 0 && draft.inferenceModelId.trim().length > 0;
 
+  const discordTokenOk = Boolean(cfgBase?.discordTokenConfigured) || draft.adapterDiscordBotToken.trim().length > 0;
+  const discordAppIdOk = Boolean((cfgBase?.discordAppId ?? "").trim().length) || draft.adapterDiscordAppId.trim().length > 0;
+  const discordValid = !draft.adapterDiscordEnabled || (discordTokenOk && discordAppIdOk);
+
   const canSave =
     dirty &&
     !saving &&
@@ -225,7 +266,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       (!!cfgBase &&
         !cfgLoading &&
         (!dirtyDevHostPort || hostPortValid) &&
-        (!dirtyDevInference || inferenceValid)));
+        (!dirtyDevInference || inferenceValid) &&
+        (!dirtyDevDiscord || discordValid)));
 
   const discard = () => {
     // Revert draft to the last saved state (AppState + cfgBase).
@@ -240,7 +282,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       consolePort: cfgBase ? String(cfgBase.port) : d.consolePort,
       inferenceBaseUrl: cfgBase?.inferenceBaseUrl ?? d.inferenceBaseUrl,
       inferenceModelId: cfgBase?.inferenceModelId ?? d.inferenceModelId,
-      inferenceApiKey: ""
+      inferenceApiKey: "",
+      adapterDiscordEnabled: cfgBase?.discordEnabled ?? d.adapterDiscordEnabled,
+      adapterDiscordAppId: cfgBase?.discordAppId ?? d.adapterDiscordAppId,
+      adapterDiscordBotToken: ""
     }));
     setCfgError(null);
     setCfgSaved(null);
@@ -280,6 +325,20 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           };
         }
 
+        if (dirtyDevDiscord) {
+          if (!discordValid) throw new Error("Discord adapter enabled but missing bot token or Application ID.");
+          const appId = draft.adapterDiscordAppId.trim();
+          body.adapters = {
+            discord: {
+              enabled: Boolean(draft.adapterDiscordEnabled),
+              // app_id is optional; empty means unchanged.
+              ...(appId.length && appId !== cfgBase.discordAppId ? { app_id: appId } : {}),
+              // bot_token is optional; empty means unchanged.
+              ...(draft.adapterDiscordBotToken.trim().length ? { bot_token: draft.adapterDiscordBotToken.trim() } : {})
+            }
+          };
+        }
+
         setCfgLoading(true);
         try {
           const r = await fetch("/api/config", {
@@ -296,16 +355,22 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             port: body.console?.port ?? cfgBase.port,
             inferenceBaseUrl: body.inference?.openai_compat?.base_url ?? cfgBase.inferenceBaseUrl,
             inferenceModelId: body.inference?.openai_compat?.model ?? cfgBase.inferenceModelId,
-            apiKeyConfigured: cfgBase.apiKeyConfigured || Boolean(body.inference?.openai_compat?.api_key)
+            apiKeyConfigured: cfgBase.apiKeyConfigured || Boolean(body.inference?.openai_compat?.api_key),
+
+            discordEnabled: body.adapters?.discord?.enabled ?? cfgBase.discordEnabled,
+            discordAppId: body.adapters?.discord?.app_id ?? cfgBase.discordAppId,
+            discordTokenConfigured: cfgBase.discordTokenConfigured || Boolean(body.adapters?.discord?.bot_token)
           };
 
           setCfgBase(nextBase);
-          setDraft((d) => ({ ...d, inferenceApiKey: "" }));
+          setDraft((d) => ({ ...d, inferenceApiKey: "", adapterDiscordBotToken: "" }));
 
           setCfgSaved(
             dirtyDevHostPort
               ? "Saved to eclia.config.local.toml. Restart required to apply host/port changes."
-              : "Saved to eclia.config.local.toml."
+              : dirtyDevDiscord
+                ? "Saved to eclia.config.local.toml. Restart required to apply adapter changes."
+                : "Saved to eclia.config.local.toml."
           );
         } finally {
           setCfgLoading(false);
@@ -532,6 +597,84 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
           {dirtyDevInference && !inferenceValid ? (
             <div className="devNoteText muted">Invalid inference base URL or model id.</div>
+          ) : null}
+        </div>
+
+        <div className="card">
+          <div className="card-title">Adapters</div>
+
+          <div className="row">
+            <div className="row-left">
+              <div className="row-main">Discord adapter</div>
+              <div className="row-sub muted">
+                Enables the Discord bot adapter (inbound + future <code>send</code> tool outbound). Requires restart.
+              </div>
+            </div>
+
+            <input
+              type="checkbox"
+              checked={draft.adapterDiscordEnabled}
+              onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordEnabled: e.target.checked }))}
+              aria-label="Enable Discord adapter"
+              disabled={cfgLoading || !cfgBase}
+            />
+          </div>
+
+          <div className="grid2">
+            <label className="field">
+              <div className="field-label">Application ID (client id)</div>
+              <input
+                className="select"
+                value={draft.adapterDiscordAppId}
+                onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordAppId: e.target.value }))}
+                placeholder={cfgBase?.discordAppId ? "configured" : "not set"}
+                spellCheck={false}
+                disabled={cfgLoading || !cfgBase}
+              />
+              <div className="field-sub muted">
+                Required for registering slash commands. Find it in the Discord Developer Portal (Application/Client ID).
+              </div>
+            </label>
+
+            <label className="field">
+              <div className="field-label">Bot token (local)</div>
+              <input
+                className="select"
+                type="password"
+                value={draft.adapterDiscordBotToken}
+                onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordBotToken: e.target.value }))}
+                placeholder={cfgBase?.discordTokenConfigured ? "configured (leave blank to keep)" : "not set"}
+                spellCheck={false}
+                disabled={cfgLoading || !cfgBase}
+              />
+              <div className="field-sub muted">
+                Stored in <code>eclia.config.local.toml</code>. Token is never shown after saving.
+              </div>
+            </label>
+          </div>
+
+          <div className="grid2">
+            <div className="field">
+              <div className="field-label">Status</div>
+              <div className="select statusBox muted" aria-live="polite">
+                {draft.adapterDiscordEnabled
+                  ? discordTokenOk && discordAppIdOk
+                    ? "enabled"
+                    : !discordTokenOk && !discordAppIdOk
+                      ? "enabled (missing token + app id)"
+                      : !discordTokenOk
+                        ? "enabled (missing token)"
+                        : "enabled (missing app id)"
+                  : "disabled"}
+              </div>
+              <div className="field-sub muted">
+                The adapter runs as a separate process (e.g. <code>pnpm dev:discord</code>). Restart required after config changes.
+              </div>
+            </div>
+          </div>
+
+          {dirtyDevDiscord && !discordValid ? (
+            <div className="devNoteText muted">Discord adapter enabled but missing bot token or Application ID.</div>
           ) : null}
         </div>
 

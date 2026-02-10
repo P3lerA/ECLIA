@@ -26,3 +26,16 @@ model = "gpt-4o-mini"
 # Secrets belong in eclia.config.local.toml:
 # api_key = "..."
 auth_header = "Authorization"
+
+[adapters.discord]
+# Discord adapter (optional).
+# Enable this to allow the Discord adapter process to start and authenticate.
+enabled = false
+
+# Application ID / Client ID (not a secret), required to register slash commands.
+# You can keep it in eclia.config.local.toml if you prefer machine-specific settings.
+# app_id = "123456789012345678"
+
+# Secrets belong in eclia.config.local.toml:
+# bot_token = "..."
+
