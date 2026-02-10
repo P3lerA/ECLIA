@@ -112,6 +112,35 @@ function send(res: http.ServerResponse, event: string, data: any) {
   res.write(`data: ${JSON.stringify({ at: Date.now(), ...data })}\n\n`);
 }
 
+
+function startSseKeepAlive(res: http.ServerResponse, intervalMs: number = 15_000) {
+  const t = setInterval(() => {
+    if (res.writableEnded) return;
+    try {
+      // SSE comment line to keep proxies/clients from timing out idle connections.
+      res.write(`:keepalive ${Date.now()}\n\n`);
+    } catch {
+      // ignore
+    }
+  }, intervalMs);
+
+  // Don't keep the Node process alive just because of keepalives.
+  (t as any).unref?.();
+
+  const stop = () => {
+    try {
+      clearInterval(t);
+    } catch {
+      // ignore
+    }
+  };
+
+  res.on("close", stop);
+  res.on("finish", stop);
+  return stop;
+}
+
+
 async function readJson(req: http.IncomingMessage): Promise<any> {
   const chunks: Buffer[] = [];
   for await (const c of req) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
@@ -161,6 +190,47 @@ function safeJsonStringify(v: unknown): string {
     return String(v);
   }
 }
+
+
+/**
+ * Ensure only one /api/chat request mutates a given session at a time.
+ * Without this, concurrent requests can interleave events and build context from stale history.
+ */
+const sessionLockTails = new Map<string, Promise<void>>();
+
+async function withSessionLock<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = sessionLockTails.get(sessionId);
+  // Never let a previous failure permanently block the queue.
+  const prevSafe = prev ? prev.catch(() => {}) : Promise.resolve();
+
+  let release: (() => void) | null = null;
+  const next = new Promise<void>((resolve) => (release = resolve));
+
+  const tail = prevSafe.then(() => next);
+  sessionLockTails.set(sessionId, tail);
+
+  await prevSafe;
+
+  try {
+    return await fn();
+  } finally {
+    try {
+      release?.();
+    } catch {
+      // ignore
+    }
+
+    // Cleanup when the tail drains and nobody replaced it.
+    tail
+      .then(() => {
+        if (sessionLockTails.get(sessionId) === tail) sessionLockTails.delete(sessionId);
+      })
+      .catch(() => {
+        if (sessionLockTails.get(sessionId) === tail) sessionLockTails.delete(sessionId);
+      });
+  }
+}
+
 
 const MAX_INLINE_TEXT_BYTES = 24_000;
 const PREVIEW_TEXT_BYTES = 12_000;
@@ -632,6 +702,7 @@ async function streamOpenAICompatTurn(args: {
   let assistantText = "";
   const toolCallsAcc = createToolCallAccState();
   let finishReason: string | null = null;
+  const legacyFunctionCallId = `fc_${crypto.randomUUID()}`;
 
   while (true) {
     const { value, done } = await reader.read();
@@ -657,24 +728,54 @@ async function streamOpenAICompatTurn(args: {
 
       const choice = parsed?.choices?.[0];
       const delta = choice?.delta;
-      const content = safeText(delta?.content);
+      const message = choice?.message;
+
+      const contentRaw =
+        typeof delta?.content === "string"
+          ? delta.content
+          : typeof message?.content === "string"
+            ? message.content
+            : "";
+
+      const content = safeText(contentRaw);
 
       if (content) {
         // Some OpenAI-compatible providers stream cumulative strings (full content so far) rather than incremental deltas.
-        // Detect and only emit the new suffix.
-        if (assistantText && content.length > assistantText.length && content.startsWith(assistantText)) {
-          const newPart = content.slice(assistantText.length);
-          assistantText = content;
+        // Others stream true deltas. `mergePossiblyCumulative` handles both.
+        const nextText = mergePossiblyCumulative(assistantText, content);
+
+        // Emit only the new suffix (avoid duplicating when the provider streams cumulative strings).
+        if (nextText.length > assistantText.length && nextText.startsWith(assistantText)) {
+          const newPart = nextText.slice(assistantText.length);
+          assistantText = nextText;
           if (newPart) args.onDelta(newPart);
-        } else {
-          assistantText += content;
-          args.onDelta(content);
+        } else if (nextText !== assistantText) {
+          const newPart = nextText.slice(assistantText.length);
+          assistantText = nextText;
+          if (newPart) args.onDelta(newPart);
         }
       }
 
-      const tcList = Array.isArray(delta?.tool_calls) ? delta.tool_calls : null;
-      if (tcList && tcList.length) {
-        for (let i = 0; i < tcList.length; i++) mergeToolCallDelta(toolCallsAcc, tcList[i], i);
+      const tcList = Array.isArray(delta?.tool_calls)
+        ? delta.tool_calls
+        : Array.isArray(message?.tool_calls)
+          ? message.tool_calls
+          : null;
+
+      const hasToolCalls = Boolean(tcList && tcList.length);
+
+      if (hasToolCalls) {
+        for (let i = 0; i < tcList!.length; i++) mergeToolCallDelta(toolCallsAcc, tcList![i], i);
+      } else {
+        // Legacy OpenAI function_call (pre-tool_calls) support (some OpenAI-compatible proxies still emit this).
+        const fc = delta?.function_call ?? message?.function_call;
+        if (fc && typeof fc === "object") {
+          mergeToolCallDelta(
+            toolCallsAcc,
+            { index: 0, id: legacyFunctionCallId, function: { name: (fc as any).name, arguments: (fc as any).arguments } },
+            0
+          );
+        }
       }
 
       const fr = choice?.finish_reason;
@@ -725,8 +826,12 @@ async function handleChat(
       ? (body.origin as any)
       : undefined;
 
-  const { config, raw, rootDir } = loadEcliaConfig(process.cwd());
-  const provider = config.inference.provider;
+  return await withSessionLock(sessionId, async () => {
+    // If the client disconnected while waiting in the per-session queue, don't do work.
+    if ((req as any).aborted || (req.socket as any)?.destroyed || res.writableEnded) return;
+
+    const { config, raw, rootDir } = loadEcliaConfig(process.cwd());
+    const provider = config.inference.provider;
 
   // Ensure store is initialized and session exists.
   await store.init();
@@ -783,9 +888,11 @@ async function handleChat(
   if (provider !== "openai_compat") {
     res.writeHead(200, sseHeaders());
     initSse(res);
+    const stopKeepAlive = startSseKeepAlive(res);
     send(res, "meta", { sessionId, model: routeModel });
     send(res, "error", { message: `Unsupported provider: ${provider}` });
     send(res, "done", {});
+    stopKeepAlive();
     res.end();
     return;
   }
@@ -798,12 +905,14 @@ async function handleChat(
   if (!apiKey.trim()) {
     res.writeHead(200, sseHeaders());
     initSse(res);
+    const stopKeepAlive = startSseKeepAlive(res);
     send(res, "meta", { sessionId, model: routeModel });
     send(res, "error", {
       message:
         "Missing API key. Set inference.openai_compat.api_key in eclia.config.local.toml (or add it in Settings)."
     });
     send(res, "done", {});
+    stopKeepAlive();
     res.end();
     return;
   }
@@ -815,6 +924,7 @@ async function handleChat(
 
   res.writeHead(200, sseHeaders());
   initSse(res);
+  const stopKeepAlive = startSseKeepAlive(res);
   send(res, "meta", { sessionId, model: routeModel, usedTokens, dropped });
 
   const url = joinUrl(baseUrl, "/chat/completions");
@@ -862,6 +972,12 @@ async function handleChat(
 
       const assistantText = turn.assistantText;
       const toolCallsMap = turn.toolCalls;
+
+      if (turn.finishReason === "tool_calls" && toolCallsMap.size === 0) {
+        console.warn(
+          `[gateway] finish_reason=tool_calls but parsed 0 tool calls (provider=${origin.vendor} model=${upstreamModel})`
+        );
+      }
 
       // Persist assistant message (even if empty; it anchors tool blocks).
       const assistantMsg: StoredMessage = {
@@ -1123,6 +1239,7 @@ if (output && typeof output === "object" && (output as any).type === "exec_resul
 
     if (!res.writableEnded) {
       send(res, "done", {});
+      stopKeepAlive();
       res.end();
     }
   } catch (e: any) {
@@ -1130,9 +1247,11 @@ if (output && typeof output === "object" && (output as any).type === "exec_resul
     if (!res.writableEnded) {
       send(res, "error", { message: String(e?.message ?? e) });
       send(res, "done", {});
+      stopKeepAlive();
       res.end();
     }
   }
+  });
 }
 
 async function handleConfig(req: http.IncomingMessage, res: http.ServerResponse) {
