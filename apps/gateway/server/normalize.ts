@@ -1,4 +1,4 @@
-import type { Block, BlockOrigin } from "./sessionTypes";
+import type { Block, BlockOrigin } from "./sessionTypes.js";
 
 export function inferVendorFromBaseUrl(baseUrl: string): string | undefined {
   const u = (baseUrl ?? "").toLowerCase();

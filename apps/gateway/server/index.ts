@@ -4,19 +4,19 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { loadEcliaConfig, writeLocalEcliaConfig, preflightListen, joinUrl, resolveUpstreamModel, type EcliaConfigPatch } from "@eclia/config";
-import { SessionStore } from "./sessionStore";
-import type { SessionDetail, SessionEventV1, StoredMessage } from "./sessionTypes";
-import { buildTruncatedContext } from "./context";
-import { blocksFromAssistantRaw, inferVendorFromBaseUrl, textBlock } from "./normalize";
-import { ToolApprovalHub, type ToolApprovalDecision } from "./tools/approvalHub";
-import { parseExecArgs } from "./tools/execTool";
+import { SessionStore } from "./sessionStore.js";
+import type { SessionDetail, SessionEventV1, StoredMessage } from "./sessionTypes.js";
+import { buildTruncatedContext } from "./context.js";
+import { blocksFromAssistantRaw, inferVendorFromBaseUrl, textBlock } from "./normalize.js";
+import { ToolApprovalHub, type ToolApprovalDecision } from "./tools/approvalHub.js";
+import { parseExecArgs } from "./tools/execTool.js";
 import { artifactRefFromRepoRelPath } from "@eclia/tool-protocol";
-import { checkExecNeedsApproval, loadExecAllowlist, type ToolAccessMode } from "./tools/policy";
-import { EXEC_TOOL_NAME, EXECUTION_TOOL_NAME } from "./tools/toolSchemas";
-import { McpStdioClient, type McpToolDef } from "./mcp/stdioClient";
-import { sseHeaders, initSse, send, startSseKeepAlive } from "./sse";
-import { withSessionLock } from "./sessionLock";
-import { streamOpenAICompatTurn } from "./upstream/openaiCompat";
+import { checkExecNeedsApproval, loadExecAllowlist, type ToolAccessMode } from "./tools/policy.js";
+import { EXEC_TOOL_NAME, EXECUTION_TOOL_NAME } from "./tools/toolSchemas.js";
+import { McpStdioClient, type McpToolDef } from "./mcp/stdioClient.js";
+import { sseHeaders, initSse, send, startSseKeepAlive } from "./sse.js";
+import { withSessionLock } from "./sessionLock.js";
+import { streamOpenAICompatTurn, type ToolCallAccum } from "./upstream/openaiCompat.js";
 
 type ChatReqBody = {
   sessionId?: string;
@@ -123,6 +123,17 @@ type ArtifactRef = {
   mime?: string;
   sha256?: string;
 };
+
+function isToolCallAccum(v: unknown): v is ToolCallAccum {
+  return (
+    v !== null &&
+    typeof v === "object" &&
+    typeof (v as any).callId === "string" &&
+    typeof (v as any).name === "string" &&
+    typeof (v as any).argsRaw === "string" &&
+    ((v as any).index === undefined || typeof (v as any).index === "number")
+  );
+}
 
 function normalizeRelPath(p: string): string {
   // Ensure a stable path format across platforms (use forward slashes).
@@ -657,7 +668,10 @@ async function handleChat(
       // Close the current assistant streaming phase in the UI.
       if (streamMode === "full") send(res, "assistant_end", {});
 
-      const toolCalls = Array.from(toolCallsMap.values()).filter((c) => c.name && c.name.trim());
+
+      const toolCalls = Array.from(toolCallsMap.values())
+        .filter(isToolCallAccum)
+        .filter((c) => c.name && c.name.trim());
       toolCalls.sort((a, b) => (a.index ?? 999999) - (b.index ?? 999999));
 
       if (toolCalls.length === 0) {

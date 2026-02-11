@@ -3,7 +3,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import readline from "node:readline";
-import type { SessionDetail, SessionEventV1, SessionMetaV1, StoredMessage } from "./sessionTypes";
+import type { SessionDetail, SessionEventV1, SessionMetaV1, StoredMessage } from "./sessionTypes.js";
 
 const SAFE_ID = /^[a-zA-Z0-9_-]{1,120}$/;
 

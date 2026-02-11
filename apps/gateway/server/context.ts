@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import type { StoredMessage } from "./sessionTypes";
+import type { StoredMessage } from "./sessionTypes.js";
 
 /**
  * Conservative token estimator.
