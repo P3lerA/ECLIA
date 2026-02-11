@@ -14,6 +14,9 @@ import { artifactRefFromRepoRelPath } from "@eclia/tool-protocol";
 import { checkExecNeedsApproval, loadExecAllowlist, type ToolAccessMode } from "./tools/policy";
 import { EXEC_TOOL_NAME, EXECUTION_TOOL_NAME } from "./tools/toolSchemas";
 import { McpStdioClient, type McpToolDef } from "./mcp/stdioClient";
+import { sseHeaders, initSse, send, startSseKeepAlive } from "./sse";
+import { withSessionLock } from "./sessionLock";
+import { streamOpenAICompatTurn } from "./upstream/openaiCompat";
 
 type ChatReqBody = {
   sessionId?: string;
@@ -79,68 +82,6 @@ function json(res: http.ServerResponse, status: number, obj: unknown) {
   res.end(body);
 }
 
-function sseHeaders() {
-  return {
-    "Content-Type": "text/event-stream; charset=utf-8",
-    "Cache-Control": "no-cache, no-transform",
-    "Connection": "keep-alive",
-
-    // Reduce the chance that proxies buffer SSE.
-    // (Some reverse proxies like nginx honor this header.)
-    "X-Accel-Buffering": "no"
-  };
-}
-
-function initSse(res: http.ServerResponse) {
-  try {
-    // Push headers immediately.
-    (res as any).flushHeaders?.();
-  } catch {
-    // ignore
-  }
-  try {
-    // Reduce packet coalescing (Nagle) for more responsive streaming.
-    (res.socket as any)?.setNoDelay?.(true);
-  } catch {
-    // ignore
-  }
-}
-
-function send(res: http.ServerResponse, event: string, data: any) {
-  if (res.writableEnded) return;
-  res.write(`event: ${event}\n`);
-  res.write(`data: ${JSON.stringify({ at: Date.now(), ...data })}\n\n`);
-}
-
-
-function startSseKeepAlive(res: http.ServerResponse, intervalMs: number = 15_000) {
-  const t = setInterval(() => {
-    if (res.writableEnded) return;
-    try {
-      // SSE comment line to keep proxies/clients from timing out idle connections.
-      res.write(`:keepalive ${Date.now()}\n\n`);
-    } catch {
-      // ignore
-    }
-  }, intervalMs);
-
-  // Don't keep the Node process alive just because of keepalives.
-  (t as any).unref?.();
-
-  const stop = () => {
-    try {
-      clearInterval(t);
-    } catch {
-      // ignore
-    }
-  };
-
-  res.on("close", stop);
-  res.on("finish", stop);
-  return stop;
-}
-
-
 async function readJson(req: http.IncomingMessage): Promise<any> {
   const chunks: Buffer[] = [];
   for await (const c of req) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
@@ -151,30 +92,6 @@ async function readJson(req: http.IncomingMessage): Promise<any> {
   } catch {
     return {};
   }
-}
-
-/**
- * Parse upstream SSE "data:" blocks. This is intentionally minimal.
- */
-function parseSSE(input: string): { blocks: Array<{ data: string }>; rest: string } {
-  const normalized = input.replace(/\r\n/g, "\n");
-  const parts = normalized.split("\n\n");
-  const rest = parts.pop() ?? "";
-
-  const blocks: Array<{ data: string }> = [];
-  for (const part of parts) {
-    const lines = part.split("\n").filter(Boolean);
-    const dataLines: string[] = [];
-    for (const line of lines) {
-      if (line.startsWith("data:")) dataLines.push(line.slice("data:".length).trimStart());
-    }
-    blocks.push({ data: dataLines.join("\n") });
-  }
-  return { blocks, rest };
-}
-
-function safeText(v: any): string {
-  return typeof v === "string" ? v : "";
 }
 
 function safeInt(v: any, fallback: number): number {
@@ -188,46 +105,6 @@ function safeJsonStringify(v: unknown): string {
     return JSON.stringify(v);
   } catch {
     return String(v);
-  }
-}
-
-
-/**
- * Ensure only one /api/chat request mutates a given session at a time.
- * Without this, concurrent requests can interleave events and build context from stale history.
- */
-const sessionLockTails = new Map<string, Promise<void>>();
-
-async function withSessionLock<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
-  const prev = sessionLockTails.get(sessionId);
-  // Never let a previous failure permanently block the queue.
-  const prevSafe = prev ? prev.catch(() => {}) : Promise.resolve();
-
-  let release: (() => void) | null = null;
-  const next = new Promise<void>((resolve) => (release = resolve));
-
-  const tail = prevSafe.then(() => next);
-  sessionLockTails.set(sessionId, tail);
-
-  await prevSafe;
-
-  try {
-    return await fn();
-  } finally {
-    try {
-      release?.();
-    } catch {
-      // ignore
-    }
-
-    // Cleanup when the tail drains and nobody replaced it.
-    tail
-      .then(() => {
-        if (sessionLockTails.get(sessionId) === tail) sessionLockTails.delete(sessionId);
-      })
-      .catch(() => {
-        if (sessionLockTails.get(sessionId) === tail) sessionLockTails.delete(sessionId);
-      });
   }
 }
 
@@ -401,93 +278,6 @@ function deriveTitle(userText: string): string {
   return s.length > max ? s.slice(0, max).trimEnd() + "…" : s;
 }
 
-type ToolCallAccum = { callId: string; index?: number; name: string; argsRaw: string };
-
-type ToolCallAccState = {
-  calls: Map<string, ToolCallAccum>;
-  indexToKey: Map<number, string>;
-  idToKey: Map<string, string>;
-  unindexedKeys: Set<string>;
-  nextAnon: number;
-};
-
-function createToolCallAccState(): ToolCallAccState {
-  return { calls: new Map(), indexToKey: new Map(), idToKey: new Map(), unindexedKeys: new Set(), nextAnon: 0 };
-}
-
-function mergePossiblyCumulative(prev: string, nextChunk: string): string {
-  if (!nextChunk) return prev;
-  if (!prev) return nextChunk;
-
-  // Some OpenAI-compatible providers stream cumulative strings (full value so far) rather than incremental deltas.
-  if (nextChunk.length > prev.length && nextChunk.startsWith(prev)) return nextChunk;
-
-  return prev + nextChunk;
-}
-
-function safeToolArgsChunk(v: any): string {
-  if (typeof v === "string") return v;
-  if (v === null || v === undefined) return "";
-  return safeJsonStringify(v);
-}
-
-function mergeToolCallDelta(state: ToolCallAccState, tc: any, position: number): ToolCallAccum | null {
-  if (!tc || typeof tc !== "object") return null;
-
-  const rawIndex = tc.index;
-  const index = typeof rawIndex === "number" && Number.isFinite(rawIndex) ? Math.trunc(rawIndex) : undefined;
-  const id = safeText(tc.id);
-
-  let key: string;
-
-  if (index !== undefined) {
-    key = state.indexToKey.get(index) || "";
-    if (!key && id) key = state.idToKey.get(id) || "";
-
-    // Heuristic: if we previously saw exactly one unindexed tool call, bind it to this index.
-    if (!key && !id && state.unindexedKeys.size === 1) {
-      const [onlyKey] = state.unindexedKeys;
-      key = onlyKey;
-    }
-
-    if (!key) key = `i:${index}`;
-
-    state.indexToKey.set(index, key);
-    if (id) state.idToKey.set(id, key);
-  } else if (id) {
-    key = state.idToKey.get(id) || `id:${id}`;
-    state.idToKey.set(id, key);
-    state.unindexedKeys.add(key);
-  } else {
-    key = `anon:${state.nextAnon++}:${position}`;
-  }
-
-  const prev = state.calls.get(key) ?? {
-    callId: id || (index !== undefined ? `call_index_${index}` : key),
-    index,
-    name: "",
-    argsRaw: ""
-  };
-
-  const fn = tc.function ?? {};
-  const name = safeText(fn.name) || prev.name;
-  const argsChunk = safeToolArgsChunk(fn.arguments);
-
-  const next: ToolCallAccum = {
-    callId: id || prev.callId,
-    index: prev.index ?? index,
-    name,
-    argsRaw: mergePossiblyCumulative(prev.argsRaw, argsChunk)
-  };
-
-  state.calls.set(key, next);
-  if (next.index !== undefined) state.unindexedKeys.delete(key);
-  if (id) state.idToKey.set(id, key);
-
-  return next;
-}
-
-
 function guessMimeFromPath(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
   switch (ext) {
@@ -652,138 +442,6 @@ async function handleToolApprovals(req: http.IncomingMessage, res: http.ServerRe
   if (r.ok) return json(res, 200, { ok: true });
   if (r.error === "wrong_session") return json(res, 403, { ok: false, error: "wrong_session" });
   return json(res, 404, { ok: false, error: "not_found" });
-}
-
-type UpstreamTurnResult = {
-  assistantText: string;
-  toolCalls: Map<string, ToolCallAccum>;
-  finishReason: string | null;
-};
-
-async function streamOpenAICompatTurn(args: {
-  url: string;
-  headers: Record<string, string>;
-  model: string;
-  messages: any[];
-  signal: AbortSignal;
-  tools: any[];
-  onDelta: (text: string) => void;
-}): Promise<UpstreamTurnResult> {
-  let upstream: Response;
-
-  upstream = await fetch(args.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "text/event-stream",
-      ...args.headers
-    },
-    body: JSON.stringify({
-      model: args.model,
-      stream: true,
-      tool_choice: "auto",
-      tools: args.tools,
-      messages: args.messages
-    }),
-    signal: args.signal
-  });
-
-  if (!upstream.ok || !upstream.body) {
-    const text = await upstream.text().catch(() => "");
-    throw new Error(
-      `Upstream error: ${upstream.status} ${upstream.statusText}${text ? ` — ${text.slice(0, 200)}` : ""}`
-    );
-  }
-
-  const reader = upstream.body.getReader();
-  const decoder = new TextDecoder("utf-8");
-  let buffer = "";
-
-  let assistantText = "";
-  const toolCallsAcc = createToolCallAccState();
-  let finishReason: string | null = null;
-  const legacyFunctionCallId = `fc_${crypto.randomUUID()}`;
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    const { blocks, rest } = parseSSE(buffer);
-    buffer = rest;
-
-    for (const b of blocks) {
-      const data = b.data.trim();
-      if (!data) continue;
-      if (data === "[DONE]") {
-        return { assistantText, toolCalls: toolCallsAcc.calls, finishReason };
-      }
-
-      let parsed: any = null;
-      try {
-        parsed = JSON.parse(data);
-      } catch {
-        continue;
-      }
-
-      const choice = parsed?.choices?.[0];
-      const delta = choice?.delta;
-      const message = choice?.message;
-
-      const contentRaw =
-        typeof delta?.content === "string"
-          ? delta.content
-          : typeof message?.content === "string"
-            ? message.content
-            : "";
-
-      const content = safeText(contentRaw);
-
-      if (content) {
-        // Some OpenAI-compatible providers stream cumulative strings (full content so far) rather than incremental deltas.
-        // Others stream true deltas. `mergePossiblyCumulative` handles both.
-        const nextText = mergePossiblyCumulative(assistantText, content);
-
-        // Emit only the new suffix (avoid duplicating when the provider streams cumulative strings).
-        if (nextText.length > assistantText.length && nextText.startsWith(assistantText)) {
-          const newPart = nextText.slice(assistantText.length);
-          assistantText = nextText;
-          if (newPart) args.onDelta(newPart);
-        } else if (nextText !== assistantText) {
-          const newPart = nextText.slice(assistantText.length);
-          assistantText = nextText;
-          if (newPart) args.onDelta(newPart);
-        }
-      }
-
-      const tcList = Array.isArray(delta?.tool_calls)
-        ? delta.tool_calls
-        : Array.isArray(message?.tool_calls)
-          ? message.tool_calls
-          : null;
-
-      const hasToolCalls = Boolean(tcList && tcList.length);
-
-      if (hasToolCalls) {
-        for (let i = 0; i < tcList!.length; i++) mergeToolCallDelta(toolCallsAcc, tcList![i], i);
-      } else {
-        // Legacy OpenAI function_call (pre-tool_calls) support (some OpenAI-compatible proxies still emit this).
-        const fc = delta?.function_call ?? message?.function_call;
-        if (fc && typeof fc === "object") {
-          mergeToolCallDelta(
-            toolCallsAcc,
-            { index: 0, id: legacyFunctionCallId, function: { name: (fc as any).name, arguments: (fc as any).arguments } },
-            0
-          );
-        }
-      }
-
-      const fr = choice?.finish_reason;
-      if (typeof fr === "string" && fr) finishReason = fr;
-    }
-  }
-
-  return { assistantText, toolCalls: toolCallsAcc.calls, finishReason };
 }
 
 async function handleChat(

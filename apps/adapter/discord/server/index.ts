@@ -11,6 +11,7 @@ import {
   Partials,
   REST,
   Routes,
+  MessageFlags,
   type ChatInputCommandInteraction,
   type Message
 } from "discord.js";
@@ -94,6 +95,17 @@ async function ensureGatewaySession(gatewayUrl: string, sessionId: string, origi
   if (!j?.ok) throw new Error(`failed_to_create_session: ${j?.error ?? r.status}`);
   return j.session;
 }
+
+async function resetGatewaySession(gatewayUrl: string, sessionId: string) {
+  const r = await fetch(`${gatewayUrl}/api/sessions/${encodeURIComponent(sessionId)}/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" }
+  });
+  const j = (await r.json().catch(() => null)) as any;
+  if (!j?.ok) throw new Error(`failed_to_reset_session: ${j?.error ?? r.status}`);
+  return j.session;
+}
+
 
 type SseEvent = { event: string; data: string };
 
@@ -252,8 +264,18 @@ async function registerSlashCommands(args: { token: string; appId: string; guild
           description: "What should ECLIA do?",
           type: 3,
           required: true
+        },
+        {
+          name: "verbose",
+          description: "Stream intermediate output (tools/deltas)",
+          type: 5,
+          required: false
         }
       ]
+    },
+    {
+      name: "clear",
+      description: "Clear this channel's ECLIA session"
     }
   ];
 
@@ -372,15 +394,42 @@ async function main() {
 
   client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
+
+    // /clear — reset this channel/thread session
+    if (interaction.commandName === "clear") {
+      const origin = originFromInteraction(interaction);
+      const sessionId = sessionIdForDiscord(origin);
+
+      try {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await resetGatewaySession(gatewayUrl, sessionId);
+        await interaction.editReply("Cleared session for this channel.");
+      } catch (e: any) {
+        const msg = String(e?.message ?? e);
+        try {
+          await interaction.editReply(`Error: ${msg}`);
+        } catch {
+          // ignore
+        }
+      }
+      return;
+    }
+
     if (interaction.commandName !== "eclia") return;
 
     const prompt = interaction.options.getString("prompt", true);
+    const verbose = interaction.options.getBoolean("verbose") ?? false;
+
     const origin = originFromInteraction(interaction);
     const sessionId = sessionIdForDiscord(origin);
 
+    // Verbose implies full gateway stream mode (and enables streamed edits even if globally disabled).
+    const useStreamEdits = streamEdits || verbose;
+    const useStreamMode: "full" | "final" = verbose ? "full" : streamMode;
+
     try {
       await interaction.deferReply();
-      const streamFn = streamEdits
+      const streamFn = useStreamEdits
         ? async (partial: string) => {
             try {
               await interaction.editReply(partial || "…");
@@ -391,15 +440,13 @@ async function main() {
         : undefined;
 
       const out = await runGatewayChat({
-
         gatewayUrl,
         sessionId,
         origin,
-        streamMode,
+        streamMode: useStreamMode,
         userText: prompt,
         toolAccessMode,
         streamToDiscord: streamFn
-      
       });
 
       const text = out.text || "(empty)";
