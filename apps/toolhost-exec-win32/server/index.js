@@ -78,6 +78,33 @@ function applyPlatformPathFixes(env) {
   return env;
 }
 
+function sanitizeNpmEnvForNvm(inheritedEnv, userEnv) {
+  // Even on Windows, callers may run Git-Bash/WSL shells or ship nvm-like tooling.
+  // npm/pnpm inject npm_config_* variables when running scripts; a common one
+  // (npm_config_prefix) can cause noisy warnings in nvm-based setups.
+  //
+  // We drop them from the inherited environment by default, but allow callers
+  // to explicitly set them via args.env if they really want them.
+  const cleaned = { ...inheritedEnv };
+  const allow = userEnv && typeof userEnv === "object" ? userEnv : {};
+
+  const maybeDelete = (k) => {
+    if (Object.prototype.hasOwnProperty.call(allow, k)) return;
+    try {
+      delete cleaned[k];
+    } catch {
+      // ignore
+    }
+  };
+
+  maybeDelete("npm_config_prefix");
+  maybeDelete("NPM_CONFIG_PREFIX");
+  maybeDelete("PREFIX");
+  maybeDelete("prefix");
+
+  return cleaned;
+}
+
 
 function defaultShell() {
   // Windows command shell.
@@ -339,7 +366,11 @@ async function runExecTool(rawArgs, signal) {
     };
   }
 
-  const baseEnv = applyPlatformPathFixes({ ...process.env, ...args.env });
+  // npm/pnpm inject npm_config_* variables when running scripts. Some environments
+  // (especially when using nvm in a Git-Bash-like shell) emit warnings when
+  // npm_config_prefix is set. Strip it from inherited env by default.
+  const inheritedEnv = sanitizeNpmEnvForNvm({ ...process.env }, args.env);
+  const baseEnv = applyPlatformPathFixes({ ...inheritedEnv, ...args.env });
   const env =
     artifactDirAbs
       ? {

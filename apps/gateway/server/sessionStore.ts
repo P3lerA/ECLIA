@@ -247,11 +247,15 @@ export class SessionStore {
     return { meta: coerceMeta(meta as any, sid), messages: stable.map((x) => x.m) };
   }
 
-  async appendEvent(sessionId: string, ev: SessionEventV1): Promise<void> {
+  async appendEvent(sessionId: string, ev: SessionEventV1, opts?: { touchMeta?: boolean }): Promise<void> {
     await this.ensureSession(sessionId);
 
     const line = JSON.stringify(ev);
     await fsp.appendFile(this.eventsPath(sessionId), line + "\n", "utf-8");
+
+    // In many hot paths (chat streaming + tool loops), callers may choose to
+    // batch meta updates to avoid excessive atomic rewrites of meta.json.
+    if (opts?.touchMeta === false) return;
 
     // Update meta.updatedAt (best-effort).
     const metaFile = this.metaPath(sessionId);

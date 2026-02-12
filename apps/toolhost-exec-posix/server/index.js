@@ -92,6 +92,32 @@ function applyPlatformPathFixes(env) {
   return env;
 }
 
+function sanitizeNpmEnvForNvm(inheritedEnv, userEnv) {
+  // nvm prints a warning (and can behave strangely) when npm overrides the install prefix.
+  // npm/pnpm often inject these into the environment when running scripts.
+  //
+  // We drop them from the inherited environment by default, but allow callers
+  // to explicitly set them via args.env if they really want them.
+  const cleaned = { ...inheritedEnv };
+  const allow = userEnv && typeof userEnv === "object" ? userEnv : {};
+
+  const maybeDelete = (k) => {
+    if (Object.prototype.hasOwnProperty.call(allow, k)) return;
+    try {
+      delete cleaned[k];
+    } catch {
+      // ignore
+    }
+  };
+
+  maybeDelete("npm_config_prefix");
+  maybeDelete("NPM_CONFIG_PREFIX");
+  maybeDelete("PREFIX");
+  maybeDelete("prefix");
+
+  return cleaned;
+}
+
 
 function defaultShell() {
   if (process.platform === "darwin") {
@@ -362,7 +388,12 @@ async function runExecTool(rawArgs, signal) {
     };
   }
 
-  const baseEnv = applyPlatformPathFixes({ ...process.env, ...args.env });
+  // Note: npm/pnpm inject a bunch of npm_config_* variables when running scripts.
+  // If the user has nvm in their shell rc, npm_config_prefix can cause a noisy warning
+  // (and occasionally weird node/npm resolution). We strip those inherited env vars,
+  // but still allow callers to re-introduce them explicitly via args.env.
+  const inheritedEnv = sanitizeNpmEnvForNvm({ ...process.env }, args.env);
+  const baseEnv = applyPlatformPathFixes({ ...inheritedEnv, ...args.env });
   const env =
     artifactDirAbs
       ? {

@@ -19,8 +19,11 @@ import {
 type DiscordOrigin = {
   kind: "discord";
   guildId?: string;
+  guildName?: string;
   channelId: string;
+  channelName?: string;
   threadId?: string;
+  threadName?: string;
 };
 
 type SendRequest = {
@@ -288,17 +291,36 @@ async function registerSlashCommands(args: { token: string; appId: string; guild
 
 function originFromInteraction(interaction: ChatInputCommandInteraction): DiscordOrigin {
   const guildId = interaction.guildId ?? undefined;
+  const guildName = interaction.guild?.name ?? undefined;
   const channelId = interaction.channelId;
   // Threads are channels too, but we store a separate key for clarity.
-  const threadId = (interaction.channel && (interaction.channel as any).isThread?.()) ? interaction.channelId : undefined;
-  return { kind: "discord", guildId, channelId, threadId };
+  const channel: any = interaction.channel;
+  const isThread = Boolean(channel && typeof channel.isThread === "function" && channel.isThread());
+  const threadId = isThread ? interaction.channelId : undefined;
+  const threadName = isThread && typeof channel?.name === "string" ? channel.name : undefined;
+
+  // For a thread, prefer its parent channel name for channelName (more recognizable in lists).
+  const parentName = isThread && typeof channel?.parent?.name === "string" ? channel.parent.name : undefined;
+  const channelName =
+    !isThread && typeof channel?.name === "string" ? channel.name : parentName || (typeof channel?.name === "string" ? channel.name : undefined);
+
+  return { kind: "discord", guildId, guildName, channelId, channelName, threadId, threadName };
 }
 
 function originFromMessage(message: Message): DiscordOrigin {
   const guildId = message.guildId ?? undefined;
+  const guildName = message.guild?.name ?? undefined;
   const channelId = message.channelId;
-  const threadId = (message.channel as any).isThread?.() ? message.channelId : undefined;
-  return { kind: "discord", guildId, channelId, threadId };
+  const channel: any = message.channel;
+  const isThread = Boolean(channel && typeof channel.isThread === "function" && channel.isThread());
+  const threadId = isThread ? message.channelId : undefined;
+  const threadName = isThread && typeof channel?.name === "string" ? channel.name : undefined;
+
+  const parentName = isThread && typeof channel?.parent?.name === "string" ? channel.parent.name : undefined;
+  const channelName =
+    !isThread && typeof channel?.name === "string" ? channel.name : parentName || (typeof channel?.name === "string" ? channel.name : undefined);
+
+  return { kind: "discord", guildId, guildName, channelId, channelName, threadId, threadName };
 }
 
 function extractRefToRepoRelPath(pointer: string): { relPath: string; name: string } | null {
