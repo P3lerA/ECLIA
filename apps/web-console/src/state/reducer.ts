@@ -1,4 +1,4 @@
-import type { Block, InspectorTabId, LogItem, Message, Session, PluginConfig } from "../core/types";
+import type { Block, InspectorTabId, LogItem, Message, Session } from "../core/types";
 import type { TransportId } from "../core/transport/TransportRegistry";
 import type { ThemeMode } from "../theme/theme";
 
@@ -44,8 +44,6 @@ export type AppState = {
 
   messagesBySession: Record<string, Message[]>;
 
-  plugins: PluginConfig[];
-
   settings: AppSettings;
   gpu: AppGPU;
 
@@ -73,7 +71,6 @@ export type Action =
   | { type: "assistant/stream/append"; sessionId: string; text: string }
   | { type: "assistant/stream/finalize"; sessionId: string }
   | { type: "assistant/addBlocks"; sessionId: string; blocks: Block[] }
-  | { type: "plugin/toggle"; pluginId: string }
   | { type: "messages/clear"; sessionId: string }
   | { type: "inspector/tab"; tab: InspectorTabId }
   | { type: "log/push"; item: LogItem };
@@ -174,13 +171,6 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case "transport/set":
       return { ...state, transport: action.transport };
-
-    case "plugin/toggle": {
-      const next = state.plugins.map((p) =>
-        p.id === action.pluginId ? { ...p, enabled: !p.enabled } : p
-      );
-      return { ...state, plugins: next };
-    }
 
     case "messages/set": {
       const sessions = action.messages.length > 0 ? ensureSessionStarted(state.sessions, action.sessionId) : state.sessions;

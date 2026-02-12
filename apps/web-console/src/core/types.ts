@@ -124,10 +124,3 @@ export type ChatEvent =
 export type ChatEventHandlers = {
   onEvent: (evt: ChatEvent) => void;
 };
-
-export type PluginConfig = {
-  id: string;
-  name: string;
-  enabled: boolean;
-  description?: string;
-};

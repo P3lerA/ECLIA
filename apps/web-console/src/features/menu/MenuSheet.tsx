@@ -191,23 +191,23 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
                   <button
                     className="menu-item"
                     onClick={() => {
-                      navigate("/plugins");
-                      onClose();
-                    }}
-                  >
-                    <div className="menu-item-main">Plugins</div>
-                    <div className="menu-item-sub">Enable/disable · Prototype config</div>
-                  </button>
-
-                  <button
-                    className="menu-item"
-                    onClick={() => {
                       navigate("/settings");
                       onClose();
                     }}
                   >
                     <div className="menu-item-main">Settings</div>
-                    <div className="menu-item-sub">Appearance · Runtime · Diagnostics</div>
+                    <div className="menu-item-sub">Appearance · Runtime</div>
+                  </button>
+
+                  <button
+                    className="menu-item"
+                    onClick={() => {
+                      navigate("/plugins");
+                      onClose();
+                    }}
+                  >
+                    <div className="menu-item-main">Plugins</div>
+                    <div className="menu-item-sub">(empty for now)</div>
                   </button>
                 </div>
               </section>

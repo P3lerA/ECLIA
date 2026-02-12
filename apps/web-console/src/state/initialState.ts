@@ -46,15 +46,6 @@ export function makeInitialState(): AppState {
     model: prefs.model ?? "openai-compatible",
     transport: (prefs.transport ?? "sse") as any,
 
-    plugins: [
-      { id: "sessions", name: "Session Sync", enabled: true, description: "Persist sessions to the backend" },
-      { id: "tools", name: "Tool Harness", enabled: true, description: "Allow tool blocks to execute shell commands" },
-      { id: "render-md", name: "Markdown", enabled: false, description: "Render markdown blocks" }
-    ].map((p) => ({
-      ...p,
-      enabled: typeof prefs.plugins?.[p.id] === "boolean" ? Boolean(prefs.plugins?.[p.id]) : p.enabled
-    })),
-
     gpu: { available: null },
 
     inspectorTab: "events",

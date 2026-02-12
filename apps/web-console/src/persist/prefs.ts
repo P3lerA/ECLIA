@@ -41,8 +41,6 @@ export type StoredPrefsV1 = {
    */
   execAccessMode?: "full" | "safe";
 
-  // Plugins (by id)
-  plugins?: Record<string, boolean>;
 };
 
 const KEY = "eclia-prefs-v1";
@@ -78,13 +76,6 @@ export function readStoredPrefs(): StoredPrefsV1 {
       out.execAccessMode = (parsed as any).execAccessMode;
     }
 
-    if (isRecord(parsed.plugins)) {
-      const map: Record<string, boolean> = {};
-      for (const [k, val] of Object.entries(parsed.plugins)) {
-        if (typeof val === "boolean") map[k] = val;
-      }
-      out.plugins = map;
-    }
 
     return out;
   } catch {

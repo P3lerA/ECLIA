@@ -117,8 +117,7 @@ function AppInner() {
       model: state.model,
       contextLimitEnabled: state.settings.contextLimitEnabled,
       contextTokenLimit: state.settings.contextTokenLimit,
-      execAccessMode: state.settings.execAccessMode,
-      plugins: Object.fromEntries(state.plugins.map((p) => [p.id, p.enabled]))
+      execAccessMode: state.settings.execAccessMode
     });
   }, [
     state.settings.textureDisabled,
@@ -126,8 +125,7 @@ function AppInner() {
     state.settings.contextTokenLimit,
     state.settings.execAccessMode,
     state.transport,
-    state.model,
-    state.plugins
+    state.model
   ]);
 
   // Bootstrap sessions from the gateway (disk-backed).
@@ -220,6 +218,7 @@ function AppInner() {
       <div className="container">
         <Routes>
           <Route path="/settings" element={<SettingsView onBack={() => navigate("/")} />} />
+
           <Route path="/plugins" element={<PluginsView onBack={() => navigate("/")} />} />
 
           <Route

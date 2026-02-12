@@ -1,9 +1,9 @@
 import React from "react";
 import { runtime } from "../../core/runtime";
-import { apiResetSession } from "../../core/api/sessions";
 import type { TransportId } from "../../core/transport/TransportRegistry";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 import { ThemeModeSwitch } from "../theme/ThemeModeSwitch";
+import { useStagedDraft } from "../common/useStagedDraft";
 
 type SettingsDraft = {
   textureDisabled: boolean;
@@ -96,14 +96,9 @@ function sameStringArray(a: string[], b: string[]): boolean {
   return true;
 }
 
-
 /**
  * Settings uses an explicit "Save" to commit changes.
  * While dirty, leaving the page is blocked to avoid accidental loss.
- *
- * Dev config note:
- * - We intentionally write startup config to eclia.config.local.toml (gitignored).
- * - eclia.config.toml is the committed defaults and is not modified by the UI.
  */
 export function SettingsView({ onBack }: { onBack: () => void }) {
   const state = useAppState();
@@ -129,24 +124,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     discordGuildIds: string[];
   } | null>(null);
 
-  const [draft, setDraft] = React.useState<SettingsDraft>(() => ({
-    textureDisabled: state.settings.textureDisabled,
-    transport: state.transport,
-    model: state.model,
-    contextTokenLimit: String(state.settings.contextTokenLimit ?? 20000),
-    contextLimitEnabled: Boolean(state.settings.contextLimitEnabled ?? true),
-    consoleHost: "",
-    consolePort: "",
-    inferenceBaseUrl: "",
-    inferenceModelId: "",
-    inferenceApiKey: "",
-    adapterDiscordEnabled: false,
-    adapterDiscordAppId: "",
-    adapterDiscordBotToken: "",
-    adapterDiscordGuildIds: ""
-  }));
-
-  // Load TOML config into draft (best-effort).
+  // Load TOML config (best-effort).
   React.useEffect(() => {
     let cancelled = false;
 
@@ -188,19 +166,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           discordTokenConfigured,
           discordGuildIds
         });
-
-        setDraft((d) => ({
-          ...d,
-          consoleHost: host,
-          consolePort: String(port),
-          inferenceBaseUrl: baseUrl,
-          inferenceModelId: modelId,
-          inferenceApiKey: "", // never auto-fill secrets
-          adapterDiscordEnabled: discordEnabled,
-          adapterDiscordAppId: discordAppId,
-          adapterDiscordBotToken: "", // never auto-fill secrets
-          adapterDiscordGuildIds: discordGuildIds.join("\n")
-        }));
       } catch {
         if (cancelled) return;
         // Dev config editing is optional; do not break Settings if the backend isn't running.
@@ -217,6 +182,89 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       cancelled = true;
     };
   }, []);
+
+  const getCleanDraft = React.useCallback(
+    (prev: SettingsDraft | undefined): SettingsDraft => {
+      return {
+        textureDisabled: state.settings.textureDisabled,
+        transport: state.transport,
+        model: state.model,
+        contextTokenLimit: String(state.settings.contextTokenLimit ?? 20000),
+        contextLimitEnabled: Boolean(state.settings.contextLimitEnabled ?? true),
+
+        consoleHost: cfgBase?.host ?? prev?.consoleHost ?? "",
+        consolePort: cfgBase ? String(cfgBase.port) : prev?.consolePort ?? "",
+
+        inferenceBaseUrl: cfgBase?.inferenceBaseUrl ?? prev?.inferenceBaseUrl ?? "",
+        inferenceModelId: cfgBase?.inferenceModelId ?? prev?.inferenceModelId ?? "",
+        inferenceApiKey: "",
+
+        adapterDiscordEnabled: cfgBase?.discordEnabled ?? prev?.adapterDiscordEnabled ?? false,
+        adapterDiscordAppId: cfgBase?.discordAppId ?? prev?.adapterDiscordAppId ?? "",
+        adapterDiscordBotToken: "",
+        adapterDiscordGuildIds: cfgBase ? cfgBase.discordGuildIds.join("\n") : prev?.adapterDiscordGuildIds ?? ""
+      };
+    },
+    [
+      state.settings.textureDisabled,
+      state.settings.contextLimitEnabled,
+      state.settings.contextTokenLimit,
+      state.transport,
+      state.model,
+      cfgBase
+    ]
+  );
+
+  const isDirtyDraft = React.useCallback(
+    (d: SettingsDraft): boolean => {
+      const dirtyUi =
+        d.textureDisabled !== state.settings.textureDisabled ||
+        d.transport !== state.transport ||
+        d.model !== state.model ||
+        d.contextLimitEnabled !== state.settings.contextLimitEnabled ||
+        parseContextLimit(d.contextTokenLimit) !== state.settings.contextTokenLimit;
+
+      const dirtyDevHostPort = cfgBase
+        ? d.consoleHost.trim() !== cfgBase.host || portNumber(d.consolePort) !== cfgBase.port
+        : false;
+
+      const dirtyDevInference = cfgBase
+        ? d.inferenceBaseUrl.trim() !== cfgBase.inferenceBaseUrl ||
+          d.inferenceModelId.trim() !== cfgBase.inferenceModelId ||
+          d.inferenceApiKey.trim().length > 0
+        : false;
+
+      const dirtyDevDiscord = cfgBase
+        ? d.adapterDiscordEnabled !== cfgBase.discordEnabled ||
+          d.adapterDiscordAppId.trim() !== cfgBase.discordAppId ||
+          d.adapterDiscordBotToken.trim().length > 0 ||
+          !sameStringArray(normalizeGuildIds(d.adapterDiscordGuildIds), cfgBase.discordGuildIds)
+        : false;
+
+      return dirtyUi || dirtyDevHostPort || dirtyDevInference || dirtyDevDiscord;
+    },
+    [
+      state.settings.textureDisabled,
+      state.settings.contextLimitEnabled,
+      state.settings.contextTokenLimit,
+      state.transport,
+      state.model,
+      cfgBase
+    ]
+  );
+
+  const { draft, setDraft, dirty, discard: discardDraft } = useStagedDraft<SettingsDraft>({
+    getCleanDraft,
+    isDirty: isDirtyDraft,
+    syncDeps: [
+      state.settings.textureDisabled,
+      state.settings.contextLimitEnabled,
+      state.settings.contextTokenLimit,
+      state.transport,
+      state.model,
+      cfgBase
+    ]
+  });
 
   const dirtyUi =
     draft.textureDisabled !== state.settings.textureDisabled ||
@@ -243,46 +291,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     : false;
 
   const dirtyDev = dirtyDevHostPort || dirtyDevInference || dirtyDevDiscord;
-  const dirty = dirtyUi || dirtyDev;
-
-  // Keep draft in sync when external state changes, but only if the user
-  // isn't in the middle of editing unsaved changes.
-  React.useEffect(() => {
-    if (dirty) return;
-    setDraft((d) => ({
-      ...d,
-      textureDisabled: state.settings.textureDisabled,
-      transport: state.transport,
-      model: state.model,
-      contextLimitEnabled: state.settings.contextLimitEnabled,
-      contextTokenLimit: String(state.settings.contextTokenLimit ?? 20000)
-    }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    state.settings.textureDisabled,
-    state.settings.contextLimitEnabled,
-    state.settings.contextTokenLimit,
-    state.transport,
-    state.model
-  ]);
-
-  // Prevent accidental tab close / refresh while there are unsaved changes.
-  React.useEffect(() => {
-    if (!dirty) return;
-
-    const beforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = "";
-    };
-
-    window.addEventListener("beforeunload", beforeUnload);
-    return () => window.removeEventListener("beforeunload", beforeUnload);
-  }, [dirty]);
-
-  const gpuText =
-    state.gpu.available === null ? "checking…" : state.gpu.available ? "WebGL2 available" : "unavailable";
-
-  const gpuLine = draft.textureDisabled ? "Texture disabled (solid background)" : gpuText;
 
   const [saving, setSaving] = React.useState(false);
 
@@ -304,24 +312,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         (!dirtyDevDiscord || discordValid)));
 
   const discard = () => {
-    // Revert draft to the last saved state (AppState + cfgBase).
-    setDraft((d) => ({
-      ...d,
-      textureDisabled: state.settings.textureDisabled,
-      transport: state.transport,
-      model: state.model,
-      contextLimitEnabled: state.settings.contextLimitEnabled,
-      contextTokenLimit: String(state.settings.contextTokenLimit ?? 20000),
-      consoleHost: cfgBase?.host ?? d.consoleHost,
-      consolePort: cfgBase ? String(cfgBase.port) : d.consolePort,
-      inferenceBaseUrl: cfgBase?.inferenceBaseUrl ?? d.inferenceBaseUrl,
-      inferenceModelId: cfgBase?.inferenceModelId ?? d.inferenceModelId,
-      inferenceApiKey: "",
-      adapterDiscordEnabled: cfgBase?.discordEnabled ?? d.adapterDiscordEnabled,
-      adapterDiscordAppId: cfgBase?.discordAppId ?? d.adapterDiscordAppId,
-      adapterDiscordBotToken: "",
-      adapterDiscordGuildIds: cfgBase ? cfgBase.discordGuildIds.join("\n") : d.adapterDiscordGuildIds
-    }));
+    discardDraft();
     setCfgError(null);
     setCfgSaved(null);
   };
@@ -402,6 +393,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           };
 
           setCfgBase(nextBase);
+
+          // Clear secret inputs after a successful save so the form becomes clean.
           setDraft((d) => ({
             ...d,
             inferenceApiKey: "",
@@ -453,6 +446,9 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     onBack();
   };
 
+  const webgl2Text =
+    state.gpu.available === null ? "WebGL2: checking…" : state.gpu.available ? "WebGL2: available" : "WebGL2: unavailable";
+
   return (
     <div className="settingsview motion-page">
       <div className="settings-head">
@@ -494,7 +490,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           <div className="row">
             <div className="row-left">
               <div className="row-main">Disable background texture</div>
-              <div className="row-sub muted">Solid background fallback (useful for low-end GPUs).</div>
+              <div className="row-sub muted">{webgl2Text}</div>
             </div>
 
             <input
@@ -503,13 +499,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
               onChange={(e) => setDraft((d) => ({ ...d, textureDisabled: e.target.checked }))}
               aria-label="Disable background texture"
             />
-          </div>
-
-          <div className="row">
-            <div className="row-left">
-              <div className="row-main">GPU status</div>
-              <div className="row-sub muted">{gpuLine}</div>
-            </div>
           </div>
         </div>
 
@@ -570,12 +559,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                   <span>Enabled</span>
                 </label>
               </div>
-
-              <div className="hint">
-                {draft.contextLimitEnabled
-                  ? "Approximate truncation budget sent to the gateway (estimator-based)."
-                  : "No truncation budget is applied (full session context is sent; may exceed provider limits)."}
-              </div>
             </div>
           </div>
         </div>
@@ -610,7 +593,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           </div>
 
           <div className="grid2">
-            <label className="field">
+            <label className="field" style={{ gridColumn: "1 / -1" }}>
               <div className="field-label">API key (local)</div>
               <input
                 className="select"
@@ -627,16 +610,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                   : "No key detected. Set it here or in eclia.config.local.toml."}
               </div>
             </label>
-
-            <div className="field">
-              <div className="field-label">Status</div>
-              <div className="select statusBox muted" aria-live="polite">
-                {cfgBase?.apiKeyConfigured ? "API key configured" : "API key missing"}
-              </div>
-              <div className="field-sub muted">
-                Tip: If you're using Minimax, set the correct Base URL for their OpenAI-compatible endpoint.
-              </div>
-            </div>
           </div>
 
           {dirtyDevInference && !inferenceValid ? (
@@ -715,26 +688,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             </label>
           </div>
 
-          <div className="grid2">
-            <div className="field">
-              <div className="field-label">Status</div>
-              <div className="select statusBox muted" aria-live="polite">
-                {draft.adapterDiscordEnabled
-                  ? discordTokenOk && discordAppIdOk
-                    ? "enabled"
-                    : !discordTokenOk && !discordAppIdOk
-                      ? "enabled (missing token + app id)"
-                      : !discordTokenOk
-                        ? "enabled (missing token)"
-                        : "enabled (missing app id)"
-                  : "disabled"}
-              </div>
-              <div className="field-sub muted">
-                The adapter runs as a separate process (e.g. <code>pnpm dev:discord</code>). Restart required after config changes.
-              </div>
-            </div>
-          </div>
-
           {dirtyDevDiscord && !discordValid ? (
             <div className="devNoteText muted">Discord adapter enabled but missing bot token or Application ID.</div>
           ) : null}
@@ -770,65 +723,13 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             </label>
           </div>
 
-          <div className="devNote">
-            <div className="devNoteTitle">TOML config</div>
-            <div className="devNoteText">
-              Writes to <code>eclia.config.local.toml</code>. Restart required to apply host/port changes.
-            </div>
+          {cfgError ? <div className="devNoteText muted">{cfgError}</div> : null}
 
-            {cfgError ? <div className="devNoteText muted">{cfgError}</div> : null}
+          {dirtyDevHostPort && !hostPortValid ? (
+            <div className="devNoteText muted">Invalid host or port. Port must be 1–65535.</div>
+          ) : null}
 
-            {dirtyDevHostPort && !hostPortValid ? (
-              <div className="devNoteText muted">Invalid host or port. Port must be 1–65535.</div>
-            ) : null}
-
-            {cfgSaved ? <div className="devNoteText muted">{cfgSaved}</div> : null}
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-title">Diagnostics</div>
-
-          <div className="menu-diag">
-            <div className="menu-diag-row">
-              <div className="muted">events</div>
-              <div className="muted">{state.logsByTab.events[0]?.summary ?? "-"}</div>
-            </div>
-            <div className="menu-diag-row">
-              <div className="muted">tools</div>
-              <div className="muted">{state.logsByTab.tools[0]?.summary ?? "-"}</div>
-            </div>
-            <div className="menu-diag-row">
-              <div className="muted">context</div>
-              <div className="muted">{state.logsByTab.context[0]?.summary ?? "-"}</div>
-            </div>
-
-            <div className="menu-diag-actions">
-              <button
-                className="btn subtle"
-                onClick={async () => {
-                  try {
-                    await apiResetSession(state.activeSessionId);
-                  } catch {
-                    // ignore
-                  }
-                  dispatch({ type: "messages/clear", sessionId: state.activeSessionId });
-                }}
-              >
-                Reset active session
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-title">About</div>
-          <div className="row">
-            <div className="row-left">
-              <div className="row-main">ECLIA Console Prototype</div>
-              <div className="row-sub">WebGL2 dynamic contours · Menu navigation · blocks/event-stream architecture</div>
-            </div>
-          </div>
+          {cfgSaved ? <div className="devNoteText muted">{cfgSaved}</div> : null}
         </div>
       </div>
     </div>
