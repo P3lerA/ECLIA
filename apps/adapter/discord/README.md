@@ -16,7 +16,17 @@ Required (env or local TOML):
 
 Recommended (for fast command iteration):
 
-- `DISCORD_GUILD_ID` – if set, registers slash commands to that guild (updates instantly). If omitted, registers globally (can take longer to propagate).
+- `DISCORD_GUILD_ID` – legacy single guild id. If set, registers slash commands to that guild (updates instantly).
+- `DISCORD_GUILD_IDS` – comma/newline/space separated list of guild ids (multi-guild).
+- `adapters.discord.guild_ids` in `eclia.config.local.toml` – TOML array form (multi-guild), e.g.
+
+  ```toml
+  [adapters.discord]
+  guild_ids = ["123456789012345678", "987654321098765432"]
+  ```
+
+  When guild ids are set, the adapter will (by default) clear global slash commands to avoid duplicate command listings.
+  If you want to keep global commands, set `ECLIA_DISCORD_KEEP_GLOBAL_COMMANDS=1`.
 
 Gateway connection:
 

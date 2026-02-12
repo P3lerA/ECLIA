@@ -47,6 +47,41 @@ function boolEnv(name: string): boolean {
   return v === "1" || v === "true" || v === "yes" || v === "on";
 }
 
+function normalizeIdList(input: unknown): string[] {
+  const raw: string[] = [];
+
+  if (Array.isArray(input)) {
+    for (const x of input) {
+      const s = typeof x === "string" ? x.trim() : typeof x === "number" ? String(x) : "";
+      if (s) raw.push(s);
+    }
+  } else if (typeof input === "string") {
+    for (const part of input.split(/[\n\r,\t\s]+/g)) {
+      const s = part.trim();
+      if (s) raw.push(s);
+    }
+  }
+
+  // De-dup while preserving order.
+  const seen = new Set<string>();
+  const uniq: string[] = [];
+  for (const s of raw) {
+    if (seen.has(s)) continue;
+    seen.add(s);
+    uniq.push(s);
+  }
+  return uniq;
+}
+
+function guildIdsFromEnv(): string[] {
+  // Back-compat: DISCORD_GUILD_ID (single)
+  const single = env("DISCORD_GUILD_ID");
+  // New: DISCORD_GUILD_IDS (comma/newline/space separated)
+  const multi = env("DISCORD_GUILD_IDS");
+  const src = multi || single;
+  return normalizeIdList(src);
+}
+
 function json(res: http.ServerResponse, status: number, obj: unknown) {
   const body = JSON.stringify(obj, null, 2);
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
@@ -254,7 +289,7 @@ async function runGatewayChat(args: {
   return { text, meta };
 }
 
-async function registerSlashCommands(args: { token: string; appId: string; guildId?: string }) {
+async function registerSlashCommands(args: { token: string; appId: string; guildIds: string[]; keepGlobal?: boolean }) {
   const rest = new REST({ version: "10" }).setToken(args.token);
 
   const commands = [
@@ -282,11 +317,24 @@ async function registerSlashCommands(args: { token: string; appId: string; guild
     }
   ];
 
-  if (args.guildId) {
-    await rest.put(Routes.applicationGuildCommands(args.appId, args.guildId), { body: commands });
-  } else {
-    await rest.put(Routes.applicationCommands(args.appId), { body: commands });
+  const guildIds = normalizeIdList(args.guildIds);
+
+  if (guildIds.length) {
+    // Guild-scoped registration is instant and preferred for development.
+    for (const gid of guildIds) {
+      await rest.put(Routes.applicationGuildCommands(args.appId, gid), { body: commands });
+    }
+
+    // Common gotcha: if you previously registered global commands, you'll see duplicates
+    // (global + guild). Clearing global avoids that.
+    if (!args.keepGlobal) {
+      await rest.put(Routes.applicationCommands(args.appId), { body: [] });
+    }
+    return;
   }
+
+  // Global registration (slower propagation).
+  await rest.put(Routes.applicationCommands(args.appId), { body: commands });
 }
 
 function originFromInteraction(interaction: ChatInputCommandInteraction): DiscordOrigin {
@@ -372,7 +420,10 @@ async function main() {
 
   const token = env("DISCORD_BOT_TOKEN") || String(discordCfg.bot_token ?? "").trim();
   const appId = env("DISCORD_APP_ID") || String(discordCfg.app_id ?? "").trim();
-  const guildId = env("DISCORD_GUILD_ID") || undefined;
+  const envGuildIds = guildIdsFromEnv();
+  const cfgGuildIds = normalizeIdList((discordCfg as any).guild_ids);
+  const guildIds = envGuildIds.length ? envGuildIds : cfgGuildIds;
+  const keepGlobalCommands = boolEnv("ECLIA_DISCORD_KEEP_GLOBAL_COMMANDS");
 
   if (!token) {
     console.error("[adapter-discord] Missing Discord bot token. Set it in Settings -> Adapters -> Discord (local TOML), or DISCORD_BOT_TOKEN.");
@@ -396,8 +447,13 @@ async function main() {
   console.log(`[adapter-discord] gateway: ${gatewayUrl}`);
 
   console.log("[adapter-discord] Registering slash commands...");
-  await registerSlashCommands({ token, appId, guildId });
-  console.log(`[adapter-discord] Slash commands registered ${guildId ? "(guild)" : "(global)"}`);
+  await registerSlashCommands({ token, appId, guildIds, keepGlobal: keepGlobalCommands });
+  if (guildIds.length) {
+    const suffix = keepGlobalCommands ? "(guild; keeping global)" : "(guild; cleared global)";
+    console.log(`[adapter-discord] Slash commands registered for guild(s): ${guildIds.join(", ")} ${suffix}`);
+  } else {
+    console.log("[adapter-discord] Slash commands registered (global)");
+  }
 
   const intents = [GatewayIntentBits.Guilds];
   if (allowPrefix) {

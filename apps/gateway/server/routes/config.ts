@@ -20,6 +20,7 @@ type ConfigReqBody = {
       enabled?: boolean;
       app_id?: string; // non-secret (optional; empty means unchanged)
       bot_token?: string; // secret (optional; empty means unchanged)
+      guild_ids?: string[]; // non-secret (optional)
     };
   };
 };
@@ -46,6 +47,7 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
           discord: {
             enabled: Boolean(config.adapters.discord.enabled),
             app_id: String(config.adapters.discord.app_id ?? ""),
+            guild_ids: Array.isArray((config.adapters.discord as any).guild_ids) ? (config.adapters.discord as any).guild_ids : [],
             app_id_configured: Boolean(config.adapters.discord.app_id && config.adapters.discord.app_id.trim()),
             bot_token_configured: Boolean(config.adapters.discord.bot_token && config.adapters.discord.bot_token.trim())
           }
@@ -76,6 +78,21 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
     // Optional: if user sends app_id="", treat as "do not change".
     if (patch.adapters?.discord && typeof patch.adapters.discord.app_id === "string") {
       if (!patch.adapters.discord.app_id.trim()) delete patch.adapters.discord.app_id;
+    }
+
+    // Optional: normalize guild_ids (trim, drop empties, de-dup). Empty list means "no guilds".
+    if (patch.adapters?.discord && Array.isArray((patch.adapters.discord as any).guild_ids)) {
+      const raw = (patch.adapters.discord as any).guild_ids as any[];
+      const out: string[] = [];
+      const seen = new Set<string>();
+      for (const x of raw) {
+        const s = typeof x === "string" ? x.trim() : typeof x === "number" ? String(x) : "";
+        if (!s) continue;
+        if (seen.has(s)) continue;
+        seen.add(s);
+        out.push(s);
+      }
+      (patch.adapters.discord as any).guild_ids = out;
     }
 
     // Preflight host/port bind if console is being changed (avoid writing broken config).

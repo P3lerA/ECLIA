@@ -25,6 +25,7 @@ type SettingsDraft = {
   adapterDiscordEnabled: boolean;
   adapterDiscordAppId: string; // application id / client id (non-secret)
   adapterDiscordBotToken: string; // input only; empty = unchanged
+  adapterDiscordGuildIds: string; // UI input only; newline/comma separated; persisted as adapters.discord.guild_ids
 };
 
 type DevConfig = {
@@ -42,6 +43,7 @@ type DevConfig = {
     discord?: {
       enabled?: boolean;
       app_id?: string;
+      guild_ids?: string[];
       app_id_configured?: boolean;
       bot_token_configured?: boolean;
     };
@@ -68,6 +70,30 @@ function parseContextLimit(s: string): number {
   const n = Number(s);
   if (!Number.isFinite(n)) return 20000;
   return Math.max(256, Math.min(1_000_000, Math.trunc(n)));
+}
+
+function normalizeGuildIds(input: string): string[] {
+  const raw = String(input ?? "")
+    .split(/[\n\r,\t\s]+/g)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of raw) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+function sameStringArray(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }
 
 
@@ -100,6 +126,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     discordEnabled: boolean;
     discordAppId: string;
     discordTokenConfigured: boolean;
+    discordGuildIds: string[];
   } | null>(null);
 
   const [draft, setDraft] = React.useState<SettingsDraft>(() => ({
@@ -115,7 +142,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     inferenceApiKey: "",
     adapterDiscordEnabled: false,
     adapterDiscordAppId: "",
-    adapterDiscordBotToken: ""
+    adapterDiscordBotToken: "",
+    adapterDiscordGuildIds: ""
   }));
 
   // Load TOML config into draft (best-effort).
@@ -145,6 +173,9 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         const discordEnabled = Boolean((disc as any).enabled ?? false);
         const discordAppId = String((disc as any).app_id ?? "").trim();
         const discordTokenConfigured = Boolean((disc as any).bot_token_configured);
+        const discordGuildIds = Array.isArray((disc as any).guild_ids)
+          ? (disc as any).guild_ids.map((x: any) => String(x).trim()).filter(Boolean)
+          : [];
 
         setCfgBase({
           host,
@@ -154,7 +185,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           apiKeyConfigured: keyConfigured,
           discordEnabled,
           discordAppId,
-          discordTokenConfigured
+          discordTokenConfigured,
+          discordGuildIds
         });
 
         setDraft((d) => ({
@@ -166,7 +198,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           inferenceApiKey: "", // never auto-fill secrets
           adapterDiscordEnabled: discordEnabled,
           adapterDiscordAppId: discordAppId,
-          adapterDiscordBotToken: "" // never auto-fill secrets
+          adapterDiscordBotToken: "", // never auto-fill secrets
+          adapterDiscordGuildIds: discordGuildIds.join("\n")
         }));
       } catch {
         if (cancelled) return;
@@ -205,7 +238,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const dirtyDevDiscord = cfgBase
     ? draft.adapterDiscordEnabled !== cfgBase.discordEnabled ||
       draft.adapterDiscordAppId.trim() !== cfgBase.discordAppId ||
-      draft.adapterDiscordBotToken.trim().length > 0
+      draft.adapterDiscordBotToken.trim().length > 0 ||
+      !sameStringArray(normalizeGuildIds(draft.adapterDiscordGuildIds), cfgBase.discordGuildIds)
     : false;
 
   const dirtyDev = dirtyDevHostPort || dirtyDevInference || dirtyDevDiscord;
@@ -285,7 +319,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       inferenceApiKey: "",
       adapterDiscordEnabled: cfgBase?.discordEnabled ?? d.adapterDiscordEnabled,
       adapterDiscordAppId: cfgBase?.discordAppId ?? d.adapterDiscordAppId,
-      adapterDiscordBotToken: ""
+      adapterDiscordBotToken: "",
+      adapterDiscordGuildIds: cfgBase ? cfgBase.discordGuildIds.join("\n") : d.adapterDiscordGuildIds
     }));
     setCfgError(null);
     setCfgSaved(null);
@@ -328,13 +363,16 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         if (dirtyDevDiscord) {
           if (!discordValid) throw new Error("Discord adapter enabled but missing bot token or Application ID.");
           const appId = draft.adapterDiscordAppId.trim();
+          const guildIds = normalizeGuildIds(draft.adapterDiscordGuildIds);
+          const guildIdsDirty = !sameStringArray(guildIds, cfgBase.discordGuildIds);
           body.adapters = {
             discord: {
               enabled: Boolean(draft.adapterDiscordEnabled),
               // app_id is optional; empty means unchanged.
               ...(appId.length && appId !== cfgBase.discordAppId ? { app_id: appId } : {}),
               // bot_token is optional; empty means unchanged.
-              ...(draft.adapterDiscordBotToken.trim().length ? { bot_token: draft.adapterDiscordBotToken.trim() } : {})
+              ...(draft.adapterDiscordBotToken.trim().length ? { bot_token: draft.adapterDiscordBotToken.trim() } : {}),
+              ...(guildIdsDirty ? { guild_ids: guildIds } : {})
             }
           };
         }
@@ -359,11 +397,17 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
             discordEnabled: body.adapters?.discord?.enabled ?? cfgBase.discordEnabled,
             discordAppId: body.adapters?.discord?.app_id ?? cfgBase.discordAppId,
-            discordTokenConfigured: cfgBase.discordTokenConfigured || Boolean(body.adapters?.discord?.bot_token)
+            discordTokenConfigured: cfgBase.discordTokenConfigured || Boolean(body.adapters?.discord?.bot_token),
+            discordGuildIds: body.adapters?.discord?.guild_ids ?? cfgBase.discordGuildIds
           };
 
           setCfgBase(nextBase);
-          setDraft((d) => ({ ...d, inferenceApiKey: "", adapterDiscordBotToken: "" }));
+          setDraft((d) => ({
+            ...d,
+            inferenceApiKey: "",
+            adapterDiscordBotToken: "",
+            adapterDiscordGuildIds: nextBase.discordGuildIds.join("\n")
+          }));
 
           setCfgSaved(
             dirtyDevHostPort
@@ -649,6 +693,24 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
               />
               <div className="field-sub muted">
                 Stored in <code>eclia.config.local.toml</code>. Token is never shown after saving.
+              </div>
+            </label>
+          </div>
+
+          <div className="grid2">
+            <label className="field" style={{ gridColumn: "1 / -1" }}>
+              <div className="field-label">Guild IDs (optional)</div>
+              <textarea
+                className="select"
+                rows={3}
+                value={draft.adapterDiscordGuildIds}
+                onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordGuildIds: e.target.value }))}
+                placeholder={"123456789012345678\n987654321098765432"}
+                spellCheck={false}
+                disabled={cfgLoading || !cfgBase}
+              />
+              <div className="field-sub muted">
+                If set, slash commands will be registered as <strong>guild</strong> commands for faster iteration. Leave blank for global registration.
               </div>
             </label>
           </div>

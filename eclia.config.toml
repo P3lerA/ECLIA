@@ -39,3 +39,7 @@ enabled = false
 # Secrets belong in eclia.config.local.toml:
 # bot_token = "..."
 
+# Optional: register slash commands as guild-scoped commands (fast iteration).
+# If omitted or empty, commands are registered globally (slower propagation).
+# guild_ids = ["123456789012345678", "987654321098765432"]
+

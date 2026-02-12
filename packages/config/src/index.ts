@@ -35,6 +35,7 @@ export type EcliaConfig = {
       enabled: boolean;
       app_id?: string; // non-secret (application id / client id)
       bot_token?: string; // secret (prefer local overrides)
+      guild_ids?: string[]; // optional: register slash commands as guild-scoped
     };
   };
 };
@@ -64,7 +65,8 @@ export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
   },
   adapters: {
     discord: {
-      enabled: false
+      enabled: false,
+      guild_ids: []
     }
   }
 };
@@ -91,6 +93,28 @@ function coerceString(v: unknown, fallback: string): string {
   if (typeof v !== "string") return fallback;
   const s = v.trim();
   return s.length ? s : fallback;
+}
+
+function coerceStringArray(v: unknown, fallback: string[] = []): string[] {
+  if (Array.isArray(v)) {
+    const out: string[] = [];
+    for (const x of v) {
+      const s = typeof x === "string" ? x.trim() : typeof x === "number" ? String(x) : "";
+      if (!s) continue;
+      out.push(s);
+    }
+    return out;
+  }
+
+  if (typeof v === "string") {
+    const out = v
+      .split(/[\n\r,\t\s]+/g)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return out.length ? out : fallback;
+  }
+
+  return fallback;
 }
 
 
@@ -151,7 +175,8 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
           typeof discordRaw.app_id === "string" && discordRaw.app_id.trim().length
             ? discordRaw.app_id.trim()
             : undefined,
-        bot_token: typeof discordRaw.bot_token === "string" ? discordRaw.bot_token : undefined
+        bot_token: typeof discordRaw.bot_token === "string" ? discordRaw.bot_token : undefined,
+        guild_ids: coerceStringArray((discordRaw as any).guild_ids, base.adapters.discord.guild_ids ?? [])
       }
     }
   };
@@ -297,6 +322,12 @@ export function writeLocalEcliaConfig(
   const hasDiscordAppId = typeof (nextLocal as any)?.adapters?.discord?.app_id === "string";
   if (hasDiscordAppId) {
     (toWrite as any).adapters.discord.app_id = (nextLocal as any).adapters.discord.app_id;
+  }
+
+  // adapters.discord.guild_ids: write if present in patch OR already present in file
+  const hasDiscordGuildIds = Array.isArray((nextLocal as any)?.adapters?.discord?.guild_ids);
+  if (hasDiscordGuildIds) {
+    (toWrite as any).adapters.discord.guild_ids = normalized.adapters.discord.guild_ids ?? [];
   }
 
   fs.writeFileSync(localPath, TOML.stringify(toWrite), "utf-8");
