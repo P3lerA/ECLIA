@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:watch": "tsc -p tsconfig.json --noEmit -w --preserveWatchOutput",
     "preview": "vite preview",
     "dev:server": "pnpm -C ../gateway dev",
     "dev:all": "concurrently -n WEB,API -c auto \"vite\" \"pnpm -C ../gateway dev\"",
@@ -28,3 +30,4 @@
     "@eclia/config": "workspace:*"
   }
 }
+

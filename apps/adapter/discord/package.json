@@ -4,7 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server/index.ts"
+    "dev": "tsx server/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:watch": "tsc -p tsconfig.json --noEmit -w --preserveWatchOutput"
   },
   "dependencies": {
     "@eclia/config": "workspace:*",
@@ -17,3 +19,4 @@
     "typescript": "^5.6.3"
   }
 }
+
