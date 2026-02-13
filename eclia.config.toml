@@ -15,7 +15,13 @@ port = 8787
 # Current MVP: OpenAI-compatible provider (works with any OpenAI-like API).
 provider = "openai_compat"
 
-[inference.openai_compat]
+# Provider profiles.
+# The Console can configure multiple profiles per provider.
+
+[[inference.openai_compat.profiles]]
+id = "default"
+name = "Default"
+
 # Example: "https://api.openai.com/v1"
 # For Minimax/OpenAI-compatible, set their base URL here.
 base_url = "https://api.openai.com/v1"

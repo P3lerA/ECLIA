@@ -125,6 +125,15 @@ assets/
 1. Implement `ChatTransport` under `src/core/transport/`
 2. Register it in `src/core/runtime.ts`
 
+## UI conventions
+
+Keep spacing consistent so cards stay readable:
+
+- **Within a card, use a 10px vertical gap between blocks.**
+  - `row` already has a bottom margin; when a `row` follows a `grid2`, add the `.stack-gap` utility class.
+- **Row layout:** use `row-left` for title + description; it uses a 6px gap to avoid cramped helper text.
+- **Collapsible blocks:** prefer a `row`-styled button with a disclosure icon, followed by an indented detail panel.
+
 ## Logo export
 
 The logo is implemented as **HTML/CSS** in the app, but GitHub README sanitization may strip CSS when you embed arbitrary HTML.

@@ -24,10 +24,7 @@ export type EcliaConfig = {
   inference: {
     provider: "openai_compat";
     openai_compat: {
-      base_url: string; // e.g. https://api.openai.com/v1
-      model: string; // real upstream model id
-      api_key?: string; // secret (prefer local overrides)
-      auth_header?: string; // default: Authorization
+      profiles: OpenAICompatProfile[];
     };
   };
   adapters: {
@@ -40,12 +37,50 @@ export type EcliaConfig = {
   };
 };
 
+export type OpenAICompatProfile = {
+  /**
+   * Stable identifier used by UI/runtime routing.
+   * Not shown to users.
+   */
+  id: string;
+
+  /**
+   * Display name (shown in the Console UI).
+   */
+  name: string;
+
+  /**
+   * Example: https://api.openai.com/v1
+   */
+  base_url: string;
+
+  /**
+   * Real upstream model id (NOT the UI route key).
+   */
+  model: string;
+
+  /**
+   * Secret (prefer local overrides).
+   */
+  api_key?: string;
+
+  /**
+   * Default: Authorization
+   */
+  auth_header?: string;
+};
+
 export type EcliaConfigPatch = Partial<{
   console: Partial<EcliaConfig["console"]>;
   api: Partial<EcliaConfig["api"]>;
   inference: Partial<{
     provider: EcliaConfig["inference"]["provider"];
-    openai_compat: Partial<EcliaConfig["inference"]["openai_compat"]>;
+    openai_compat: Partial<{
+      profiles: Array<
+        Partial<Pick<OpenAICompatProfile, "id" | "name" | "base_url" | "model" | "api_key" | "auth_header">> &
+          Pick<OpenAICompatProfile, "id">
+      >;
+    }>;
   }>;
   adapters: Partial<{
     discord: Partial<EcliaConfig["adapters"]["discord"]>;
@@ -58,9 +93,15 @@ export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
   inference: {
     provider: "openai_compat",
     openai_compat: {
-      base_url: "https://api.openai.com/v1",
-      model: "gpt-4o-mini",
-      auth_header: "Authorization"
+      profiles: [
+        {
+          id: "default",
+          name: "Default",
+          base_url: "https://api.openai.com/v1",
+          model: "gpt-4o-mini",
+          auth_header: "Authorization"
+        }
+      ]
     }
   },
   adapters: {
@@ -93,6 +134,21 @@ function coerceString(v: unknown, fallback: string): string {
   if (typeof v !== "string") return fallback;
   const s = v.trim();
   return s.length ? s : fallback;
+}
+
+function coerceOptionalString(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const s = v.trim();
+  return s.length ? s : undefined;
+}
+
+function coerceProfileId(v: unknown, fallback: string): string {
+  if (typeof v === "string") {
+    const s = v.trim();
+    if (s) return s;
+  }
+  if (typeof v === "number" && Number.isFinite(v)) return String(Math.trunc(v));
+  return fallback;
 }
 
 function coerceStringArray(v: unknown, fallback: string[] = []): string[] {
@@ -151,6 +207,43 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
 
   const provider = (infRaw as any).provider === "openai_compat" ? "openai_compat" : base.inference.provider;
 
+  // Profiles (new schema). If missing/empty, fall back to legacy keys on [inference.openai_compat].
+  const rawProfiles = Array.isArray((openaiRaw as any).profiles) ? ((openaiRaw as any).profiles as any[]) : null;
+
+  const profiles: OpenAICompatProfile[] = [];
+  const seen = new Set<string>();
+
+  if (rawProfiles && rawProfiles.length) {
+    for (let i = 0; i < rawProfiles.length; i++) {
+      const p = rawProfiles[i];
+      if (!isRecord(p)) continue;
+
+      const id = coerceProfileId(p.id, `profile_${i + 1}`);
+      if (seen.has(id)) continue;
+      seen.add(id);
+
+      const name = coerceString(p.name, `Profile ${i + 1}`);
+      const base_url = coerceString(p.base_url, base.inference.openai_compat.profiles[0].base_url);
+      const model = coerceString(p.model, base.inference.openai_compat.profiles[0].model);
+      const api_key = coerceOptionalString(p.api_key);
+      const auth_header = coerceString(p.auth_header, base.inference.openai_compat.profiles[0].auth_header ?? "Authorization");
+
+      profiles.push({ id, name, base_url, model, api_key, auth_header });
+    }
+  }
+
+  // Legacy schema fallback: base_url/model/api_key/auth_header at [inference.openai_compat]
+  if (profiles.length === 0) {
+    profiles.push({
+      id: "default",
+      name: "Default",
+      base_url: coerceString(openaiRaw.base_url, base.inference.openai_compat.profiles[0].base_url),
+      model: coerceString(openaiRaw.model, base.inference.openai_compat.profiles[0].model),
+      api_key: coerceOptionalString(openaiRaw.api_key),
+      auth_header: coerceString(openaiRaw.auth_header, base.inference.openai_compat.profiles[0].auth_header ?? "Authorization")
+    });
+  }
+
   return {
     console: {
       host: coerceHost(consoleRaw.host, base.console.host),
@@ -162,10 +255,7 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
     inference: {
       provider,
       openai_compat: {
-        base_url: coerceString(openaiRaw.base_url, base.inference.openai_compat.base_url),
-        model: coerceString(openaiRaw.model, base.inference.openai_compat.model),
-        api_key: typeof openaiRaw.api_key === "string" ? openaiRaw.api_key : undefined,
-        auth_header: coerceString(openaiRaw.auth_header, base.inference.openai_compat.auth_header ?? "Authorization")
+        profiles
       }
     },
     adapters: {
@@ -277,6 +367,48 @@ export function writeLocalEcliaConfig(
   ensureLocalConfig(rootDir);
 
   const currentLocal = tryReadToml(localPath);
+
+  // Special-case: profiles are an array, so deepMerge() replaces wholesale.
+  // Preserve existing secrets (api_key) per profile id unless the patch explicitly sets a new one.
+  const currentProfilesRaw = (currentLocal as any)?.inference?.openai_compat?.profiles;
+  const currentProfiles = Array.isArray(currentProfilesRaw) ? (currentProfilesRaw as any[]) : null;
+  const legacyKey = coerceOptionalString((currentLocal as any)?.inference?.openai_compat?.api_key);
+  const legacyAuthHeader = coerceOptionalString((currentLocal as any)?.inference?.openai_compat?.auth_header);
+
+  if (patch.inference?.openai_compat && Array.isArray((patch.inference.openai_compat as any).profiles)) {
+    const patched = (patch.inference.openai_compat as any).profiles as any[];
+    const preserved: any[] = [];
+
+    for (let i = 0; i < patched.length; i++) {
+      const p = patched[i];
+      if (!isRecord(p)) continue;
+
+      const id = coerceProfileId(p.id, `profile_${i + 1}`);
+      const existing = currentProfiles?.find((x) => isRecord(x) && coerceProfileId((x as any).id, "") === id);
+
+      const next: Record<string, any> = { ...p, id };
+
+      // Preserve api_key when omitted.
+      if (!Object.prototype.hasOwnProperty.call(p, "api_key")) {
+        const existingKey = coerceOptionalString((existing as any)?.api_key);
+        if (existingKey) next.api_key = existingKey;
+        // Legacy fallback: if user is migrating from the old single-key schema.
+        if (!existingKey && id === "default" && legacyKey) next.api_key = legacyKey;
+      }
+
+      // Preserve auth_header when omitted (old configs may have it only at the top-level).
+      if (!Object.prototype.hasOwnProperty.call(p, "auth_header")) {
+        const existingHeader = coerceOptionalString((existing as any)?.auth_header);
+        if (existingHeader) next.auth_header = existingHeader;
+        if (!existingHeader && id === "default" && legacyAuthHeader) next.auth_header = legacyAuthHeader;
+      }
+
+      preserved.push(next);
+    }
+
+    (patch.inference.openai_compat as any).profiles = preserved;
+  }
+
   const nextLocal = deepMerge(currentLocal, patch as any);
 
   // Normalize known keys, but keep everything else.
@@ -292,9 +424,13 @@ export function writeLocalEcliaConfig(
       provider: normalized.inference.provider,
       openai_compat: {
         ...(isRecord(nextLocal.inference?.openai_compat) ? (nextLocal.inference as any).openai_compat : {}),
-        base_url: normalized.inference.openai_compat.base_url,
-        model: normalized.inference.openai_compat.model,
-        auth_header: normalized.inference.openai_compat.auth_header
+        profiles: normalized.inference.openai_compat.profiles.map((p) => ({
+          id: p.id,
+          name: p.name,
+          base_url: p.base_url,
+          model: p.model,
+          auth_header: p.auth_header
+        }))
       }
     },
     adapters: {
@@ -306,10 +442,24 @@ export function writeLocalEcliaConfig(
     }
   };
 
-  // api_key: only write if present in patch OR already present in file
-  const hasKey = typeof (nextLocal as any)?.inference?.openai_compat?.api_key === "string";
-  if (hasKey) {
-    (toWrite as any).inference.openai_compat.api_key = (nextLocal as any).inference.openai_compat.api_key;
+  // inference.openai_compat.profiles[].api_key: only write keys that exist in the file.
+  const nextProfilesRaw = (nextLocal as any)?.inference?.openai_compat?.profiles;
+  if (Array.isArray(nextProfilesRaw)) {
+    const byId = new Map<string, any>();
+    for (const p of nextProfilesRaw) {
+      if (!isRecord(p)) continue;
+      const id = coerceProfileId((p as any).id, "");
+      if (!id) continue;
+      byId.set(id, p);
+    }
+
+    const out = (toWrite as any).inference.openai_compat.profiles as any[];
+    for (let i = 0; i < out.length; i++) {
+      const row = out[i];
+      const raw = byId.get(String(row.id));
+      const key = coerceOptionalString((raw as any)?.api_key);
+      if (key) row.api_key = key;
+    }
   }
 
   // adapters.discord.bot_token: only write if present in patch OR already present in file
@@ -395,10 +545,31 @@ export function joinUrl(baseUrl: string, pathSuffix: string): string {
  */
 export function resolveUpstreamModel(routeKey: string, config: EcliaConfig): string {
   const k = (routeKey ?? "").trim();
-  // Known route keys from the UI:
-  if (k === "openai-compatible" || k === "router/gateway" || k === "local/ollama") {
-    return config.inference.openai_compat.model;
+  const sel = resolveOpenAICompatSelection(k, config);
+  return sel.upstreamModel;
+}
+
+export function resolveOpenAICompatSelection(
+  routeKey: string,
+  config: EcliaConfig
+): { profile: OpenAICompatProfile; upstreamModel: string } {
+  const k = (routeKey ?? "").trim();
+  const profiles = config.inference.openai_compat.profiles;
+  const fallback = profiles[0] ?? DEFAULT_ECLIA_CONFIG.inference.openai_compat.profiles[0];
+
+  // Primary route format: openai-compatible:<profile-id>
+  const m = k.match(/^openai-compatible:(.+)$/);
+  if (m) {
+    const id = m[1]?.trim();
+    const profile = profiles.find((p) => p.id === id) ?? fallback;
+    return { profile, upstreamModel: profile.model };
   }
-  // If the UI sends a real model id, pass through.
-  return k.length ? k : config.inference.openai_compat.model;
+
+  // Legacy UI route keys.
+  if (k === "openai-compatible" || k === "router/gateway" || k === "local/ollama" || !k) {
+    return { profile: fallback, upstreamModel: fallback.model };
+  }
+
+  // If the UI sends a real model id, pass through while using the default profile.
+  return { profile: fallback, upstreamModel: k };
 }

@@ -9,10 +9,14 @@ type ConfigReqBody = {
   api?: { port?: number };
   inference?: {
     openai_compat?: {
-      base_url?: string;
-      model?: string;
-      api_key?: string;
-      auth_header?: string;
+      profiles?: Array<{
+        id: string;
+        name?: string;
+        base_url?: string;
+        model?: string;
+        api_key?: string;
+        auth_header?: string;
+      }>;
     };
   };
   adapters?: {
@@ -38,9 +42,14 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
         inference: {
           provider: config.inference.provider,
           openai_compat: {
-            base_url: config.inference.openai_compat.base_url,
-            model: config.inference.openai_compat.model,
-            api_key_configured: Boolean(config.inference.openai_compat.api_key && config.inference.openai_compat.api_key.trim())
+            profiles: config.inference.openai_compat.profiles.map((p) => ({
+              id: p.id,
+              name: p.name,
+              base_url: p.base_url,
+              model: p.model,
+              auth_header: p.auth_header,
+              api_key_configured: Boolean(p.api_key && p.api_key.trim())
+            }))
           }
         },
         adapters: {
@@ -62,13 +71,31 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
     const patch: EcliaConfigPatch = {};
     if (body.console) patch.console = body.console;
     if (body.api) patch.api = body.api;
-    if (body.inference?.openai_compat) patch.inference = { openai_compat: body.inference.openai_compat };
-    if (body.adapters?.discord) patch.adapters = { discord: body.adapters.discord };
+    if (body.inference?.openai_compat?.profiles) {
+      const raw = body.inference.openai_compat.profiles;
+      const out: any[] = [];
+      const seen = new Set<string>();
 
-    // Optional: if user sends api_key="", treat as "do not change".
-    if (patch.inference?.openai_compat && typeof patch.inference.openai_compat.api_key === "string") {
-      if (!patch.inference.openai_compat.api_key.trim()) delete patch.inference.openai_compat.api_key;
+      for (const row of raw) {
+        const id = String(row?.id ?? "").trim();
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+
+        const next: any = { id };
+        if (typeof row.name === "string" && row.name.trim()) next.name = row.name.trim();
+        if (typeof row.base_url === "string" && row.base_url.trim()) next.base_url = row.base_url.trim();
+        if (typeof row.model === "string" && row.model.trim()) next.model = row.model.trim();
+        if (typeof row.auth_header === "string" && row.auth_header.trim()) next.auth_header = row.auth_header.trim();
+
+        // api_key: optional; empty means unchanged.
+        if (typeof row.api_key === "string" && row.api_key.trim()) next.api_key = row.api_key.trim();
+
+        out.push(next);
+      }
+
+      patch.inference = { openai_compat: { profiles: out } };
     }
+    if (body.adapters?.discord) patch.adapters = { discord: body.adapters.discord };
 
     // Optional: if user sends bot_token="", treat as "do not change".
     if (patch.adapters?.discord && typeof patch.adapters.discord.bot_token === "string") {

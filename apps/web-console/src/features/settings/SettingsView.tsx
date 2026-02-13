@@ -17,10 +17,16 @@ type SettingsDraft = {
   consoleHost: string;
   consolePort: string; // keep as string for input UX
 
-  // Inference (OpenAI-compatible). Secrets are stored in local TOML; key is never read back.
-  inferenceBaseUrl: string;
-  inferenceModelId: string;
-  inferenceApiKey: string; // input only; empty = unchanged
+  // Inference (OpenAI-compatible).
+  // Secrets are stored in local TOML; keys are never read back.
+  inferenceProfiles: Array<{
+    id: string;
+    name: string;
+    baseUrl: string;
+    modelId: string;
+    authHeader: string;
+    apiKey: string; // input only; empty = unchanged
+  }>;
 
   // Adapters (Discord). Secrets stored in local TOML; token is never read back.
   adapterDiscordEnabled: boolean;
@@ -35,9 +41,14 @@ type DevConfig = {
   inference?: {
     provider?: string;
     openai_compat?: {
-      base_url?: string;
-      model?: string;
-      api_key_configured?: boolean;
+      profiles?: Array<{
+        id: string;
+        name?: string;
+        base_url?: string;
+        model?: string;
+        auth_header?: string;
+        api_key_configured?: boolean;
+      }>;
     };
   };
   adapters?: {
@@ -97,6 +108,44 @@ function sameStringArray(a: string[], b: string[]): boolean {
   return true;
 }
 
+function openaiProfileRoute(profileId: string): string {
+  return `openai-compatible:${profileId}`;
+}
+
+function normalizeActiveModel(current: string, profiles: Array<{ id: string }> | null | undefined): string {
+  const k = String(current ?? "").trim();
+  if (!profiles || profiles.length === 0) return k;
+
+  const first = openaiProfileRoute(profiles[0].id);
+
+  const m = k.match(/^openai-compatible:(.+)$/);
+  if (m) {
+    const id = String(m[1] ?? "").trim();
+    if (profiles.some((p) => p.id === id)) return k;
+    return first;
+  }
+
+  // Legacy route keys and any other values map to the default profile.
+  return first;
+}
+
+function sameOpenAICompatProfiles(
+  draft: SettingsDraft["inferenceProfiles"],
+  base: Array<{ id: string; name: string; baseUrl: string; modelId: string; authHeader: string }>
+): boolean {
+  if (draft.length !== base.length) return false;
+  for (let i = 0; i < draft.length; i++) {
+    const a = draft[i];
+    const b = base[i];
+    if (a.id !== b.id) return false;
+    if (a.name.trim() !== b.name) return false;
+    if (a.baseUrl.trim() !== b.baseUrl) return false;
+    if (a.modelId.trim() !== b.modelId) return false;
+    if (a.authHeader.trim() !== b.authHeader) return false;
+  }
+  return true;
+}
+
 /**
  * Settings uses an explicit "Save" to commit changes.
  * While dirty, leaving the page is blocked to avoid accidental loss.
@@ -115,9 +164,14 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const [cfgBase, setCfgBase] = React.useState<{
     host: string;
     port: number;
-    inferenceBaseUrl: string;
-    inferenceModelId: string;
-    apiKeyConfigured: boolean;
+    openaiCompatProfiles: Array<{
+      id: string;
+      name: string;
+      baseUrl: string;
+      modelId: string;
+      authHeader: string;
+      apiKeyConfigured: boolean;
+    }>;
 
     discordEnabled: boolean;
     discordAppId: string;
@@ -144,9 +198,42 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         const port = j.config.console.port ?? 5173;
 
         const inf = j.config.inference?.openai_compat ?? {};
-        const baseUrl = String(inf.base_url ?? "https://api.openai.com/v1");
-        const modelId = String(inf.model ?? "gpt-4o-mini");
-        const keyConfigured = Boolean(inf.api_key_configured);
+        const rawProfiles = Array.isArray((inf as any).profiles) ? ((inf as any).profiles as any[]) : [];
+        const profiles: Array<{
+          id: string;
+          name: string;
+          baseUrl: string;
+          modelId: string;
+          authHeader: string;
+          apiKeyConfigured: boolean;
+        }> = [];
+        const seenIds = new Set<string>();
+
+        for (let i = 0; i < rawProfiles.length; i++) {
+          const p = rawProfiles[i] ?? {};
+          const id = String(p.id ?? "").trim();
+          if (!id || seenIds.has(id)) continue;
+          seenIds.add(id);
+
+          const name = String(p.name ?? "").trim() || `Profile ${i + 1}`;
+          const baseUrl = String(p.base_url ?? "https://api.openai.com/v1").trim() || "https://api.openai.com/v1";
+          const modelId = String(p.model ?? "gpt-4o-mini").trim() || "gpt-4o-mini";
+          const authHeader = String(p.auth_header ?? "Authorization").trim() || "Authorization";
+          const apiKeyConfigured = Boolean(p.api_key_configured);
+
+          profiles.push({ id, name, baseUrl, modelId, authHeader, apiKeyConfigured });
+        }
+
+        if (profiles.length === 0) {
+          profiles.push({
+            id: "default",
+            name: "Default",
+            baseUrl: "https://api.openai.com/v1",
+            modelId: "gpt-4o-mini",
+            authHeader: "Authorization",
+            apiKeyConfigured: false
+          });
+        }
 
         const disc = j.config.adapters?.discord ?? {};
         const discordEnabled = Boolean((disc as any).enabled ?? false);
@@ -159,9 +246,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         setCfgBase({
           host,
           port,
-          inferenceBaseUrl: baseUrl,
-          inferenceModelId: modelId,
-          apiKeyConfigured: keyConfigured,
+          openaiCompatProfiles: profiles,
           discordEnabled,
           discordAppId,
           discordTokenConfigured,
@@ -190,16 +275,23 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         textureDisabled: state.settings.textureDisabled,
         sessionSyncEnabled: state.settings.sessionSyncEnabled,
         transport: state.transport,
-        model: state.model,
+        model: cfgBase ? normalizeActiveModel(state.model, cfgBase.openaiCompatProfiles) : state.model,
         contextTokenLimit: String(state.settings.contextTokenLimit ?? 20000),
         contextLimitEnabled: Boolean(state.settings.contextLimitEnabled ?? true),
 
         consoleHost: cfgBase?.host ?? prev?.consoleHost ?? "",
         consolePort: cfgBase ? String(cfgBase.port) : prev?.consolePort ?? "",
 
-        inferenceBaseUrl: cfgBase?.inferenceBaseUrl ?? prev?.inferenceBaseUrl ?? "",
-        inferenceModelId: cfgBase?.inferenceModelId ?? prev?.inferenceModelId ?? "",
-        inferenceApiKey: "",
+        inferenceProfiles: cfgBase
+          ? cfgBase.openaiCompatProfiles.map((p) => ({
+              id: p.id,
+              name: p.name,
+              baseUrl: p.baseUrl,
+              modelId: p.modelId,
+              authHeader: p.authHeader,
+              apiKey: ""
+            }))
+          : prev?.inferenceProfiles ?? [],
 
         adapterDiscordEnabled: cfgBase?.discordEnabled ?? prev?.adapterDiscordEnabled ?? false,
         adapterDiscordAppId: cfgBase?.discordAppId ?? prev?.adapterDiscordAppId ?? "",
@@ -220,11 +312,13 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
   const isDirtyDraft = React.useCallback(
     (d: SettingsDraft): boolean => {
+      const effectiveStateModel = cfgBase ? normalizeActiveModel(state.model, cfgBase.openaiCompatProfiles) : state.model;
+
       const dirtyUi =
         d.textureDisabled !== state.settings.textureDisabled ||
         d.sessionSyncEnabled !== state.settings.sessionSyncEnabled ||
         d.transport !== state.transport ||
-        d.model !== state.model ||
+        d.model !== effectiveStateModel ||
         d.contextLimitEnabled !== state.settings.contextLimitEnabled ||
         parseContextLimit(d.contextTokenLimit) !== state.settings.contextTokenLimit;
 
@@ -233,9 +327,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         : false;
 
       const dirtyDevInference = cfgBase
-        ? d.inferenceBaseUrl.trim() !== cfgBase.inferenceBaseUrl ||
-          d.inferenceModelId.trim() !== cfgBase.inferenceModelId ||
-          d.inferenceApiKey.trim().length > 0
+        ? !sameOpenAICompatProfiles(d.inferenceProfiles, cfgBase.openaiCompatProfiles) ||
+          d.inferenceProfiles.some((p) => p.apiKey.trim().length > 0)
         : false;
 
       const dirtyDevDiscord = cfgBase
@@ -272,11 +365,13 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     ]
   });
 
+  const effectiveStateModel = cfgBase ? normalizeActiveModel(state.model, cfgBase.openaiCompatProfiles) : state.model;
+
   const dirtyUi =
     draft.textureDisabled !== state.settings.textureDisabled ||
     draft.sessionSyncEnabled !== state.settings.sessionSyncEnabled ||
     draft.transport !== state.transport ||
-    draft.model !== state.model ||
+    draft.model !== effectiveStateModel ||
     draft.contextLimitEnabled !== state.settings.contextLimitEnabled ||
     parseContextLimit(draft.contextTokenLimit) !== state.settings.contextTokenLimit;
 
@@ -285,9 +380,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     : false;
 
   const dirtyDevInference = cfgBase
-    ? draft.inferenceBaseUrl.trim() !== cfgBase.inferenceBaseUrl ||
-      draft.inferenceModelId.trim() !== cfgBase.inferenceModelId ||
-      draft.inferenceApiKey.trim().length > 0
+    ? !sameOpenAICompatProfiles(draft.inferenceProfiles, cfgBase.openaiCompatProfiles) ||
+      draft.inferenceProfiles.some((p) => p.apiKey.trim().length > 0)
     : false;
 
   const dirtyDevDiscord = cfgBase
@@ -302,7 +396,9 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const [saving, setSaving] = React.useState(false);
 
   const hostPortValid = draft.consoleHost.trim().length > 0 && isValidPort(draft.consolePort);
-  const inferenceValid = draft.inferenceBaseUrl.trim().length > 0 && draft.inferenceModelId.trim().length > 0;
+  const inferenceValid =
+    draft.inferenceProfiles.length > 0 &&
+    draft.inferenceProfiles.every((p) => p.name.trim().length > 0 && p.baseUrl.trim().length > 0 && p.modelId.trim().length > 0);
 
   const discordTokenOk = Boolean(cfgBase?.discordTokenConfigured) || draft.adapterDiscordBotToken.trim().length > 0;
   const discordAppIdOk = Boolean((cfgBase?.discordAppId ?? "").trim().length) || draft.adapterDiscordAppId.trim().length > 0;
@@ -332,6 +428,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     setCfgSaved(null);
 
     try {
+      let nextCfgBase = cfgBase;
+
       // 1) Save TOML startup config first (most likely to fail).
       if (dirtyDev) {
         if (!cfgBase) throw new Error("Config service unavailable.");
@@ -347,13 +445,18 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         }
 
         if (dirtyDevInference) {
-          if (!inferenceValid) throw new Error("Invalid inference base URL or model id.");
+          if (!inferenceValid) throw new Error("Invalid inference profile settings.");
+
           body.inference = {
             openai_compat: {
-              base_url: draft.inferenceBaseUrl.trim(),
-              model: draft.inferenceModelId.trim(),
-              // api_key is optional; empty means unchanged.
-              ...(draft.inferenceApiKey.trim().length ? { api_key: draft.inferenceApiKey.trim() } : {})
+              profiles: draft.inferenceProfiles.map((p) => ({
+                id: p.id,
+                name: p.name.trim(),
+                base_url: p.baseUrl.trim(),
+                model: p.modelId.trim(),
+                auth_header: p.authHeader.trim() || "Authorization",
+                ...(p.apiKey.trim().length ? { api_key: p.apiKey.trim() } : {})
+              }))
             }
           };
         }
@@ -386,12 +489,26 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           const j = (await r.json()) as ConfigResponse;
           if (!j.ok) throw new Error(j.hint ?? j.error);
 
+          const nextProfiles = Array.isArray(body.inference?.openai_compat?.profiles)
+            ? (body.inference.openai_compat.profiles as any[]).map((p) => {
+                const prev = cfgBase.openaiCompatProfiles.find((x) => x.id === p.id);
+                const apiKeyConfigured = Boolean(String(p.api_key ?? "").trim()) || Boolean(prev?.apiKeyConfigured);
+
+                return {
+                  id: String(p.id),
+                  name: String(p.name),
+                  baseUrl: String(p.base_url),
+                  modelId: String(p.model),
+                  authHeader: String(p.auth_header ?? "Authorization"),
+                  apiKeyConfigured
+                };
+              })
+            : cfgBase.openaiCompatProfiles;
+
           const nextBase = {
             host: body.console?.host ?? cfgBase.host,
             port: body.console?.port ?? cfgBase.port,
-            inferenceBaseUrl: body.inference?.openai_compat?.base_url ?? cfgBase.inferenceBaseUrl,
-            inferenceModelId: body.inference?.openai_compat?.model ?? cfgBase.inferenceModelId,
-            apiKeyConfigured: cfgBase.apiKeyConfigured || Boolean(body.inference?.openai_compat?.api_key),
+            openaiCompatProfiles: nextProfiles,
 
             discordEnabled: body.adapters?.discord?.enabled ?? cfgBase.discordEnabled,
             discordAppId: body.adapters?.discord?.app_id ?? cfgBase.discordAppId,
@@ -400,11 +517,21 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           };
 
           setCfgBase(nextBase);
+          nextCfgBase = nextBase;
 
           // Clear secret inputs after a successful save so the form becomes clean.
           setDraft((d) => ({
             ...d,
-            inferenceApiKey: "",
+            inferenceProfiles: dirtyDevInference
+              ? nextBase.openaiCompatProfiles.map((p) => ({
+                  id: p.id,
+                  name: p.name,
+                  baseUrl: p.baseUrl,
+                  modelId: p.modelId,
+                  authHeader: p.authHeader,
+                  apiKey: ""
+                }))
+              : d.inferenceProfiles.map((p) => ({ ...p, apiKey: "" })),
             adapterDiscordBotToken: "",
             adapterDiscordGuildIds: nextBase.discordGuildIds.join("\n")
           }));
@@ -432,8 +559,14 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       if (draft.transport !== state.transport) {
         dispatch({ type: "transport/set", transport: draft.transport });
       }
-      if (draft.model !== state.model) {
-        dispatch({ type: "model/set", model: draft.model });
+      {
+        const effectiveModelForDispatch = nextCfgBase
+          ? normalizeActiveModel(state.model, nextCfgBase.openaiCompatProfiles)
+          : state.model;
+
+        if (draft.model !== effectiveModelForDispatch) {
+          dispatch({ type: "model/set", model: draft.model });
+        }
       }
 
       if (draft.contextLimitEnabled !== state.settings.contextLimitEnabled) {
@@ -471,6 +604,67 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   ];
 
   const [activeSection, setActiveSection] = React.useState<SettingsSectionId>("general");
+
+  const [expandedOpenAICompatProfileId, setExpandedOpenAICompatProfileId] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!draft.inferenceProfiles.length) return;
+
+    const ok = draft.inferenceProfiles.some((p) => openaiProfileRoute(p.id) === draft.model);
+    if (ok) return;
+
+    const next = openaiProfileRoute(draft.inferenceProfiles[0].id);
+    if (draft.model !== next) {
+      setDraft((d) => ({ ...d, model: next }));
+    }
+  }, [draft.inferenceProfiles, draft.model, setDraft]);
+
+  const patchOpenAICompatProfile = React.useCallback(
+    (profileId: string, patch: Partial<SettingsDraft["inferenceProfiles"][number]>) => {
+      setDraft((d) => ({
+        ...d,
+        inferenceProfiles: d.inferenceProfiles.map((p) => (p.id === profileId ? { ...p, ...patch } : p))
+      }));
+    },
+    [setDraft]
+  );
+
+  const newOpenAICompatProfile = React.useCallback(() => {
+    const id =
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : null) ??
+      `p_${Date.now().toString(16)}_${Math.random().toString(16).slice(2)}`;
+
+    setDraft((d) => {
+      const base = d.inferenceProfiles[0];
+      const next = {
+        id,
+        name: "New profile",
+        baseUrl: base?.baseUrl ?? "https://api.openai.com/v1",
+        modelId: base?.modelId ?? "gpt-4o-mini",
+        authHeader: base?.authHeader ?? "Authorization",
+        apiKey: ""
+      };
+      return { ...d, inferenceProfiles: [...d.inferenceProfiles, next] };
+    });
+
+    setExpandedOpenAICompatProfileId(id);
+  }, [setDraft]);
+
+  const deleteOpenAICompatProfile = React.useCallback(
+    (profileId: string) => {
+      setDraft((d) => {
+        if (d.inferenceProfiles.length <= 1) return d;
+        return {
+          ...d,
+          inferenceProfiles: d.inferenceProfiles.filter((p) => p.id !== profileId)
+        };
+      });
+
+      setExpandedOpenAICompatProfileId((prev) => (prev === profileId ? null : prev));
+    },
+    [setDraft]
+  );
 
   return (
     <div className="settingsview motion-page">
@@ -557,7 +751,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                 </label>
               </div>
 
-              <div className="row">
+              <div className="row stack-gap">
                 <div className="row-left">
                   <div className="row-main">Session Sync</div>
                   <div className="row-sub muted">Best-effort hydration of sessions/messages from the local gateway.</div>
@@ -624,10 +818,21 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
                   <label className="field">
                     <div className="field-label">provider</div>
-                    <select className="select" value={draft.model} onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value }))}>
-                      <option value="local/ollama">local/ollama</option>
-                      <option value="openai-compatible">openai-compatible</option>
-                      <option value="router/gateway">router/gateway</option>
+                    <select
+                      className="select"
+                      value={draft.model}
+                      onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value }))}
+                      disabled={!draft.inferenceProfiles.length}
+                    >
+                      {draft.inferenceProfiles.length ? (
+                        draft.inferenceProfiles.map((p) => (
+                          <option key={p.id} value={openaiProfileRoute(p.id)}>
+                            {p.name.trim() || "Untitled"}
+                          </option>
+                        ))
+                      ) : (
+                        <option value={draft.model || "openai-compatible"}>{draft.model || "openai-compatible"}</option>
+                      )}
                     </select>
                   </label>
 
@@ -663,55 +868,129 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             <div className="settings-subtitle">Provider Settings</div>
 
               <div className="card">
-                <div className="card-title">OpenAI-compatible</div>
+                <div className="card-title">OpenAI-compatible profiles</div>
 
-                <div className="grid2">
-                  <label className="field">
-                    <div className="field-label">Base URL</div>
-                    <input
-                      className="select"
-                      value={draft.inferenceBaseUrl}
-                      onChange={(e) => setDraft((d) => ({ ...d, inferenceBaseUrl: e.target.value }))}
-                      placeholder="https://api.openai.com/v1"
-                      spellCheck={false}
-                      disabled={cfgLoading || !cfgBase}
-                    />
-                  </label>
+                {draft.inferenceProfiles.map((p) => {
+                  const isExpanded = expandedOpenAICompatProfileId === p.id;
+                  const isActivated = draft.model === openaiProfileRoute(p.id);
+                  const apiKeyConfigured =
+                    cfgBase?.openaiCompatProfiles.find((x) => x.id === p.id)?.apiKeyConfigured ?? false;
+                  const profileValid = p.name.trim().length > 0 && p.baseUrl.trim().length > 0 && p.modelId.trim().length > 0;
 
-                  <label className="field">
-                    <div className="field-label">Model id</div>
-                    <input
-                      className="select"
-                      value={draft.inferenceModelId}
-                      onChange={(e) => setDraft((d) => ({ ...d, inferenceModelId: e.target.value }))}
-                      placeholder="gpt-4o-mini"
-                      spellCheck={false}
-                      disabled={cfgLoading || !cfgBase}
-                    />
-                  </label>
-                </div>
+                  return (
+                    <div key={p.id} className="profileItem">
+                      <button
+                        type="button"
+                        className="row profileRow"
+                        onClick={() =>
+                          setExpandedOpenAICompatProfileId((cur) => (cur === p.id ? null : p.id))
+                        }
+                        aria-expanded={isExpanded}
+                      >
+                        <div className="row-left">
+                          <div className="row-main profileRowTitle">
+                            <span className="disclosureIcon" aria-hidden="true">
+                              {isExpanded ? "▾" : "▸"}
+                            </span>
+                            {p.name.trim() || "Untitled"}
+                          </div>
+                        </div>
 
-                <div className="grid2">
-                  <label className="field" style={{ gridColumn: "1 / -1" }}>
-                    <div className="field-label">API key (local)</div>
-                    <input
-                      className="select"
-                      type="password"
-                      value={draft.inferenceApiKey}
-                      onChange={(e) => setDraft((d) => ({ ...d, inferenceApiKey: e.target.value }))}
-                      placeholder={cfgBase?.apiKeyConfigured ? "configured (leave blank to keep)" : "not set"}
-                      spellCheck={false}
-                      disabled={cfgLoading || !cfgBase}
-                    />
-                    <div className="field-sub muted">
-                      {cfgBase?.apiKeyConfigured
-                        ? "A key is already configured (not shown). Enter a new one to replace it."
-                        : "No key detected. Set it here or in eclia.config.local.toml."}
+                        <div className="row-right">{isActivated ? <span className="activatedPill">Activated</span> : null}</div>
+                      </button>
+
+                      {isExpanded ? (
+                        <div className="profileDetails">
+                          <div className="grid2">
+                            <label className="field">
+                              <div className="field-label">Name</div>
+                              <input
+                                className="select"
+                                value={p.name}
+                                onChange={(e) => patchOpenAICompatProfile(p.id, { name: e.target.value })}
+                                placeholder="Minimax"
+                                spellCheck={false}
+                                disabled={cfgLoading || !cfgBase}
+                              />
+                            </label>
+
+                            <label className="field">
+                              <div className="field-label">API key (local)</div>
+                              <input
+                                className="select"
+                                type="password"
+                                value={p.apiKey}
+                                onChange={(e) => patchOpenAICompatProfile(p.id, { apiKey: e.target.value })}
+                                placeholder={apiKeyConfigured ? "configured (leave blank to keep)" : "not set"}
+                                spellCheck={false}
+                                disabled={cfgLoading || !cfgBase}
+                              />
+                              <div className="field-sub muted">
+                                {apiKeyConfigured
+                                  ? "A key is already configured (not shown). Enter a new one to replace it."
+                                  : "No key detected. Set it here or in eclia.config.local.toml."}
+                              </div>
+                            </label>
+                          </div>
+
+                          <div className="grid2">
+                            <label className="field">
+                              <div className="field-label">Base URL</div>
+                              <input
+                                className="select"
+                                value={p.baseUrl}
+                                onChange={(e) => patchOpenAICompatProfile(p.id, { baseUrl: e.target.value })}
+                                placeholder="https://api.openai.com/v1"
+                                spellCheck={false}
+                                disabled={cfgLoading || !cfgBase}
+                              />
+                            </label>
+
+                            <label className="field">
+                              <div className="field-label">Model</div>
+                              <input
+                                className="select"
+                                value={p.modelId}
+                                onChange={(e) => patchOpenAICompatProfile(p.id, { modelId: e.target.value })}
+                                placeholder="gpt-4o-mini"
+                                spellCheck={false}
+                                disabled={cfgLoading || !cfgBase}
+                              />
+                            </label>
+                          </div>
+
+                          <div className="profileActions">
+                            <button
+                              type="button"
+                              className="btn subtle"
+                              onClick={() => deleteOpenAICompatProfile(p.id)}
+                              disabled={cfgLoading || !cfgBase || draft.inferenceProfiles.length <= 1}
+                            >
+                              Delete profile
+                            </button>
+                          </div>
+
+                          {dirtyDevInference && !profileValid ? (
+                            <div className="devNoteText muted">Missing required fields.</div>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
-                  </label>
+                  );
+                })}
+
+                <div className="profileActions">
+                  <button type="button" className="btn subtle" onClick={newOpenAICompatProfile} disabled={cfgLoading || !cfgBase}>
+                    New profile
+                  </button>
                 </div>
 
-                {dirtyDevInference && !inferenceValid ? <div className="devNoteText muted">Invalid inference base URL or model id.</div> : null}
+                {dirtyDevInference && !inferenceValid ? <div className="devNoteText muted">Invalid provider profile settings.</div> : null}
+              </div>
+
+              <div className="card">
+                <div className="card-title">Ollama</div>
+                <div className="devNoteText muted">no configured profiles.</div>
               </div>
             </>
             ) : null}
@@ -723,9 +1002,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
               <div className="row">
                 <div className="row-left">
                   <div className="row-main">Discord adapter</div>
-                  <div className="row-sub muted">
-                    Enables the Discord bot adapter (inbound + future <code>send</code> tool outbound). Requires restart.
-                  </div>
+                  <div className="row-sub muted">Enables the Discord bot adapter.</div>
                 </div>
 
                 <input

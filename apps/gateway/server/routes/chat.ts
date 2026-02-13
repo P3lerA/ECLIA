@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import {
   joinUrl,
   loadEcliaConfig,
-  resolveUpstreamModel
+  resolveOpenAICompatSelection
 } from "@eclia/config";
 
 import { SessionStore } from "../sessionStore.js";
@@ -317,17 +317,18 @@ export async function handleChat(
       return;
     }
 
-    const baseUrl = config.inference.openai_compat.base_url;
-    const apiKey = config.inference.openai_compat.api_key ?? "";
-    const authHeader = config.inference.openai_compat.auth_header ?? "Authorization";
-    const upstreamModel = resolveUpstreamModel(routeModel, config);
+    const sel = resolveOpenAICompatSelection(routeModel, config);
+    const profile = sel.profile;
+    const baseUrl = profile.base_url;
+    const apiKey = profile.api_key ?? "";
+    const authHeader = profile.auth_header ?? "Authorization";
+    const upstreamModel = sel.upstreamModel;
 
     if (!apiKey.trim()) {
       const { stopKeepAlive } = beginSse(res);
       send(res, "meta", { sessionId, model: routeModel });
 
-      const msg =
-        "Missing API key. Set inference.openai_compat.api_key in eclia.config.local.toml (or add it in Settings).";
+      const msg = `Missing API key for profile \"${profile.name}\". Set inference.openai_compat.profiles[].api_key in eclia.config.local.toml (or add it in Settings).`;
 
       await persistAssistantError({ store, sessionId, message: msg });
       await store.updateMeta(sessionId, { ...metaPatch, updatedAt: Date.now(), lastModel: routeModel || upstreamModel });
