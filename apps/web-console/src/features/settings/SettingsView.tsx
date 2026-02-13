@@ -7,6 +7,7 @@ import { useStagedDraft } from "../common/useStagedDraft";
 
 type SettingsDraft = {
   textureDisabled: boolean;
+  sessionSyncEnabled: boolean;
   transport: TransportId;
   model: string;
   contextTokenLimit: string;
@@ -187,6 +188,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     (prev: SettingsDraft | undefined): SettingsDraft => {
       return {
         textureDisabled: state.settings.textureDisabled,
+        sessionSyncEnabled: state.settings.sessionSyncEnabled,
         transport: state.transport,
         model: state.model,
         contextTokenLimit: String(state.settings.contextTokenLimit ?? 20000),
@@ -207,6 +209,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     },
     [
       state.settings.textureDisabled,
+      state.settings.sessionSyncEnabled,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
       state.transport,
@@ -219,6 +222,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     (d: SettingsDraft): boolean => {
       const dirtyUi =
         d.textureDisabled !== state.settings.textureDisabled ||
+        d.sessionSyncEnabled !== state.settings.sessionSyncEnabled ||
         d.transport !== state.transport ||
         d.model !== state.model ||
         d.contextLimitEnabled !== state.settings.contextLimitEnabled ||
@@ -245,6 +249,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     },
     [
       state.settings.textureDisabled,
+      state.settings.sessionSyncEnabled,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
       state.transport,
@@ -258,6 +263,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     isDirty: isDirtyDraft,
     syncDeps: [
       state.settings.textureDisabled,
+      state.settings.sessionSyncEnabled,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
       state.transport,
@@ -268,6 +274,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
   const dirtyUi =
     draft.textureDisabled !== state.settings.textureDisabled ||
+    draft.sessionSyncEnabled !== state.settings.sessionSyncEnabled ||
     draft.transport !== state.transport ||
     draft.model !== state.model ||
     draft.contextLimitEnabled !== state.settings.contextLimitEnabled ||
@@ -418,6 +425,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       if (draft.textureDisabled !== state.settings.textureDisabled) {
         dispatch({ type: "settings/textureDisabled", enabled: draft.textureDisabled });
       }
+
+      if (draft.sessionSyncEnabled !== state.settings.sessionSyncEnabled) {
+        dispatch({ type: "settings/sessionSyncEnabled", enabled: draft.sessionSyncEnabled });
+      }
       if (draft.transport !== state.transport) {
         dispatch({ type: "transport/set", transport: draft.transport });
       }
@@ -514,7 +525,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         </aside>
 
         <div className="settings-content">
-          {activeSection === "general" ? (
+          <div key={activeSection} className="settings-section motion-item">
+            {activeSection === "general" ? (
             <div className="card">
               <div className="card-title">Development</div>
 
@@ -545,6 +557,20 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                 </label>
               </div>
 
+              <div className="row">
+                <div className="row-left">
+                  <div className="row-main">Session Sync</div>
+                  <div className="row-sub muted">Best-effort hydration of sessions/messages from the local gateway.</div>
+                </div>
+
+                <input
+                  type="checkbox"
+                  checked={draft.sessionSyncEnabled}
+                  onChange={(e) => setDraft((d) => ({ ...d, sessionSyncEnabled: e.target.checked }))}
+                  aria-label="Enable session sync"
+                />
+              </div>
+
               {cfgError ? <div className="devNoteText muted">{cfgError}</div> : null}
 
               {dirtyDevHostPort && !hostPortValid ? (
@@ -553,10 +579,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
               {cfgSaved ? <div className="devNoteText muted">{cfgSaved}</div> : null}
             </div>
-          ) : null}
+            ) : null}
 
-          {activeSection === "appearance" ? (
-            <div className="card">
+            {activeSection === "appearance" ? (
+            <div>
               <div className="card-title">Appearance</div>
 
               <div className="row">
@@ -573,9 +599,9 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                 />
               </div>
             </div>
-          ) : null}
+            ) : null}
 
-          {activeSection === "inference" ? (
+            {activeSection === "inference" ? (
             <>
               <div className="card">
                 <div className="card-title">Runtime</div>
@@ -634,6 +660,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                 </div>
               </div>
 
+            <div className="settings-subtitle">Provider Settings</div>
+
               <div className="card">
                 <div className="card-title">OpenAI-compatible</div>
 
@@ -686,9 +714,9 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                 {dirtyDevInference && !inferenceValid ? <div className="devNoteText muted">Invalid inference base URL or model id.</div> : null}
               </div>
             </>
-          ) : null}
+            ) : null}
 
-          {activeSection === "adapters" ? (
+            {activeSection === "adapters" ? (
             <div className="card">
               <div className="card-title">Discord</div>
 
@@ -764,8 +792,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                 <div className="devNoteText muted">Discord adapter enabled but missing bot token or Application ID.</div>
               ) : null}
             </div>
-          ) : null}
-
+            ) : null}
+          </div>
         </div>
       </div>
     </div>

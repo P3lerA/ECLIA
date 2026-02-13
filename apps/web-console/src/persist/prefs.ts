@@ -41,6 +41,11 @@ export type StoredPrefsV1 = {
    */
   execAccessMode?: "full" | "safe";
 
+  /**
+   * Whether the UI should keep sessions/messages in sync with the local gateway.
+   */
+  sessionSyncEnabled?: boolean;
+
 };
 
 const KEY = "eclia-prefs-v1";
@@ -74,6 +79,10 @@ export function readStoredPrefs(): StoredPrefsV1 {
 
     if ((parsed as any).execAccessMode === "safe" || (parsed as any).execAccessMode === "full") {
       out.execAccessMode = (parsed as any).execAccessMode;
+    }
+
+    if (typeof (parsed as any).sessionSyncEnabled === "boolean") {
+      out.sessionSyncEnabled = Boolean((parsed as any).sessionSyncEnabled);
     }
 
 

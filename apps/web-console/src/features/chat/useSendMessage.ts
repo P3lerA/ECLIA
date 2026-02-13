@@ -175,17 +175,19 @@ export function useSendMessage() {
         dispatch({ type: "assistant/stream/finalize", sessionId });
       } finally {
         // Best-effort: re-sync this session from the gateway so IDs/blocks stay canonical.
-        try {
-          const { session, messages } = await apiGetSession(sessionId);
-          const ui = toUiSession(session);
-          dispatch({
-            type: "session/update",
-            sessionId,
-            patch: { title: ui.title, updatedAt: ui.updatedAt, meta: ui.meta, localOnly: false }
-          });
-          dispatch({ type: "messages/set", sessionId, messages });
-        } catch {
-          // ignore
+        if (state.settings.sessionSyncEnabled) {
+          try {
+            const { session, messages } = await apiGetSession(sessionId);
+            const ui = toUiSession(session);
+            dispatch({
+              type: "session/update",
+              sessionId,
+              patch: { title: ui.title, updatedAt: ui.updatedAt, meta: ui.meta, localOnly: false }
+            });
+            dispatch({ type: "messages/set", sessionId, messages });
+          } catch {
+            // ignore
+          }
         }
       }
     },
@@ -193,6 +195,7 @@ export function useSendMessage() {
       state.activeSessionId,
       state.model,
       state.transport,
+      state.settings.sessionSyncEnabled,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
       state.settings.execAccessMode,

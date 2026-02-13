@@ -27,6 +27,14 @@ export type AppSettings = {
    * - safe: only auto-run allowlisted commands, otherwise require approval.
    */
   execAccessMode: "full" | "safe";
+
+  /**
+   * Whether the UI should keep sessions/messages in sync with the local gateway.
+   *
+   * When disabled, the UI will rely on local state and skip best-effort
+   * re-hydration of sessions/messages from the gateway.
+   */
+  sessionSyncEnabled: boolean;
 };
 
 export type AppGPU = {
@@ -61,6 +69,7 @@ export type Action =
   | { type: "model/set"; model: string }
   | { type: "transport/set"; transport: TransportId }
   | { type: "settings/textureDisabled"; enabled: boolean }
+  | { type: "settings/sessionSyncEnabled"; enabled: boolean }
   | { type: "settings/contextLimitEnabled"; enabled: boolean }
   | { type: "settings/contextTokenLimit"; value: number }
   | { type: "settings/execAccessMode"; mode: "full" | "safe" }
@@ -111,6 +120,10 @@ export function reducer(state: AppState, action: Action): AppState {
     case "settings/textureDisabled":
       if (state.settings.textureDisabled === action.enabled) return state;
       return { ...state, settings: { ...state.settings, textureDisabled: action.enabled } };
+
+    case "settings/sessionSyncEnabled":
+      if (state.settings.sessionSyncEnabled === action.enabled) return state;
+      return { ...state, settings: { ...state.settings, sessionSyncEnabled: action.enabled } };
 
     case "settings/contextLimitEnabled":
       if (state.settings.contextLimitEnabled === action.enabled) return state;

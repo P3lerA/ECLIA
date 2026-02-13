@@ -115,6 +115,7 @@ function AppInner() {
     writeStoredPrefs({
       v: 1,
       textureDisabled: state.settings.textureDisabled,
+      sessionSyncEnabled: state.settings.sessionSyncEnabled,
       transport: state.transport,
       model: state.model,
       contextLimitEnabled: state.settings.contextLimitEnabled,
@@ -123,6 +124,7 @@ function AppInner() {
     });
   }, [
     state.settings.textureDisabled,
+    state.settings.sessionSyncEnabled,
     state.settings.contextLimitEnabled,
     state.settings.contextTokenLimit,
     state.settings.execAccessMode,
@@ -132,6 +134,7 @@ function AppInner() {
 
   // Bootstrap sessions from the gateway (disk-backed).
   React.useEffect(() => {
+    if (!state.settings.sessionSyncEnabled) return;
     let cancelled = false;
 
     (async () => {
@@ -184,11 +187,12 @@ function AppInner() {
     return () => {
       cancelled = true;
     };
-  }, [dispatch]);
+  }, [dispatch, state.settings.sessionSyncEnabled]);
 
   // Load messages for the session in the URL on-demand.
   // (Navigation is router-driven; state should not "pull" the app into a session.)
   React.useEffect(() => {
+    if (!state.settings.sessionSyncEnabled) return;
     let cancelled = false;
     const sid = urlSessionId;
     if (!sid) return;
@@ -209,7 +213,7 @@ function AppInner() {
     return () => {
       cancelled = true;
     };
-  }, [urlSessionId, dispatch]);
+  }, [urlSessionId, dispatch, state.settings.sessionSyncEnabled]);
 
   const [menuOpen, setMenuOpen] = React.useState(false);
 

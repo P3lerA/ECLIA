@@ -821,6 +821,21 @@ textarea:focus{
   gap: 12px;
 }
 
+.settings-section{
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-subtitle{
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .10em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding-left: 2px;
+}
+
 @media (max-width: 1162px){
   .settings-body{ flex-direction: column; }
   .settings-sidebar{
@@ -925,9 +940,6 @@ textarea:focus{
   display: flex;
   align-items: center;
   gap: 12px;
-}
-.contextLimitRow .inlineToggle{
-  margin-left: auto;
 }
 .contextLimitInput{
   width: min(340px, 50%);

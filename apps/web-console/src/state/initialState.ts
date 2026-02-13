@@ -38,6 +38,7 @@ export function makeInitialState(): AppState {
 
     settings: {
       textureDisabled: Boolean(prefs.textureDisabled ?? false),
+      sessionSyncEnabled: typeof prefs.sessionSyncEnabled === "boolean" ? prefs.sessionSyncEnabled : true,
       contextLimitEnabled: typeof prefs.contextLimitEnabled === "boolean" ? prefs.contextLimitEnabled : true,
       contextTokenLimit: typeof prefs.contextTokenLimit === "number" ? prefs.contextTokenLimit : 20000,
       execAccessMode: prefs.execAccessMode === "safe" ? "safe" : "full"
