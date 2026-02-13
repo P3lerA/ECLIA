@@ -33,6 +33,11 @@ button, input, select, textarea{
   z-index: 1;
   min-height: 100vh;
 }
+
+:root{
+  --settings-sidebar-w: 168px;
+  --settings-sidebar-gap: 14px;
+}
 .container{
   width: min(980px, 100%);
   margin: 0 auto;
@@ -44,6 +49,14 @@ button, input, select, textarea{
   min-width: 0;
   position: relative;
   z-index: 1;
+}
+
+.container.container-wide{
+  /*
+    Settings adds a sidebar. Keep the existing content width by widening
+    the container rather than shrinking the main column.
+  */
+  width: min(calc(980px + var(--settings-sidebar-w) + var(--settings-sidebar-gap)), 100%);
 }
 
 /* Brand: black base text + angled gradient highlight (inspired by your reference) */
@@ -753,9 +766,79 @@ textarea:focus{
 }
 .settings-body{
   display: flex;
+  align-items: flex-start;
+  gap: var(--settings-sidebar-gap);
+  padding: 0 4px 18px;
+  min-height: 0;
+}
+
+.settings-sidebar{
+  flex: 0 0 var(--settings-sidebar-w);
+  width: var(--settings-sidebar-w);
+  position: sticky;
+  top: 12px;
+}
+
+.settings-nav{
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-nav-btn{
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 14px;
+  padding: 11px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  transition: transform var(--motion-2) var(--ease-standard), background var(--motion-2) var(--ease-standard), border-color var(--motion-2) var(--ease-standard);
+}
+
+.settings-nav-btn:hover{ background: var(--surface-hover); transform: translateY(-1px); }
+.settings-nav-btn:active{ transform: translateY(0); }
+
+.settings-nav-btn[data-active="true"]{
+  border-color: var(--line);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-soft);
+}
+
+.settings-nav-btn:focus-visible{
+  outline: 2px solid var(--line);
+  outline-offset: 2px;
+}
+
+.settings-content{
+  flex: 1;
+  min-width: 0;
+  display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 0 4px 18px;
+}
+
+@media (max-width: 1162px){
+  .settings-body{ flex-direction: column; }
+  .settings-sidebar{
+    position: static;
+    top: auto;
+    width: 100%;
+    flex: none;
+  }
+  .settings-nav{
+    flex-direction: row;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .settings-nav-btn{
+    flex: 0 0 auto;
+    width: auto;
+    white-space: nowrap;
+  }
 }
 .card{
   border: 1px solid var(--line);
@@ -766,7 +849,7 @@ textarea:focus{
 }
 .card-title{
   font-weight: 800;
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: .12em;
   color: var(--muted);
   margin-bottom: 10px;
@@ -877,6 +960,25 @@ textarea:focus{
 
 @media (max-width: 760px){
   .grid2{ grid-template-columns: 1fr; }
+}
+
+@media (max-width: 900px){
+  .settings-body{ flex-direction: column; }
+
+  .settings-sidebar{
+    position: static;
+    width: 100%;
+    flex: none;
+  }
+
+  .settings-nav{
+    flex-direction: row;
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .settings-nav-btn{ white-space: nowrap; }
 }
 
 /* Mobile polish */

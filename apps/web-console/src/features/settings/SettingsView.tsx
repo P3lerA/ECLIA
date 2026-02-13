@@ -449,6 +449,18 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const webgl2Text =
     state.gpu.available === null ? "WebGL2: checking…" : state.gpu.available ? "WebGL2: available" : "WebGL2: unavailable";
 
+  type SettingsSectionId = "general" | "appearance" | "inference" | "adapters" | "skills";
+
+  const sections: Array<{ id: SettingsSectionId; label: string }> = [
+    { id: "general", label: "General" },
+    { id: "appearance", label: "Appearance" },
+    { id: "inference", label: "Inference" },
+    { id: "adapters", label: "Adapters" },
+    { id: "skills", label: "Skills" }
+  ];
+
+  const [activeSection, setActiveSection] = React.useState<SettingsSectionId>("general");
+
   return (
     <div className="settingsview motion-page">
       <div className="settings-head">
@@ -484,252 +496,276 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       </div>
 
       <div className="settings-body">
-        <div className="card">
-          <div className="card-title">Appearance</div>
-
-          <div className="row">
-            <div className="row-left">
-              <div className="row-main">Disable background texture</div>
-              <div className="row-sub muted">{webgl2Text}</div>
-            </div>
-
-            <input
-              type="checkbox"
-              checked={draft.textureDisabled}
-              onChange={(e) => setDraft((d) => ({ ...d, textureDisabled: e.target.checked }))}
-              aria-label="Disable background texture"
-            />
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-title">Runtime</div>
-
-          <div className="grid2">
-            <label className="field">
-              <div className="field-label">Transport</div>
-              <select
-                className="select"
-                value={draft.transport}
-                onChange={(e) => setDraft((d) => ({ ...d, transport: e.target.value as TransportId }))}
+        <aside className="settings-sidebar" aria-label="Settings navigation">
+          <nav className="settings-nav" aria-label="Settings sections">
+            {sections.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className="settings-nav-btn"
+                data-active={activeSection === s.id ? "true" : "false"}
+                aria-current={activeSection === s.id ? "page" : undefined}
+                onClick={() => setActiveSection(s.id)}
               >
-                {transports.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </label>
+                {s.label}
+              </button>
+            ))}
+          </nav>
+        </aside>
 
-            <label className="field">
-              <div className="field-label">Model</div>
-              <select
-                className="select"
-                value={draft.model}
-                onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value }))}
-              >
-                <option value="local/ollama">local/ollama</option>
-                <option value="openai-compatible">openai-compatible</option>
-                <option value="router/gateway">router/gateway</option>
-              </select>
-            </label>
+        <div className="settings-content">
+          {activeSection === "general" ? (
+            <div className="card">
+              <div className="card-title">Development</div>
 
-            <div className="field" style={{ gridColumn: "1 / -1" }}>
-              <div className="field-label">Context limit (tokens)</div>
-
-              <div className="contextLimitRow">
-                <input
-                  className="select contextLimitInput"
-                  inputMode="numeric"
-                  type="number"
-                  min={256}
-                  max={1000000}
-                  step={256}
-                  value={draft.contextTokenLimit}
-                  onChange={(e) => setDraft((d) => ({ ...d, contextTokenLimit: e.target.value }))}
-                  disabled={!draft.contextLimitEnabled}
-                />
-
-                <label className="inlineToggle" title="Enable/disable sending a truncation budget to the gateway">
+              <div className="grid2">
+                <label className="field">
+                  <div className="field-label">Console host</div>
                   <input
-                    type="checkbox"
-                    checked={draft.contextLimitEnabled}
-                    onChange={(e) => setDraft((d) => ({ ...d, contextLimitEnabled: e.target.checked }))}
+                    className="select"
+                    value={draft.consoleHost}
+                    onChange={(e) => setDraft((d) => ({ ...d, consoleHost: e.target.value }))}
+                    placeholder="127.0.0.1 or 0.0.0.0"
+                    spellCheck={false}
+                    disabled={cfgLoading || !cfgBase}
                   />
-                  <span>Enabled</span>
+                </label>
+
+                <label className="field">
+                  <div className="field-label">Console port</div>
+                  <input
+                    className="select"
+                    value={draft.consolePort}
+                    onChange={(e) => setDraft((d) => ({ ...d, consolePort: e.target.value }))}
+                    placeholder="5173"
+                    inputMode="numeric"
+                    spellCheck={false}
+                    disabled={cfgLoading || !cfgBase}
+                  />
                 </label>
               </div>
+
+              {cfgError ? <div className="devNoteText muted">{cfgError}</div> : null}
+
+              {dirtyDevHostPort && !hostPortValid ? (
+                <div className="devNoteText muted">Invalid host or port. Port must be 1–65535.</div>
+              ) : null}
+
+              {cfgSaved ? <div className="devNoteText muted">{cfgSaved}</div> : null}
             </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-title">Inference (OpenAI-compatible)</div>
-
-          <div className="grid2">
-            <label className="field">
-              <div className="field-label">Base URL</div>
-              <input
-                className="select"
-                value={draft.inferenceBaseUrl}
-                onChange={(e) => setDraft((d) => ({ ...d, inferenceBaseUrl: e.target.value }))}
-                placeholder="https://api.openai.com/v1"
-                spellCheck={false}
-                disabled={cfgLoading || !cfgBase}
-              />
-            </label>
-
-            <label className="field">
-              <div className="field-label">Model id</div>
-              <input
-                className="select"
-                value={draft.inferenceModelId}
-                onChange={(e) => setDraft((d) => ({ ...d, inferenceModelId: e.target.value }))}
-                placeholder="gpt-4o-mini"
-                spellCheck={false}
-                disabled={cfgLoading || !cfgBase}
-              />
-            </label>
-          </div>
-
-          <div className="grid2">
-            <label className="field" style={{ gridColumn: "1 / -1" }}>
-              <div className="field-label">API key (local)</div>
-              <input
-                className="select"
-                type="password"
-                value={draft.inferenceApiKey}
-                onChange={(e) => setDraft((d) => ({ ...d, inferenceApiKey: e.target.value }))}
-                placeholder={cfgBase?.apiKeyConfigured ? "configured (leave blank to keep)" : "not set"}
-                spellCheck={false}
-                disabled={cfgLoading || !cfgBase}
-              />
-              <div className="field-sub muted">
-                {cfgBase?.apiKeyConfigured
-                  ? "A key is already configured (not shown). Enter a new one to replace it."
-                  : "No key detected. Set it here or in eclia.config.local.toml."}
-              </div>
-            </label>
-          </div>
-
-          {dirtyDevInference && !inferenceValid ? (
-            <div className="devNoteText muted">Invalid inference base URL or model id.</div>
           ) : null}
-        </div>
 
-        <div className="card">
-          <div className="card-title">Adapters</div>
+          {activeSection === "appearance" ? (
+            <div className="card">
+              <div className="card-title">Appearance</div>
 
-          <div className="row">
-            <div className="row-left">
-              <div className="row-main">Discord adapter</div>
-              <div className="row-sub muted">
-                Enables the Discord bot adapter (inbound + future <code>send</code> tool outbound). Requires restart.
+              <div className="row">
+                <div className="row-left">
+                  <div className="row-main">Disable background texture</div>
+                  <div className="row-sub muted">{webgl2Text}</div>
+                </div>
+
+                <input
+                  type="checkbox"
+                  checked={draft.textureDisabled}
+                  onChange={(e) => setDraft((d) => ({ ...d, textureDisabled: e.target.checked }))}
+                  aria-label="Disable background texture"
+                />
               </div>
             </div>
-
-            <input
-              type="checkbox"
-              checked={draft.adapterDiscordEnabled}
-              onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordEnabled: e.target.checked }))}
-              aria-label="Enable Discord adapter"
-              disabled={cfgLoading || !cfgBase}
-            />
-          </div>
-
-          <div className="grid2">
-            <label className="field">
-              <div className="field-label">Application ID (client id)</div>
-              <input
-                className="select"
-                value={draft.adapterDiscordAppId}
-                onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordAppId: e.target.value }))}
-                placeholder={cfgBase?.discordAppId ? "configured" : "not set"}
-                spellCheck={false}
-                disabled={cfgLoading || !cfgBase}
-              />
-              <div className="field-sub muted">
-                Required for registering slash commands. Find it in the Discord Developer Portal (Application/Client ID).
-              </div>
-            </label>
-
-            <label className="field">
-              <div className="field-label">Bot token (local)</div>
-              <input
-                className="select"
-                type="password"
-                value={draft.adapterDiscordBotToken}
-                onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordBotToken: e.target.value }))}
-                placeholder={cfgBase?.discordTokenConfigured ? "configured (leave blank to keep)" : "not set"}
-                spellCheck={false}
-                disabled={cfgLoading || !cfgBase}
-              />
-              <div className="field-sub muted">
-                Stored in <code>eclia.config.local.toml</code>. Token is never shown after saving.
-              </div>
-            </label>
-          </div>
-
-          <div className="grid2">
-            <label className="field" style={{ gridColumn: "1 / -1" }}>
-              <div className="field-label">Guild IDs (optional)</div>
-              <textarea
-                className="select"
-                rows={3}
-                value={draft.adapterDiscordGuildIds}
-                onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordGuildIds: e.target.value }))}
-                placeholder={"123456789012345678\n987654321098765432"}
-                spellCheck={false}
-                disabled={cfgLoading || !cfgBase}
-              />
-              <div className="field-sub muted">
-                If set, slash commands will be registered as <strong>guild</strong> commands for faster iteration. Leave blank for global registration.
-              </div>
-            </label>
-          </div>
-
-          {dirtyDevDiscord && !discordValid ? (
-            <div className="devNoteText muted">Discord adapter enabled but missing bot token or Application ID.</div>
-          ) : null}
-        </div>
-
-        <div className="card">
-          <div className="card-title">Development</div>
-
-          <div className="grid2">
-            <label className="field">
-              <div className="field-label">Console host</div>
-              <input
-                className="select"
-                value={draft.consoleHost}
-                onChange={(e) => setDraft((d) => ({ ...d, consoleHost: e.target.value }))}
-                placeholder="127.0.0.1 or 0.0.0.0"
-                spellCheck={false}
-                disabled={cfgLoading || !cfgBase}
-              />
-            </label>
-
-            <label className="field">
-              <div className="field-label">Console port</div>
-              <input
-                className="select"
-                value={draft.consolePort}
-                onChange={(e) => setDraft((d) => ({ ...d, consolePort: e.target.value }))}
-                placeholder="5173"
-                inputMode="numeric"
-                spellCheck={false}
-                disabled={cfgLoading || !cfgBase}
-              />
-            </label>
-          </div>
-
-          {cfgError ? <div className="devNoteText muted">{cfgError}</div> : null}
-
-          {dirtyDevHostPort && !hostPortValid ? (
-            <div className="devNoteText muted">Invalid host or port. Port must be 1–65535.</div>
           ) : null}
 
-          {cfgSaved ? <div className="devNoteText muted">{cfgSaved}</div> : null}
+          {activeSection === "inference" ? (
+            <>
+              <div className="card">
+                <div className="card-title">Runtime</div>
+
+                <div className="grid2">
+                  <label className="field">
+                    <div className="field-label">Transport</div>
+                    <select
+                      className="select"
+                      value={draft.transport}
+                      onChange={(e) => setDraft((d) => ({ ...d, transport: e.target.value as TransportId }))}
+                    >
+                      {transports.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="field">
+                    <div className="field-label">provider</div>
+                    <select className="select" value={draft.model} onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value }))}>
+                      <option value="local/ollama">local/ollama</option>
+                      <option value="openai-compatible">openai-compatible</option>
+                      <option value="router/gateway">router/gateway</option>
+                    </select>
+                  </label>
+
+                  <div className="field" style={{ gridColumn: "1 / -1" }}>
+                    <div className="field-label">Context limit (tokens)</div>
+
+                    <div className="contextLimitRow">
+                      <input
+                        className="select contextLimitInput"
+                        inputMode="numeric"
+                        type="number"
+                        min={256}
+                        max={1000000}
+                        step={256}
+                        value={draft.contextTokenLimit}
+                        onChange={(e) => setDraft((d) => ({ ...d, contextTokenLimit: e.target.value }))}
+                        disabled={!draft.contextLimitEnabled}
+                      />
+
+                      <label className="inlineToggle" title="Enable/disable sending a truncation budget to the gateway">
+                        <input
+                          type="checkbox"
+                          checked={draft.contextLimitEnabled}
+                          onChange={(e) => setDraft((d) => ({ ...d, contextLimitEnabled: e.target.checked }))}
+                        />
+                        <span>Enabled</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="card-title">OpenAI-compatible</div>
+
+                <div className="grid2">
+                  <label className="field">
+                    <div className="field-label">Base URL</div>
+                    <input
+                      className="select"
+                      value={draft.inferenceBaseUrl}
+                      onChange={(e) => setDraft((d) => ({ ...d, inferenceBaseUrl: e.target.value }))}
+                      placeholder="https://api.openai.com/v1"
+                      spellCheck={false}
+                      disabled={cfgLoading || !cfgBase}
+                    />
+                  </label>
+
+                  <label className="field">
+                    <div className="field-label">Model id</div>
+                    <input
+                      className="select"
+                      value={draft.inferenceModelId}
+                      onChange={(e) => setDraft((d) => ({ ...d, inferenceModelId: e.target.value }))}
+                      placeholder="gpt-4o-mini"
+                      spellCheck={false}
+                      disabled={cfgLoading || !cfgBase}
+                    />
+                  </label>
+                </div>
+
+                <div className="grid2">
+                  <label className="field" style={{ gridColumn: "1 / -1" }}>
+                    <div className="field-label">API key (local)</div>
+                    <input
+                      className="select"
+                      type="password"
+                      value={draft.inferenceApiKey}
+                      onChange={(e) => setDraft((d) => ({ ...d, inferenceApiKey: e.target.value }))}
+                      placeholder={cfgBase?.apiKeyConfigured ? "configured (leave blank to keep)" : "not set"}
+                      spellCheck={false}
+                      disabled={cfgLoading || !cfgBase}
+                    />
+                    <div className="field-sub muted">
+                      {cfgBase?.apiKeyConfigured
+                        ? "A key is already configured (not shown). Enter a new one to replace it."
+                        : "No key detected. Set it here or in eclia.config.local.toml."}
+                    </div>
+                  </label>
+                </div>
+
+                {dirtyDevInference && !inferenceValid ? <div className="devNoteText muted">Invalid inference base URL or model id.</div> : null}
+              </div>
+            </>
+          ) : null}
+
+          {activeSection === "adapters" ? (
+            <div className="card">
+              <div className="card-title">Discord</div>
+
+              <div className="row">
+                <div className="row-left">
+                  <div className="row-main">Discord adapter</div>
+                  <div className="row-sub muted">
+                    Enables the Discord bot adapter (inbound + future <code>send</code> tool outbound). Requires restart.
+                  </div>
+                </div>
+
+                <input
+                  type="checkbox"
+                  checked={draft.adapterDiscordEnabled}
+                  onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordEnabled: e.target.checked }))}
+                  aria-label="Enable Discord adapter"
+                  disabled={cfgLoading || !cfgBase}
+                />
+              </div>
+
+              <div className="grid2">
+                <label className="field">
+                  <div className="field-label">Application ID (client id)</div>
+                  <input
+                    className="select"
+                    value={draft.adapterDiscordAppId}
+                    onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordAppId: e.target.value }))}
+                    placeholder={cfgBase?.discordAppId ? "configured" : "not set"}
+                    spellCheck={false}
+                    disabled={cfgLoading || !cfgBase}
+                  />
+                  <div className="field-sub muted">
+                    Required for registering slash commands. Find it in the Discord Developer Portal (Application/Client ID).
+                  </div>
+                </label>
+
+                <label className="field">
+                  <div className="field-label">Bot token (local)</div>
+                  <input
+                    className="select"
+                    type="password"
+                    value={draft.adapterDiscordBotToken}
+                    onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordBotToken: e.target.value }))}
+                    placeholder={cfgBase?.discordTokenConfigured ? "configured (leave blank to keep)" : "not set"}
+                    spellCheck={false}
+                    disabled={cfgLoading || !cfgBase}
+                  />
+                  <div className="field-sub muted">
+                    Stored in <code>eclia.config.local.toml</code>. Token is never shown after saving.
+                  </div>
+                </label>
+              </div>
+
+              <div className="grid2">
+                <label className="field" style={{ gridColumn: "1 / -1" }}>
+                  <div className="field-label">Guild IDs (optional)</div>
+                  <textarea
+                    className="select"
+                    rows={3}
+                    value={draft.adapterDiscordGuildIds}
+                    onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordGuildIds: e.target.value }))}
+                    placeholder={"123456789012345678\n987654321098765432"}
+                    spellCheck={false}
+                    disabled={cfgLoading || !cfgBase}
+                  />
+                  <div className="field-sub muted">
+                    If set, slash commands will be registered as <strong>guild</strong> commands for faster iteration. Leave blank for global registration.
+                  </div>
+                </label>
+              </div>
+
+              {dirtyDevDiscord && !discordValid ? (
+                <div className="devNoteText muted">Discord adapter enabled but missing bot token or Application ID.</div>
+              ) : null}
+            </div>
+          ) : null}
+
         </div>
       </div>
     </div>

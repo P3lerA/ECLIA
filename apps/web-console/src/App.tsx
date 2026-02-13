@@ -75,6 +75,8 @@ function AppInner() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const containerWide = location.pathname.startsWith("/settings");
+
   const sessionsRef = React.useRef(state.sessions);
   React.useEffect(() => {
     sessionsRef.current = state.sessions;
@@ -215,7 +217,7 @@ function AppInner() {
     <div className="app">
       <BackgroundRoot />
 
-      <div className="container">
+      <div className={containerWide ? "container container-wide" : "container"}>
         <Routes>
           <Route path="/settings" element={<SettingsView onBack={() => navigate("/")} />} />
 
