@@ -1,4 +1,3 @@
-import React from "react";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 import { cycleThemeMode, type ThemeMode } from "../../theme/theme";
 

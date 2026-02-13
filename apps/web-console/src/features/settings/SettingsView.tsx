@@ -365,16 +365,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     ]
   });
 
-  const effectiveStateModel = cfgBase ? normalizeActiveModel(state.model, cfgBase.openaiCompatProfiles) : state.model;
-
-  const dirtyUi =
-    draft.textureDisabled !== state.settings.textureDisabled ||
-    draft.sessionSyncEnabled !== state.settings.sessionSyncEnabled ||
-    draft.transport !== state.transport ||
-    draft.model !== effectiveStateModel ||
-    draft.contextLimitEnabled !== state.settings.contextLimitEnabled ||
-    parseContextLimit(draft.contextTokenLimit) !== state.settings.contextTokenLimit;
-
   const dirtyDevHostPort = cfgBase
     ? draft.consoleHost.trim() !== cfgBase.host || portNumber(draft.consolePort) !== cfgBase.port
     : false;

@@ -1,4 +1,3 @@
-import React from "react";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 import type { ThemeMode } from "../../theme/theme";
 

@@ -67,8 +67,6 @@ export function MessageList({
 
   // Track whether the user is near the bottom.
   React.useEffect(() => {
-    const el = ref.current;
-
     updateStickiness();
 
     const onWinScroll = () => updateStickiness();
