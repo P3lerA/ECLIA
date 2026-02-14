@@ -7,6 +7,7 @@ type SpawnErrorLike = Error & {
 };
 
 /**
+ * Normalize Codex app-server failures into a user-facing message.
  *
  * Keep this logic centralized so callers don't all re-implement slightly
  * different heuristics.

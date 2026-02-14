@@ -828,10 +828,10 @@ textarea:focus{
 }
 
 .settings-subtitle{
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: .10em;
-  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: .02em;
+  text-transform: none;
   color: var(--muted);
   padding-left: 2px;
 }
@@ -863,9 +863,9 @@ textarea:focus{
   box-shadow: var(--shadow-card);
 }
 .card-title{
-  font-weight: 800;
+  font-weight: 750;
   font-size: 13px;
-  letter-spacing: .12em;
+  letter-spacing: .02em;
   color: var(--muted);
   margin-bottom: 10px;
 }

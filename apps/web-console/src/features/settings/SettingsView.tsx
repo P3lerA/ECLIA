@@ -711,8 +711,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const [expandedOpenAICompatProfileId, setExpandedOpenAICompatProfileId] = React.useState<string | null>(null);
 
   const codexProfiles = draft.codexOAuthProfiles;
-
-  const [expandedCodexProfileId, setExpandedCodexProfileId] = React.useState<string | null>(null);
   const [codexLoginBusyProfileId, setCodexLoginBusyProfileId] = React.useState<string | null>(null);
   const [codexLoginMsg, setCodexLoginMsg] = React.useState<string | null>(null);
 
@@ -1375,25 +1373,13 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                   </button>
                 </div>
 
-                {codexStatusError ? <div className="devNoteText muted">Status: unavailable — {codexStatusError}</div> : null}
-                {codexStatus && !codexStatusError ? (
-                  <div className="devNoteText muted" style={{ marginBottom: 12 }}>
-                    Status:{" "}
-                    {codexStatus.account
-                      ? `signed in (${codexStatus.account.type}${codexStatus.account.email ? `: ${codexStatus.account.email}` : ""})`
-                      : codexStatus.requires_openai_auth
-                        ? "not signed in"
-                        : "no auth required"}
-                    {codexStatusCheckedAt ? ` · checked ${new Date(codexStatusCheckedAt).toLocaleTimeString()}` : ""}
-                  </div>
-                ) : null}
-
-                {codexProfiles.map((p) => {
-                  const isExpanded = expandedCodexProfileId === p.id;
+                
+                {codexProfiles.length ? (() => {
+                  const p = codexProfiles[0];
                   const isBusy = codexLoginBusyProfileId === p.id;
                   const isActivated = draft.model === codexProfileRoute(p.id);
 
-                  const status = (() => {
+                  const availability = (() => {
                     if (codexStatusLoading) return { label: "Checking…", detail: null as string | null };
                     if (codexStatusError) return { label: "Unavailable", detail: codexStatusError };
                     if (!codexStatus) return { label: "Unknown", detail: "Click “Refresh status” to run a check." };
@@ -1424,91 +1410,72 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                   })();
 
                   return (
-                    <div key={p.id} className="profileItem">
-                      <button
-                        type="button"
-                        className="row profileRow"
-                        onClick={() => setExpandedCodexProfileId((cur) => (cur === p.id ? null : p.id))}
-                        aria-expanded={isExpanded}
-                      >
-                        <div className="row-left">
-                          <div className="row-main profileRowTitle">
-                            <span className="disclosureIcon" aria-hidden="true">
-                              {isExpanded ? "▾" : "▸"}
-                            </span>
-                            {p.name.trim() || "Untitled"}
-                          </div>
-                        </div>
+                    <>
+                      <div className="grid2">
+                        <label className="field">
+                          <div className="field-label">Name</div>
+                          <input
+                            className="select"
+                            value={p.name}
+                            onChange={(e) => patchCodexProfile(p.id, { name: e.target.value })}
+                            placeholder="Default"
+                            spellCheck={false}
+                            disabled={cfgLoading || !cfgBase}
+                          />
+                        </label>
 
-                        <div className="row-right">
-                          {isBusy ? <span className="activatedPill">Logging in…</span> : null}
-                          {!isBusy && isActivated ? <span className="activatedPill">Activated</span> : null}
-                        </div>
-                      </button>
+                        <label className="field">
+                          <div className="field-label">Model</div>
+                          <input
+                            className="select"
+                            value={p.model}
+                            onChange={(e) => patchCodexProfile(p.id, { model: e.target.value })}
+                            placeholder="gpt-5.2-codex"
+                            spellCheck={false}
+                            disabled={cfgLoading || !cfgBase}
+                          />
+                        </label>
+                      </div>
 
-                      {isExpanded ? (
-                        <div className="profileDetails">
-                          <div className="grid2">
-                            <label className="field">
-                              <div className="field-label">Name</div>
-                              <input
-                                className="select"
-                                value={p.name}
-                                onChange={(e) => patchCodexProfile(p.id, { name: e.target.value })}
-                                placeholder="Default"
-                                spellCheck={false}
-                                disabled={cfgLoading || !cfgBase}
-                              />
-                            </label>
+                      <div className="profileActions profileActionsRow">
+                        <button
+                          type="button"
+                          className="btn subtle"
+                          onClick={() => startCodexBrowserLogin(p.id)}
+                          disabled={cfgLoading || !cfgBase || codexLoginBusyProfileId !== null}
+                        >
+                          {isBusy ? "Starting…" : "Login with browser"}
+                        </button>
 
-                            <label className="field">
-                              <div className="field-label">Model</div>
-                              <input
-                                className="select"
-                                value={p.model}
-                                onChange={(e) => patchCodexProfile(p.id, { model: e.target.value })}
-                                placeholder="gpt-5.2-codex"
-                                spellCheck={false}
-                                disabled={cfgLoading || !cfgBase}
-                              />
-                            </label>
-                          </div>
+                        <button
+                          type="button"
+                          className="btn subtle"
+                          onClick={clearCodexOAuthConfig}
+                          disabled={cfgLoading || !cfgBase || codexLoginBusyProfileId !== null}
+                        >
+                          Sign out &amp; reset
+                        </button>
 
-                          <div className="profileActions profileActionsRow">
-                            <button
-                              type="button"
-                              className="btn subtle"
-                              onClick={() => startCodexBrowserLogin(p.id)}
-                              disabled={cfgLoading || !cfgBase || codexLoginBusyProfileId !== null}
-                            >
-                              {isBusy ? "Starting…" : "Login with browser"}
-                            </button>
+                        {isActivated ? <span className="activatedPill">Activated</span> : null}
+                      </div>
 
-                            <button
-                              type="button"
-                              className="btn subtle"
-                              onClick={clearCodexOAuthConfig}
-                              disabled={cfgLoading || !cfgBase || codexLoginBusyProfileId !== null}
-                            >
-                              Clear config
-                            </button>
-                          </div>
+                      <div className="devNoteText muted">
+                        Availability: {availability.label}
+                        {availability.detail ? ` — ${availability.detail}` : ""}
+                        {codexStatusCheckedAt ? ` · checked ${new Date(codexStatusCheckedAt).toLocaleTimeString()}` : ""}
+                      </div>
 
-                          <div className="devNoteText muted">
-                            Availability: {status.label}
-                            {status.detail ? ` — ${status.detail}` : ""}
-                          </div>
+                      {codexLoginMsg ? <div className="devNoteText muted">{codexLoginMsg}</div> : null}
 
-                          {codexLoginMsg ? <div className="devNoteText muted">{codexLoginMsg}</div> : null}
-                        </div>
-                      ) : null}
-                    </div>
+                      <div className="devNoteText muted">
+                        Note: Codex authentication is global to the Codex CLI (not per profile). “Sign out &amp; reset”
+                        clears Codex credentials on this machine and resets this configuration.
+                      </div>
+                    </>
                   );
-                })}
-
-                <div className="devNoteText muted">
-                  Note: Codex authentication is global to the Codex CLI. ECLIA intentionally supports a single Codex OAuth configuration. Use “Sign out & reset” to clear Codex credentials on this machine.
-                </div>
+                })() : (
+                  <div className="devNoteText muted">No Codex OAuth configuration found.</div>
+                )}
               </div>
 
               <div className="card">
