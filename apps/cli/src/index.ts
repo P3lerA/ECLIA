@@ -67,8 +67,12 @@ function doctor() {
   console.log(`console:  ${host}:${port}`);
   console.log(`gateway:  localhost:${apiPort}`);
 
-  const hasKey = Boolean(cfg.inference?.openai_compat?.api_key);
-  console.log(`openai_compat.api_key: ${hasKey ? "configured" : "missing"}`);
+  const openaiProfiles = cfg.inference?.openai_compat?.profiles ?? [];
+  const openaiKeyed = openaiProfiles.filter((p) => typeof p.api_key === "string" && p.api_key.trim());
+  console.log(`openai_compat.profiles: ${openaiProfiles.length} (api_key configured: ${openaiKeyed.length})`);
+
+  const codexProfiles = cfg.inference?.codex_oauth?.profiles ?? [];
+  console.log(`codex_oauth.profiles: ${codexProfiles.length}`);
 }
 
 const argv = process.argv.slice(2);

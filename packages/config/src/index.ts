@@ -308,15 +308,17 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
   const seenCodex = new Set<string>();
 
   if (codexProfilesRaw && codexProfilesRaw.length) {
+    // ECLIA supports a single Codex OAuth profile (Codex auth is global).
+    // If multiple profiles are present in TOML, we keep the first valid one.
     for (let i = 0; i < codexProfilesRaw.length; i++) {
       const p = codexProfilesRaw[i];
       if (!isRecord(p)) continue;
 
-      const id = coerceProfileId((p as any).id, `codex_profile_${i + 1}`);
+      const id = coerceProfileId((p as any).id, "default");
       if (seenCodex.has(id)) continue;
       seenCodex.add(id);
 
-      const name = coerceString((p as any).name, `Codex Profile ${i + 1}`);
+      const name = coerceString((p as any).name, "Default");
       const model = coerceString(
         (p as any).model,
         base.inference.codex_oauth.profiles[0]?.model ?? base.inference.openai_compat.profiles[0].model
@@ -327,12 +329,13 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
       const id_token = coerceOptionalString((p as any).id_token);
       const expires_at = coerceOptionalNumber((p as any).expires_at);
 
-      codexProfiles.push({ id, name, model, access_token, refresh_token, id_token, expires_at });
+      codexProfiles.push({ id: "default", name, model, access_token, refresh_token, id_token, expires_at });
+      break;
     }
   }
 
   // If config omits Codex profiles, fall back to DEFAULT_ECLIA_CONFIG.
-  const codexProfilesOut = codexProfiles.length ? codexProfiles : base.inference.codex_oauth.profiles;
+  const codexProfilesOut = (codexProfiles.length ? codexProfiles : base.inference.codex_oauth.profiles).slice(0, 1);
 
   return {
     console: {

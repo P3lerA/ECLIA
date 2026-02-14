@@ -12,7 +12,7 @@ import { json } from "./httpUtils.js";
 import { handleArtifacts } from "./routes/artifacts.js";
 import { handleChat } from "./routes/chat.js";
 import { handleConfig } from "./routes/config.js";
-import { handleCodexOAuth } from "./routes/codexOAuth.js";
+import { handleCodexOAuth, handleCodexOAuthClear, handleCodexOAuthStatus } from "./routes/codexOAuth.js";
 import { handleSessions } from "./routes/sessions.js";
 import { handleToolApprovals } from "./routes/toolApprovals.js";
 
@@ -99,6 +99,10 @@ async function main() {
     if (pathname === "/api/config") return await handleConfig(req, res);
 
     if (pathname === "/api/codex/oauth/start" && req.method === "POST") return await handleCodexOAuth(req, res);
+
+    if (pathname === "/api/codex/oauth/clear" && req.method === "POST") return await handleCodexOAuthClear(req, res);
+
+    if (pathname === "/api/codex/oauth/status" && req.method === "GET") return await handleCodexOAuthStatus(req, res);
 
     if (pathname === "/api/artifacts") return await handleArtifacts(req, res, rootDir);
 

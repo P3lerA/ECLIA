@@ -11,6 +11,16 @@ type CodexOAuthProfile = {
   model: string;
 };
 
+type CodexOAuthStatus = {
+  requires_openai_auth: boolean;
+  account: null | {
+    type: string;
+    email?: string;
+    planType?: string;
+  };
+  models: string[] | null;
+};
+
 type SettingsDraft = {
   textureDisabled: boolean;
   sessionSyncEnabled: boolean;
@@ -290,23 +300,28 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
         const codex = (j.config.inference as any)?.codex_oauth ?? {};
         const rawCodexProfiles = Array.isArray((codex as any).profiles) ? ((codex as any).profiles as any[]) : [];
-        const codexProfiles: CodexOAuthProfile[] = [];
-        const seenCodexIds = new Set<string>();
 
+        // ECLIA supports a single Codex OAuth profile (Codex auth is global).
+        // If multiple profiles are present, we keep the first one.
+        let codexProfile: CodexOAuthProfile | null = null;
         for (let i = 0; i < rawCodexProfiles.length; i++) {
           const p = rawCodexProfiles[i] ?? {};
-          const id = String(p.id ?? "").trim();
-          if (!id || seenCodexIds.has(id)) continue;
-          seenCodexIds.add(id);
-
-          const name = String(p.name ?? "").trim() || `Codex Profile ${i + 1}`;
-          const model = String(p.model ?? "gpt-5.2-codex").trim() || "gpt-5.2-codex";
-          codexProfiles.push({ id, name, model });
+          const name = String(p.name ?? "").trim();
+          const model = String(p.model ?? "").trim();
+          if (!model) continue;
+          codexProfile = {
+            id: "default",
+            name: name || "Default",
+            model: model || "gpt-5.2-codex"
+          };
+          break;
         }
 
-        if (codexProfiles.length === 0) {
-          codexProfiles.push({ id: "default", name: "Default", model: "gpt-5.2-codex" });
+        if (!codexProfile) {
+          codexProfile = { id: "default", name: "Default", model: "gpt-5.2-codex" };
         }
+
+        const codexProfiles: CodexOAuthProfile[] = [codexProfile];
 
         setCfgBase({
           host,
@@ -360,8 +375,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           : prev?.inferenceProfiles ?? [],
 
         codexOAuthProfiles: cfgBase
-          ? cfgBase.codexOAuthProfiles.map((p) => ({ ...p }))
-          : prev?.codexOAuthProfiles ?? [{ id: "default", name: "Default", model: "gpt-5.2-codex" }],
+          ? cfgBase.codexOAuthProfiles.map((p) => ({ ...p })).slice(0, 1)
+          : prev?.codexOAuthProfiles?.length
+            ? [{ ...prev.codexOAuthProfiles[0], id: "default" }]
+            : [{ id: "default", name: "Default", model: "gpt-5.2-codex" }],
 
         adapterDiscordEnabled: cfgBase?.discordEnabled ?? prev?.adapterDiscordEnabled ?? false,
         adapterDiscordAppId: cfgBase?.discordAppId ?? prev?.adapterDiscordAppId ?? "",
@@ -523,8 +540,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
               }))
             },
             codex_oauth: {
-              profiles: draft.codexOAuthProfiles.map((p) => ({
-                id: p.id,
+              profiles: draft.codexOAuthProfiles.slice(0, 1).map((p) => ({
+                id: "default",
                 name: p.name.trim(),
                 model: p.model.trim()
               }))
@@ -579,11 +596,13 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             : cfgBase.openaiCompatProfiles;
 
           const nextCodexProfiles = Array.isArray((body.inference as any)?.codex_oauth?.profiles)
-            ? (((body.inference as any).codex_oauth.profiles as any[]) ?? []).map((p) => ({
-                id: String(p.id ?? "").trim(),
-                name: String(p.name ?? "").trim() || "Untitled",
-                model: String(p.model ?? "").trim() || "gpt-5.2-codex"
-              }))
+            ? (((body.inference as any).codex_oauth.profiles as any[]) ?? [])
+                .map((p) => ({
+                  id: "default",
+                  name: String(p.name ?? "").trim() || "Default",
+                  model: String(p.model ?? "").trim() || "gpt-5.2-codex"
+                }))
+                .slice(0, 1)
             : cfgBase.codexOAuthProfiles;
 
           const nextBase = {
@@ -697,6 +716,63 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const [codexLoginBusyProfileId, setCodexLoginBusyProfileId] = React.useState<string | null>(null);
   const [codexLoginMsg, setCodexLoginMsg] = React.useState<string | null>(null);
 
+  const [codexStatusLoading, setCodexStatusLoading] = React.useState(false);
+  const [codexStatus, setCodexStatus] = React.useState<CodexOAuthStatus | null>(null);
+  const [codexStatusError, setCodexStatusError] = React.useState<string | null>(null);
+  const [codexStatusCheckedAt, setCodexStatusCheckedAt] = React.useState<number | null>(null);
+
+  const refreshCodexStatus = React.useCallback(async () => {
+    setCodexStatusError(null);
+    setCodexStatusLoading(true);
+    try {
+      const r = await fetch("/api/codex/oauth/status", { method: "GET" });
+      let j: any = null;
+      try {
+        j = await r.json();
+      } catch {
+        j = null;
+      }
+
+      if (!r.ok) {
+        if (r.status === 404) throw new Error("Codex status backend not implemented.");
+        const hint = typeof j?.hint === "string" ? j.hint : null;
+        const err = typeof j?.error === "string" ? j.error : typeof j?.message === "string" ? j.message : null;
+        throw new Error(hint ?? err ?? `Failed to check status (HTTP ${r.status}).`);
+      }
+
+      if (j?.ok !== true) {
+        const hint = typeof j?.hint === "string" ? j.hint : null;
+        const err = typeof j?.error === "string" ? j.error : typeof j?.message === "string" ? j.message : null;
+        throw new Error(hint ?? err ?? "Failed to check status.");
+      }
+
+      const st: CodexOAuthStatus = {
+        requires_openai_auth: j?.requires_openai_auth === true,
+        account: j?.account && typeof j.account === "object" ? j.account : null,
+        models: Array.isArray(j?.models) ? (j.models as string[]) : null
+      };
+
+      setCodexStatus(st);
+      setCodexStatusCheckedAt(Date.now());
+    } catch (e) {
+      setCodexStatus(null);
+      const msg = e instanceof Error ? e.message : "Failed to check Codex status.";
+      setCodexStatusError(msg);
+    } finally {
+      setCodexStatusLoading(false);
+    }
+  }, []);
+
+  // Best-effort: check status once when entering the inference section.
+  React.useEffect(() => {
+    if (activeSection !== "inference") return;
+    if (!cfgBase) return;
+    if (!codexProfiles.length) return;
+    if (codexStatusLoading) return;
+    if (codexStatusCheckedAt !== null) return;
+    void refreshCodexStatus();
+  }, [activeSection, cfgBase, codexProfiles.length, codexStatusLoading, codexStatusCheckedAt, refreshCodexStatus]);
+
   React.useEffect(() => {
     // Avoid "correcting" the provider selection before the config baseline
     // is hydrated. Otherwise, we can accidentally mark the page dirty and block
@@ -788,31 +864,29 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     [setDraft]
   );
 
-  const newCodexProfile = React.useCallback(() => {
-    const id = newLocalId("c");
-
-    setDraft((d) => {
-      const base = d.codexOAuthProfiles[0];
-      const model = base?.model?.trim() ? base.model.trim() : "gpt-5.2-codex";
-      return { ...d, codexOAuthProfiles: [...d.codexOAuthProfiles, { id, name: "New profile", model }] };
-    });
-    setExpandedCodexProfileId(id);
-  }, [setDraft]);
-
-  const deleteCodexProfile = React.useCallback((profileId: string) => {
-    setDraft((d) => ({
-      ...d,
-      codexOAuthProfiles: d.codexOAuthProfiles.length <= 1 ? d.codexOAuthProfiles : d.codexOAuthProfiles.filter((p) => p.id !== profileId)
-    }));
-    setExpandedCodexProfileId((prev) => (prev === profileId ? null : prev));
-  }, [setDraft]);
-
   const startCodexBrowserLogin = React.useCallback(async (profileId: string) => {
     setCodexLoginMsg(null);
     setCodexLoginBusyProfileId(profileId);
 
     // Open a blank popup synchronously to avoid popup blockers.
-    const popup = window.open("about:blank", "_blank", "noopener,noreferrer");
+    // NOTE: We intentionally do NOT pass noopener here because some browsers will
+    // still open the tab but return `null`, which prevents us from closing it on error.
+    // We manually null out opener after opening as a best-effort safety measure.
+    const popup = window.open("about:blank", "_blank");
+    try {
+      if (popup) popup.opener = null;
+    } catch {
+      // ignore
+    }
+    try {
+      if (popup && popup.document) {
+        popup.document.title = "ECLIA – Codex login";
+        popup.document.body.innerHTML =
+          '<div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">Starting Codex browser login…</div>';
+      }
+    } catch {
+      // ignore
+    }
 
     try {
       const profile = codexProfiles.find((p) => p.id === profileId);
@@ -849,17 +923,94 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         }
         setCodexLoginMsg("Browser login started.");
       } else {
-        if (popup && !popup.closed) popup.close();
-        setCodexLoginMsg("Browser login started.");
+        // If we don't have an auth URL, the login flow can't proceed.
+        setCodexLoginMsg("No authorization URL returned from server.");
+
+        // Some browsers refuse window.close() outside a direct user gesture.
+        // Prefer showing an error message instead of leaving a blank tab.
+        if (popup && !popup.closed) {
+          try {
+            popup.document.title = "ECLIA – Codex login failed";
+            popup.document.body.innerHTML =
+              '<div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">' +
+              '<h2 style="margin: 0 0 10px 0;">Codex login failed</h2>' +
+              '<p style="margin: 0 0 12px 0;">The server did not return an authorization URL.</p>' +
+              '<p style="margin: 0; opacity: 0.8;">Close this window and return to Settings to see the error details.</p>' +
+              "</div>";
+          } catch {
+            // ignore
+          }
+        }
       }
     } catch (e) {
-      if (popup && !popup.closed) popup.close();
       const msg = e instanceof Error ? e.message : "Failed to start browser login.";
       setCodexLoginMsg(msg);
+
+      // Some browsers refuse window.close() outside a direct user gesture.
+      // Prefer showing an error message instead of leaving a blank tab.
+      if (popup && !popup.closed) {
+        try {
+          popup.document.title = "ECLIA – Codex login failed";
+          popup.document.body.innerHTML =
+            '<div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">' +
+            '<h2 style="margin: 0 0 10px 0;">Codex login failed</h2>' +
+            '<pre id="eclia-codex-login-error" style="white-space: pre-wrap; word-break: break-word; background: #111; color: #eee; padding: 12px; border-radius: 8px;">' +
+            "</pre>" +
+            '<p style="margin: 12px 0 0 0; opacity: 0.8;">Return to Settings to fix the issue and retry. You can also close this window.</p>' +
+            "</div>";
+          const el = popup.document.getElementById("eclia-codex-login-error");
+          if (el) (el as any).textContent = msg;
+        } catch {
+          // ignore
+        }
+      }
     } finally {
       setCodexLoginBusyProfileId(null);
     }
   }, [codexProfiles]);
+
+  const clearCodexOAuthConfig = React.useCallback(async () => {
+    setCodexLoginMsg(null);
+    setCodexLoginBusyProfileId("default");
+    try {
+      const r = await fetch("/api/codex/oauth/clear", { method: "POST" });
+      let j: any = null;
+      try {
+        j = await r.json();
+      } catch {
+        j = null;
+      }
+
+      if (!r.ok) {
+        if (r.status === 404) throw new Error("Codex clear backend not implemented.");
+        const hint = typeof j?.hint === "string" ? j.hint : null;
+        const err = typeof j?.error === "string" ? j.error : typeof j?.message === "string" ? j.message : null;
+        throw new Error(hint ?? err ?? `Failed to clear config (HTTP ${r.status}).`);
+      }
+
+      if (j?.ok !== true) {
+        const hint = typeof j?.hint === "string" ? j.hint : null;
+        const err = typeof j?.error === "string" ? j.error : typeof j?.message === "string" ? j.message : null;
+        throw new Error(hint ?? err ?? "Failed to clear config.");
+      }
+
+      const reset: CodexOAuthProfile = { id: "default", name: "Default", model: "gpt-5.2-codex" };
+      setDraft((d) => ({ ...d, codexOAuthProfiles: [reset] }));
+      setCfgBase((b) => (b ? { ...b, codexOAuthProfiles: [reset] } : b));
+
+      // Force a re-check so the UI reflects the new state quickly.
+      setCodexStatus(null);
+      setCodexStatusCheckedAt(null);
+      void refreshCodexStatus();
+
+      setCodexLoginMsg("Signed out and reset Codex OAuth configuration.");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to clear Codex OAuth configuration.";
+      setCodexLoginMsg(msg);
+    } finally {
+      setCodexLoginBusyProfileId(null);
+    }
+  }, [refreshCodexStatus]);
 
   return (
     <div className="settingsview motion-page">
@@ -1200,17 +1351,77 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
               </div>
 
               <div className="card">
-                <div className="card-title">Codex OAuth profiles</div>
+                <div className="card-title">Codex OAuth</div>
 
                 <div className="devNoteText muted" style={{ marginBottom: 12 }}>
                   Browser login is handled by <code>codex app-server</code> and the resulting session is stored by Codex
                   itself. ECLIA only persists profile metadata (name/model) in <code>eclia.config.local.toml</code>.
                 </div>
 
+                <div className="row" style={{ marginBottom: 12 }}>
+                  <div className="row-left">
+                    <div className="row-main">Availability</div>
+                    <div className="row-sub muted">
+                      Checks authentication via <code>account/read</code> and model availability via <code>model/list</code>.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn subtle"
+                    onClick={refreshCodexStatus}
+                    disabled={cfgLoading || !cfgBase || codexStatusLoading}
+                  >
+                    {codexStatusLoading ? "Checking…" : "Refresh status"}
+                  </button>
+                </div>
+
+                {codexStatusError ? <div className="devNoteText muted">Status: unavailable — {codexStatusError}</div> : null}
+                {codexStatus && !codexStatusError ? (
+                  <div className="devNoteText muted" style={{ marginBottom: 12 }}>
+                    Status:{" "}
+                    {codexStatus.account
+                      ? `signed in (${codexStatus.account.type}${codexStatus.account.email ? `: ${codexStatus.account.email}` : ""})`
+                      : codexStatus.requires_openai_auth
+                        ? "not signed in"
+                        : "no auth required"}
+                    {codexStatusCheckedAt ? ` · checked ${new Date(codexStatusCheckedAt).toLocaleTimeString()}` : ""}
+                  </div>
+                ) : null}
+
                 {codexProfiles.map((p) => {
                   const isExpanded = expandedCodexProfileId === p.id;
                   const isBusy = codexLoginBusyProfileId === p.id;
                   const isActivated = draft.model === codexProfileRoute(p.id);
+
+                  const status = (() => {
+                    if (codexStatusLoading) return { label: "Checking…", detail: null as string | null };
+                    if (codexStatusError) return { label: "Unavailable", detail: codexStatusError };
+                    if (!codexStatus) return { label: "Unknown", detail: "Click “Refresh status” to run a check." };
+
+                    const requires = codexStatus.requires_openai_auth === true;
+                    const acctType = codexStatus.account?.type ? String(codexStatus.account.type) : "";
+                    const authed = !requires || !!acctType;
+                    if (!authed) {
+                      return {
+                        label: "Needs login",
+                        detail: "Codex is not authenticated. Click “Login with browser”."
+                      };
+                    }
+
+                    const models = codexStatus.models;
+                    if (Array.isArray(models) && models.length && !models.includes(p.model)) {
+                      return {
+                        label: "Model not available",
+                        detail: `Model “${p.model}” was not found in Codex model catalog.`
+                      };
+                    }
+
+                    const acct = codexStatus.account;
+                    const who = acct
+                      ? `${acct.type}${acct.planType ? `/${acct.planType}` : ""}${acct.email ? ` (${acct.email})` : ""}`
+                      : "authenticated";
+                    return { label: "Ready", detail: `Authenticated via ${who}.` };
+                  })();
 
                   return (
                     <div key={p.id} className="profileItem">
@@ -1276,11 +1487,16 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                             <button
                               type="button"
                               className="btn subtle"
-                              onClick={() => deleteCodexProfile(p.id)}
-                              disabled={cfgLoading || !cfgBase || codexProfiles.length <= 1}
+                              onClick={clearCodexOAuthConfig}
+                              disabled={cfgLoading || !cfgBase || codexLoginBusyProfileId !== null}
                             >
-                              Delete profile
+                              Clear config
                             </button>
+                          </div>
+
+                          <div className="devNoteText muted">
+                            Availability: {status.label}
+                            {status.detail ? ` — ${status.detail}` : ""}
                           </div>
 
                           {codexLoginMsg ? <div className="devNoteText muted">{codexLoginMsg}</div> : null}
@@ -1290,10 +1506,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                   );
                 })}
 
-                <div className="profileActions">
-                  <button type="button" className="btn subtle" onClick={newCodexProfile} disabled={cfgLoading || !cfgBase}>
-                    New profile
-                  </button>
+                <div className="devNoteText muted">
+                  Note: Codex authentication is global to the Codex CLI. ECLIA intentionally supports a single Codex OAuth configuration. Use “Sign out & reset” to clear Codex credentials on this machine.
                 </div>
               </div>
 

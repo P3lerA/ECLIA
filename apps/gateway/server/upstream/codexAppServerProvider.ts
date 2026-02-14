@@ -1,8 +1,35 @@
 import { buildTruncatedContext } from "../context.js";
 
 import { spawnCodexAppServerRpc } from "./codexAppServerRpc.js";
+import { formatCodexError } from "./codexErrors.js";
 
 import type { BuiltContext, ProviderTurnResult, ToolCall, UpstreamProvider } from "./provider.js";
+
+type CodexSandboxVariant = "readOnly" | "workspaceWrite" | "dangerFullAccess" | "externalSandbox";
+type CodexSandboxEnumStyle = "camel" | "kebab";
+
+const CODEX_SANDBOX_KEBAB_MAP: Record<CodexSandboxVariant, string> = {
+  readOnly: "read-only",
+  workspaceWrite: "workspace-write",
+  dangerFullAccess: "danger-full-access",
+  externalSandbox: "external-sandbox"
+};
+
+function codexSandboxValue(style: CodexSandboxEnumStyle, v: CodexSandboxVariant): string {
+  return style === "kebab" ? CODEX_SANDBOX_KEBAB_MAP[v] : v;
+}
+
+function inferCodexSandboxEnumStyleFromErrorMessage(msg: string): CodexSandboxEnumStyle | null {
+  const s = String(msg ?? "");
+  // Rust serde enum errors tend to look like:
+  //   unknown variant `readOnly`, expected one of `read-only`, `workspace-write`, ...
+  // Prefer looking at the *expected* list (not the unknown variant we sent).
+  const expectedIdx = s.indexOf("expected");
+  const haystack = expectedIdx >= 0 ? s.slice(expectedIdx) : s;
+  if (/\b(read-only|workspace-write|danger-full-access|external-sandbox)\b/.test(haystack)) return "kebab";
+  if (/\b(readOnly|workspaceWrite|dangerFullAccess|externalSandbox)\b/.test(haystack)) return "camel";
+  return null;
+}
 
 function normalizeContent(content: any): string {
   if (typeof content === "string") return content;
@@ -166,31 +193,54 @@ async function runCodexAppServerTurn(args: {
     const accountType = typeof acct?.account?.type === "string" ? String(acct.account.type) : "";
     if (requiresOpenaiAuth && !accountType) {
       throw new Error(
-        'Codex is not authenticated. Open Settings → Inference → Codex OAuth profiles and click "Login with browser".'
+        'Codex is not authenticated. Open Settings → Inference → Codex OAuth and click "Login with browser".'
       );
     }
 
     // Start a thread and a turn.
-    const threadRes = await rpc.request("thread/start", {
-      model: args.upstreamModel,
-      cwd: process.cwd(),
-      approvalPolicy: "never",
-      sandbox: "readOnly"
-    });
+    //
+    // Codex has shipped both camelCase ("readOnly") and kebab-case ("read-only") sandbox
+    // enum spellings across versions/surfaces. We auto-detect by retrying once when we hit the
+    // "unknown variant ... expected one of ..." error.
+    let sandboxStyle: CodexSandboxEnumStyle = "kebab";
+    const requestWithSandboxRetry = async <T>(run: (style: CodexSandboxEnumStyle) => Promise<T>): Promise<T> => {
+      try {
+        return await run(sandboxStyle);
+      } catch (e: any) {
+        const msg = e instanceof Error ? e.message : String(e ?? "");
+        const inferred = inferCodexSandboxEnumStyleFromErrorMessage(msg);
+        if (inferred && inferred !== sandboxStyle) {
+          sandboxStyle = inferred;
+          return await run(sandboxStyle);
+        }
+        throw e;
+      }
+    };
+
+    const threadRes = await requestWithSandboxRetry((style) =>
+      rpc.request("thread/start", {
+        model: args.upstreamModel,
+        cwd: process.cwd(),
+        approvalPolicy: "never",
+        sandbox: codexSandboxValue(style, "readOnly")
+      })
+    );
     threadId = threadRes?.thread?.id ?? null;
     if (!threadId || typeof threadId !== "string") {
       throw new Error("Codex thread/start returned no thread id");
     }
 
-    await rpc.request("turn/start", {
-      threadId,
-      input: [{ type: "text", text: args.prompt }],
-      approvalPolicy: "never",
-      sandboxPolicy: {
-        type: "readOnly",
-        networkAccess: false
-      }
-    });
+    await requestWithSandboxRetry((style) =>
+      rpc.request("turn/start", {
+        threadId,
+        input: [{ type: "text", text: args.prompt }],
+        approvalPolicy: "never",
+        sandboxPolicy: {
+          type: codexSandboxValue(style, "readOnly"),
+          networkAccess: false
+        }
+      })
+    );
 
     // Wait for completion, but also let process exit/error short-circuit.
     await Promise.race([
@@ -210,8 +260,7 @@ async function runCodexAppServerTurn(args: {
 
     return { assistantText, finishReason };
   } catch (e: any) {
-    const err = e instanceof Error ? e : new Error(String(e ?? "Unknown error"));
-    throw err;
+    throw new Error(formatCodexError(e));
   } finally {
     cleanup();
     args.signal.removeEventListener("abort", onAbort);

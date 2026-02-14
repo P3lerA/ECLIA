@@ -60,7 +60,8 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
             }))
           },
           codex_oauth: {
-            profiles: (config.inference.codex_oauth?.profiles ?? []).map((p) => ({
+            // ECLIA supports a single Codex OAuth profile (Codex auth is global).
+            profiles: (config.inference.codex_oauth?.profiles ?? []).slice(0, 1).map((p) => ({
               id: p.id,
               name: p.name,
               model: p.model
@@ -114,14 +115,11 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
     if (body.inference?.codex_oauth?.profiles) {
       const raw = body.inference.codex_oauth.profiles;
       const out: any[] = [];
-      const seen = new Set<string>();
 
-      for (const row of raw) {
-        const id = String(row?.id ?? "").trim();
-        if (!id || seen.has(id)) continue;
-        seen.add(id);
-
-        const next: any = { id };
+      // Only allow a single profile (Codex auth is global).
+      const row = Array.isArray(raw) ? raw[0] : null;
+      if (row) {
+        const next: any = { id: "default" };
         if (typeof row.name === "string" && row.name.trim()) next.name = row.name.trim();
         if (typeof row.model === "string" && row.model.trim()) next.model = row.model.trim();
         out.push(next);

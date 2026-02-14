@@ -50,11 +50,47 @@ export function spawnCodexAppServerRpc(args?: {
    */
   onNotification?: (msg: { method: string; params: any }) => void;
 }): CodexAppServerRpc {
-  const proc = spawn("codex", ["app-server"], {
-    stdio: ["pipe", "pipe", "inherit"]
+  const codexExe = (process.env.ECLIA_CODEX_EXECUTABLE ?? "codex").trim() || "codex";
+
+  // Collect recent STDERR lines to make failures actionable in the UI.
+  const stderrRing: string[] = [];
+  const pushStderr = (line: string) => {
+    const s = String(line ?? "").trimEnd();
+    if (!s) return;
+    stderrRing.push(s);
+    // Keep the tail small to avoid leaking too much output / memory.
+    if (stderrRing.length > 50) stderrRing.splice(0, stderrRing.length - 50);
+  };
+
+  // Also collect recent NON-JSON stdout lines. A real app-server should emit only JSONL.
+  // If we capture human-readable output here (usage/help, prompts, logs), it usually means
+  // the wrong `codex` binary was invoked or the CLI is too old for app-server.
+  const stdoutGarbageRing: string[] = [];
+  const pushStdoutGarbage = (line: string) => {
+    const s = String(line ?? "").trimEnd();
+    if (!s) return;
+    stdoutGarbageRing.push(s);
+    if (stdoutGarbageRing.length > 50) stdoutGarbageRing.splice(0, stdoutGarbageRing.length - 50);
+  };
+
+  // Prefer explicit stdio transport so we don't get surprised by defaults changing.
+  const proc = spawn(codexExe, ["app-server", "--listen", "stdio://"], {
+    stdio: ["pipe", "pipe", "pipe"]
   });
 
   const rl = readline.createInterface({ input: proc.stdout });
+  const rlErr = readline.createInterface({ input: proc.stderr });
+  const forwardStderr = process.env.ECLIA_CODEX_FORWARD_STDERR !== "0";
+  rlErr.on("line", (line) => {
+    pushStderr(line);
+    if (forwardStderr) {
+      try {
+        process.stderr.write(`[codex] ${String(line ?? "")}\n`);
+      } catch {
+        // ignore
+      }
+    }
+  });
 
   let nextId = 0;
   const pending = new Map<number, { resolve: (v: any) => void; reject: (e: any) => void }>();
@@ -69,6 +105,7 @@ export function spawnCodexAppServerRpc(args?: {
     if (closed) return;
     closed = true;
     rl.close();
+    rlErr.close();
     try {
       proc.kill();
     } catch {
@@ -93,7 +130,22 @@ export function spawnCodexAppServerRpc(args?: {
     });
     proc.once("exit", (code, sig) => {
       if (closed) return;
-      reject(new Error(`Codex app-server exited (code=${code ?? "?"}, signal=${sig ?? "?"})`));
+      const tail = stderrRing.length ? `\nLast stderr:\n${stderrRing.join("\n")}` : "";
+      const stdoutTail = stdoutGarbageRing.length ? `\nLast stdout (non-JSON):\n${stdoutGarbageRing.join("\n")}` : "";
+      // If we exited with code=0, it's often a sign the wrong `codex` executable was invoked
+      // (or an older CLI that doesn't support app-server), because a real app-server session
+      // should stay alive awaiting JSON-RPC over stdio.
+      const maybeHint =
+        code === 0
+          ?
+              "\nHint: `codex app-server` exited immediately with code 0. This commonly happens when:\n" +
+              "  • The `codex` on PATH is not OpenAI's Codex CLI (or it's an older version without app-server).\n" +
+              "  • You're launching through a wrapper that fails before starting the real binary.\n" +
+              "Try running `codex --version` and `codex app-server --help` in the same environment as the gateway."
+          : "";
+      reject(
+        new Error(`Codex app-server exited (code=${code ?? "?"}, signal=${sig ?? "?"})${tail}${stdoutTail}${maybeHint}`)
+      );
     });
   });
 
@@ -156,7 +208,10 @@ export function spawnCodexAppServerRpc(args?: {
 
   rl.on("line", (line) => {
     const msg = safeJsonParse(line) as JsonRpcMessage | null;
-    if (!msg) return;
+    if (!msg) {
+      pushStdoutGarbage(line);
+      return;
+    }
 
     // Response to a client request.
     if (typeof (msg as any).id === "number" && ("result" in (msg as any) || "error" in (msg as any))) {
