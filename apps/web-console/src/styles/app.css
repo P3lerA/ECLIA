@@ -899,12 +899,21 @@ textarea:focus{
   text-align: left;
   cursor: pointer;
   margin-bottom: 0;
+  align-items: center;
 }
 
 .profileRow:disabled{ cursor: default; }
 
-.profileRowTitle{ display: flex; align-items: center; gap: 10px; }
-.disclosureIcon{ width: 16px; display: inline-block; color: var(--muted); }
+.profileRowTitle{ display: flex; align-items: center; gap: 6px; }
+.disclosureIcon{
+  width: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+}
 
 .activatedPill{
   font-size: 12px;
@@ -922,6 +931,9 @@ textarea:focus{
   border-radius: 14px;
   background: var(--surface);
 }
+
+.profileActions{ display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.profileActionsRow{ justify-content: space-between; }
 
 .profileFooter{ display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .grid2{

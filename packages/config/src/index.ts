@@ -26,6 +26,9 @@ export type EcliaConfig = {
     openai_compat: {
       profiles: OpenAICompatProfile[];
     };
+    codex_oauth: {
+      profiles: CodexOAuthProfile[];
+    };
   };
   adapters: {
     discord: {
@@ -69,6 +72,38 @@ export type OpenAICompatProfile = {
    */
   auth_header?: string;
 };
+export type CodexOAuthProfile = {
+  /**
+   * Stable identifier used by UI/runtime routing.
+   */
+  id: string;
+
+  /**
+   * Display name (shown in the Console UI).
+   */
+  name: string;
+
+  /**
+   * Real upstream model id (NOT the UI route key).
+   */
+  model: string;
+
+  /**
+   * Secret OAuth tokens (prefer local overrides).
+   *
+   * NOTE: for now we treat these as opaque strings; different backends may
+   * return different token sets.
+   */
+  access_token?: string;
+  refresh_token?: string;
+  id_token?: string;
+
+  /**
+   * Epoch milliseconds, if known.
+   */
+  expires_at?: number;
+};
+
 
 export type EcliaConfigPatch = Partial<{
   console: Partial<EcliaConfig["console"]>;
@@ -79,6 +114,12 @@ export type EcliaConfigPatch = Partial<{
       profiles: Array<
         Partial<Pick<OpenAICompatProfile, "id" | "name" | "base_url" | "model" | "api_key" | "auth_header">> &
           Pick<OpenAICompatProfile, "id">
+      >;
+    }>;
+    codex_oauth: Partial<{
+      profiles: Array<
+        Partial<Pick<CodexOAuthProfile, "id" | "name" | "model" | "access_token" | "refresh_token" | "id_token" | "expires_at">> &
+          Pick<CodexOAuthProfile, "id">
       >;
     }>;
   }>;
@@ -100,6 +141,16 @@ export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
           base_url: "https://api.openai.com/v1",
           model: "gpt-4o-mini",
           auth_header: "Authorization"
+        }
+      ]
+    },
+    codex_oauth: {
+      profiles: [
+        {
+          id: "default",
+          name: "Default",
+          // Codex app-server model id (not the UI route key).
+          model: "gpt-5.2-codex"
         }
       ]
     }
@@ -140,6 +191,12 @@ function coerceOptionalString(v: unknown): string | undefined {
   if (typeof v !== "string") return undefined;
   const s = v.trim();
   return s.length ? s : undefined;
+}
+
+function coerceOptionalNumber(v: unknown): number | undefined {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return undefined;
+  return Math.trunc(n);
 }
 
 function coerceProfileId(v: unknown, fallback: string): string {
@@ -202,6 +259,8 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
 
   const openaiRaw = isRecord((infRaw as any).openai_compat) ? (infRaw as any).openai_compat : {};
 
+  const codexRaw = isRecord((infRaw as any).codex_oauth) ? (infRaw as any).codex_oauth : {};
+
   const adaptersRaw = isRecord(raw.adapters) ? raw.adapters : {};
   const discordRaw = isRecord((adaptersRaw as any).discord) ? (adaptersRaw as any).discord : {};
 
@@ -243,6 +302,37 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
       auth_header: coerceString(openaiRaw.auth_header, base.inference.openai_compat.profiles[0].auth_header ?? "Authorization")
     });
   }
+  // Codex OAuth (optional; used for ChatGPT/Codex browser login tokens).
+  const codexProfilesRaw = Array.isArray((codexRaw as any).profiles) ? ((codexRaw as any).profiles as any[]) : null;
+  const codexProfiles: CodexOAuthProfile[] = [];
+  const seenCodex = new Set<string>();
+
+  if (codexProfilesRaw && codexProfilesRaw.length) {
+    for (let i = 0; i < codexProfilesRaw.length; i++) {
+      const p = codexProfilesRaw[i];
+      if (!isRecord(p)) continue;
+
+      const id = coerceProfileId((p as any).id, `codex_profile_${i + 1}`);
+      if (seenCodex.has(id)) continue;
+      seenCodex.add(id);
+
+      const name = coerceString((p as any).name, `Codex Profile ${i + 1}`);
+      const model = coerceString(
+        (p as any).model,
+        base.inference.codex_oauth.profiles[0]?.model ?? base.inference.openai_compat.profiles[0].model
+      );
+
+      const access_token = coerceOptionalString((p as any).access_token);
+      const refresh_token = coerceOptionalString((p as any).refresh_token);
+      const id_token = coerceOptionalString((p as any).id_token);
+      const expires_at = coerceOptionalNumber((p as any).expires_at);
+
+      codexProfiles.push({ id, name, model, access_token, refresh_token, id_token, expires_at });
+    }
+  }
+
+  // If config omits Codex profiles, fall back to DEFAULT_ECLIA_CONFIG.
+  const codexProfilesOut = codexProfiles.length ? codexProfiles : base.inference.codex_oauth.profiles;
 
   return {
     console: {
@@ -256,6 +346,9 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
       provider,
       openai_compat: {
         profiles
+      },
+      codex_oauth: {
+        profiles: codexProfilesOut
       }
     },
     adapters: {
@@ -545,8 +638,62 @@ export function joinUrl(baseUrl: string, pathSuffix: string): string {
  */
 export function resolveUpstreamModel(routeKey: string, config: EcliaConfig): string {
   const k = (routeKey ?? "").trim();
-  const sel = resolveOpenAICompatSelection(k, config);
+  const sel = resolveInferenceSelection(k, config);
   return sel.upstreamModel;
+}
+
+export type InferenceSelection =
+  | { kind: "openai_compat"; profile: OpenAICompatProfile; upstreamModel: string }
+  | { kind: "codex_oauth"; profile: CodexOAuthProfile; upstreamModel: string };
+
+/**
+ * Resolve which upstream backend should be used for a given runtime route key.
+ *
+ * Today we support:
+ * - OpenAI-compatible profiles: openai-compatible:<profile-id>
+ * - Codex OAuth profiles: codex-oauth:<profile-id>
+ */
+export function resolveInferenceSelection(routeKey: string, config: EcliaConfig): InferenceSelection {
+  const k = (routeKey ?? "").trim();
+
+  // Codex route format: codex-oauth:<profile-id>
+  if (/^codex-oauth(?::|$)/.test(k)) {
+    const sel = resolveCodexOAuthSelection(k, config);
+    return { kind: "codex_oauth", ...sel };
+  }
+
+  // Default/fallback: OpenAI-compatible.
+  const sel = resolveOpenAICompatSelection(k, config);
+  return { kind: "openai_compat", ...sel };
+}
+
+export function resolveCodexOAuthSelection(
+  routeKey: string,
+  config: EcliaConfig
+): { profile: CodexOAuthProfile; upstreamModel: string } {
+  const k = (routeKey ?? "").trim();
+  const profiles = config.inference.codex_oauth?.profiles ?? [];
+
+  const fallback = profiles[0];
+  if (!fallback) {
+    throw new Error("No Codex OAuth profiles configured");
+  }
+
+  // Primary route format: codex-oauth:<profile-id>
+  const m = k.match(/^codex-oauth:(.+)$/);
+  if (m) {
+    const id = m[1]?.trim();
+    const profile = profiles.find((p) => p.id === id) ?? fallback;
+    return { profile, upstreamModel: profile.model };
+  }
+
+  // Legacy / shorthand route keys.
+  if (k === "codex-oauth" || !k) {
+    return { profile: fallback, upstreamModel: fallback.model };
+  }
+
+  // If someone passes an unknown codex-oauth-ish key, still fall back.
+  return { profile: fallback, upstreamModel: fallback.model };
 }
 
 export function resolveOpenAICompatSelection(

@@ -9,8 +9,12 @@ export async function withSessionLock<T>(sessionId: string, fn: () => Promise<T>
   // Never let a previous failure permanently block the queue.
   const prevSafe = prev ? prev.catch(() => {}) : Promise.resolve();
 
+  // Use a normal nullable function to avoid TS control-flow weirdness
+  // in some `tsc --watch` builds.
   let release: (() => void) | null = null;
-  const next = new Promise<void>((resolve) => (release = resolve));
+  const next = new Promise<void>((resolve) => {
+    release = () => resolve();
+  });
 
   const tail = prevSafe.then(() => next);
   sessionLockTails.set(sessionId, tail);
@@ -20,19 +24,12 @@ export async function withSessionLock<T>(sessionId: string, fn: () => Promise<T>
   try {
     return await fn();
   } finally {
-    try {
-      release?.();
-    } catch {
-      // ignore
-    }
+    // Release the lock for the next queued task.
+    release?.();
 
     // Cleanup when the tail drains and nobody replaced it.
-    tail
-      .then(() => {
-        if (sessionLockTails.get(sessionId) === tail) sessionLockTails.delete(sessionId);
-      })
-      .catch(() => {
-        if (sessionLockTails.get(sessionId) === tail) sessionLockTails.delete(sessionId);
-      });
+    void tail.finally(() => {
+      if (sessionLockTails.get(sessionId) === tail) sessionLockTails.delete(sessionId);
+    });
   }
 }

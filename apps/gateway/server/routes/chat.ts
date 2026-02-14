@@ -2,15 +2,12 @@ import http from "node:http";
 import crypto from "node:crypto";
 
 import {
-  joinUrl,
-  loadEcliaConfig,
-  resolveOpenAICompatSelection
+  loadEcliaConfig
 } from "@eclia/config";
 
 import { SessionStore } from "../sessionStore.js";
 import type { SessionDetail, SessionEventV1, SessionMetaV1, StoredMessage } from "../sessionTypes.js";
-import { buildTruncatedContext } from "../context.js";
-import { blocksFromAssistantRaw, inferVendorFromBaseUrl, textBlock } from "../normalize.js";
+import { blocksFromAssistantRaw, textBlock } from "../normalize.js";
 import { ToolApprovalHub } from "../tools/approvalHub.js";
 import { parseExecArgs } from "../tools/execTool.js";
 import { checkExecNeedsApproval, loadExecAllowlist, type ToolAccessMode } from "../tools/policy.js";
@@ -18,7 +15,8 @@ import { EXEC_TOOL_NAME, EXECUTION_TOOL_NAME } from "../tools/toolSchemas.js";
 import { McpStdioClient } from "../mcp/stdioClient.js";
 import { sseHeaders, initSse, send, startSseKeepAlive } from "../sse.js";
 import { withSessionLock } from "../sessionLock.js";
-import { streamOpenAICompatTurn, type ToolCallAccum } from "../upstream/openaiCompat.js";
+import { resolveUpstreamBackend } from "../upstream/resolve.js";
+import type { ToolCall } from "../upstream/provider.js";
 import { json, readJson, safeInt, safeJsonStringify } from "../httpUtils.js";
 import { sanitizeExecResultForUiAndModel } from "../tools/execResultSanitize.js";
 
@@ -66,7 +64,7 @@ type Toolhost = {
   nameToMcpTool: (name: string) => string;
 };
 
-function isToolCallAccum(v: unknown): v is ToolCallAccum {
+function isToolCall(v: unknown): v is ToolCall {
   return (
     v !== null &&
     typeof v === "object" &&
@@ -226,7 +224,6 @@ export async function handleChat(
     if ((req as any).aborted || (req.socket as any)?.destroyed || res.writableEnded) return;
 
     const { config, raw, rootDir } = loadEcliaConfig(process.cwd());
-    const provider = config.inference.provider;
 
     // Ensure store is initialized and session exists.
     await store.init();
@@ -301,12 +298,15 @@ export async function handleChat(
     };
     await store.appendEvent(sessionId, userEv, { touchMeta: false });
 
-    // Build OpenAI-compatible request.
-    if (provider !== "openai_compat") {
+    // Resolve upstream backend (provider + credentials).
+    let backend: ReturnType<typeof resolveUpstreamBackend>;
+    try {
+      backend = resolveUpstreamBackend(routeModel, config);
+    } catch (e: any) {
       const { stopKeepAlive } = beginSse(res);
       send(res, "meta", { sessionId, model: routeModel });
 
-      const msg = `Unsupported provider: ${provider}`;
+      const msg = String(e?.message ?? e);
       await persistAssistantError({ store, sessionId, message: msg });
       await store.updateMeta(sessionId, { ...metaPatch, updatedAt: Date.now(), lastModel: routeModel });
 
@@ -317,21 +317,17 @@ export async function handleChat(
       return;
     }
 
-    const sel = resolveOpenAICompatSelection(routeModel, config);
-    const profile = sel.profile;
-    const baseUrl = profile.base_url;
-    const apiKey = profile.api_key ?? "";
-    const authHeader = profile.auth_header ?? "Authorization";
-    const upstreamModel = sel.upstreamModel;
-
-    if (!apiKey.trim()) {
+    // Resolve request headers (may be static today, but can be dynamic later via OAuth).
+    let headers: Record<string, string>;
+    try {
+      headers = await backend.credentials.getHeaders();
+    } catch (e: any) {
       const { stopKeepAlive } = beginSse(res);
       send(res, "meta", { sessionId, model: routeModel });
 
-      const msg = `Missing API key for profile \"${profile.name}\". Set inference.openai_compat.profiles[].api_key in eclia.config.local.toml (or add it in Settings).`;
-
+      const msg = String(e?.message ?? e);
       await persistAssistantError({ store, sessionId, message: msg });
-      await store.updateMeta(sessionId, { ...metaPatch, updatedAt: Date.now(), lastModel: routeModel || upstreamModel });
+      await store.updateMeta(sessionId, { ...metaPatch, updatedAt: Date.now(), lastModel: routeModel || backend.upstreamModel });
 
       send(res, "error", { message: msg });
       send(res, "done", {});
@@ -343,15 +339,13 @@ export async function handleChat(
     const tokenLimit = safeInt(body.contextTokenLimit, 20000);
     const history = [...prior.messages, userMsg];
 
-    const { messages: contextMessages, usedTokens, dropped } = buildTruncatedContext(history, tokenLimit);
+    const { messages: contextMessages, usedTokens, dropped } = backend.provider.buildContext(history, tokenLimit);
 
     const { stopKeepAlive } = beginSse(res);
     send(res, "meta", { sessionId, model: routeModel, usedTokens, dropped });
 
-    const url = joinUrl(baseUrl, "/chat/completions");
-
     console.log(
-      `[gateway] POST /api/chat  session=${sessionId} model=${upstreamModel} ctx≈${usedTokens} dropped=${dropped} tools=on mode=${toolAccessMode}`
+      `[gateway] POST /api/chat  session=${sessionId} model=${backend.upstreamModel} ctx≈${usedTokens} dropped=${dropped} tools=on mode=${toolAccessMode}`
     );
 
     const execAllowlist = loadExecAllowlist(raw);
@@ -364,16 +358,7 @@ export async function handleChat(
       approvals.cancelSession(sessionId);
     });
 
-    const origin = {
-      adapter: "openai_compat",
-      vendor: inferVendorFromBaseUrl(baseUrl),
-      baseUrl,
-      model: upstreamModel
-    };
-
-    const headers: Record<string, string> = {
-      [authHeader]: authHeader.toLowerCase() === "authorization" ? `Bearer ${apiKey}` : apiKey
-    };
+    const origin = backend.provider.origin;
 
     // We build the upstream transcript progressively so tool results are fed back correctly.
     const upstreamMessages: any[] = [...contextMessages];
@@ -381,10 +366,8 @@ export async function handleChat(
     try {
       // Multi-turn tool loop
       while (!clientClosed) {
-        const turn = await streamOpenAICompatTurn({
-          url,
+        const turn = await backend.provider.streamTurn({
           headers,
-          model: upstreamModel,
           messages: upstreamMessages,
           signal: upstreamAbort.signal,
           tools: toolsForModel,
@@ -398,7 +381,7 @@ export async function handleChat(
 
         if (turn.finishReason === "tool_calls" && toolCallsMap.size === 0) {
           console.warn(
-            `[gateway] finish_reason=tool_calls but parsed 0 tool calls (provider=${origin.vendor} model=${upstreamModel})`
+            `[gateway] finish_reason=tool_calls but parsed 0 tool calls (provider=${origin.vendor} model=${backend.upstreamModel})`
           );
         }
 
@@ -409,7 +392,7 @@ export async function handleChat(
         if (streamMode === "full") send(res, "assistant_end", {});
 
         const toolCalls = Array.from(toolCallsMap.values())
-          .filter(isToolCallAccum)
+          .filter(isToolCall)
           .filter((c) => c.name && c.name.trim());
         toolCalls.sort((a, b) => (a.index ?? 999999) - (b.index ?? 999999));
 
@@ -419,17 +402,8 @@ export async function handleChat(
           break;
         }
 
-        // Append the assistant tool-call message to the upstream transcript.
-        const assistantToolCallMsg = {
-          role: "assistant",
-          content: assistantText,
-          tool_calls: toolCalls.map((c) => ({
-            id: c.callId,
-            type: "function",
-            function: { name: c.name, arguments: c.argsRaw }
-          }))
-        };
-        upstreamMessages.push(assistantToolCallMsg);
+        // Append the provider-specific assistant tool-call message to the upstream transcript.
+        upstreamMessages.push(backend.provider.buildAssistantToolCallMessage({ assistantText, toolCalls }));
 
         // Emit tool_call blocks (now we have complete args) and persist them.
         const approvalWaiters = new Map<
@@ -641,7 +615,9 @@ export async function handleChat(
           await store.appendEvent(sessionId, rev, { touchMeta: false });
 
           // Feed back to model
-          toolMessages.push({ role: "tool", tool_call_id: call.callId, content: safeJsonStringify(output) });
+          toolMessages.push(
+            backend.provider.buildToolResultMessage({ callId: call.callId, content: safeJsonStringify(output) })
+          );
         }
 
         upstreamMessages.push(...toolMessages);
@@ -653,7 +629,7 @@ export async function handleChat(
       await store.updateMeta(sessionId, {
         ...metaPatch,
         updatedAt: Date.now(),
-        lastModel: routeModel || upstreamModel
+        lastModel: routeModel || backend.upstreamModel
       });
 
       if (!res.writableEnded) {
@@ -666,13 +642,17 @@ export async function handleChat(
 
       // If the client disconnected, don't bother writing to the response, but still touch session meta.
       if (clientClosed) {
-        await store.updateMeta(sessionId, { ...metaPatch, updatedAt: Date.now(), lastModel: routeModel || upstreamModel });
+        await store.updateMeta(sessionId, {
+          ...metaPatch,
+          updatedAt: Date.now(),
+          lastModel: routeModel || backend.upstreamModel
+        });
         return;
       }
 
       // Persist an assistant-visible error so the UI doesn't "flash then disappear" after re-sync.
       await persistAssistantError({ store, sessionId, message: msg });
-      await store.updateMeta(sessionId, { ...metaPatch, updatedAt: Date.now(), lastModel: routeModel || upstreamModel });
+      await store.updateMeta(sessionId, { ...metaPatch, updatedAt: Date.now(), lastModel: routeModel || backend.upstreamModel });
 
       if (!res.writableEnded) {
         send(res, "error", { message: msg });

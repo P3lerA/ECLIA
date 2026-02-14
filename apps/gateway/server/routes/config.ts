@@ -18,6 +18,14 @@ type ConfigReqBody = {
         auth_header?: string;
       }>;
     };
+
+    codex_oauth?: {
+      profiles?: Array<{
+        id: string;
+        name?: string;
+        model?: string;
+      }>;
+    };
   };
   adapters?: {
     discord?: {
@@ -49,6 +57,13 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
               model: p.model,
               auth_header: p.auth_header,
               api_key_configured: Boolean(p.api_key && p.api_key.trim())
+            }))
+          },
+          codex_oauth: {
+            profiles: (config.inference.codex_oauth?.profiles ?? []).map((p) => ({
+              id: p.id,
+              name: p.name,
+              model: p.model
             }))
           }
         },
@@ -93,7 +108,26 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
         out.push(next);
       }
 
-      patch.inference = { openai_compat: { profiles: out } };
+      patch.inference = { ...(patch.inference ?? {}), openai_compat: { profiles: out } };
+    }
+
+    if (body.inference?.codex_oauth?.profiles) {
+      const raw = body.inference.codex_oauth.profiles;
+      const out: any[] = [];
+      const seen = new Set<string>();
+
+      for (const row of raw) {
+        const id = String(row?.id ?? "").trim();
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+
+        const next: any = { id };
+        if (typeof row.name === "string" && row.name.trim()) next.name = row.name.trim();
+        if (typeof row.model === "string" && row.model.trim()) next.model = row.model.trim();
+        out.push(next);
+      }
+
+      patch.inference = { ...(patch.inference ?? {}), codex_oauth: { profiles: out } };
     }
     if (body.adapters?.discord) patch.adapters = { discord: body.adapters.discord };
 
