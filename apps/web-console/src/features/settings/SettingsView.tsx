@@ -4,6 +4,7 @@ import type { TransportId } from "../../core/transport/TransportRegistry";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 import { ThemeModeSwitch } from "../theme/ThemeModeSwitch";
 import { useStagedDraft } from "../common/useStagedDraft";
+import { Collapsible } from "../common/Collapsible";
 
 type CodexOAuthProfile = {
   id: string;
@@ -47,6 +48,10 @@ type SettingsDraft = {
   // Codex OAuth (Codex app-server managed ChatGPT login)
   codexOAuthProfiles: CodexOAuthProfile[];
 
+  // Codex local state directory override (mapped to gateway's ECLIA_CODEX_HOME / CODEX_HOME).
+  codexHomeOverrideEnabled: boolean;
+  codexHomeOverridePath: string;
+
   // Adapters (Discord). Secrets stored in local TOML; token is never read back.
   adapterDiscordEnabled: boolean;
   adapterDiscordAppId: string; // application id / client id (non-secret)
@@ -55,6 +60,7 @@ type SettingsDraft = {
 };
 
 type DevConfig = {
+  codex_home?: string;
   console: { host: string; port: number };
   api?: { port: number };
   inference?: {
@@ -217,6 +223,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const [cfgBase, setCfgBase] = React.useState<{
     host: string;
     port: number;
+    codexHome: string;
     openaiCompatProfiles: Array<{
       id: string;
       name: string;
@@ -251,6 +258,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
         const host = j.config.console.host ?? "127.0.0.1";
         const port = j.config.console.port ?? 5173;
+        const codexHome = String((j.config as any).codex_home ?? "").trim();
 
         const inf = j.config.inference?.openai_compat ?? {};
         const rawProfiles = Array.isArray((inf as any).profiles) ? ((inf as any).profiles as any[]) : [];
@@ -326,6 +334,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         setCfgBase({
           host,
           port,
+          codexHome,
           openaiCompatProfiles: profiles,
           codexOAuthProfiles: codexProfiles,
           discordEnabled,
@@ -380,6 +389,9 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             ? [{ ...prev.codexOAuthProfiles[0], id: "default" }]
             : [{ id: "default", name: "Default", model: "gpt-5.2-codex" }],
 
+        codexHomeOverrideEnabled: cfgBase ? Boolean(cfgBase.codexHome.trim().length) : prev?.codexHomeOverrideEnabled ?? false,
+        codexHomeOverridePath: cfgBase ? cfgBase.codexHome : prev?.codexHomeOverridePath ?? "",
+
         adapterDiscordEnabled: cfgBase?.discordEnabled ?? prev?.adapterDiscordEnabled ?? false,
         adapterDiscordAppId: cfgBase?.discordAppId ?? prev?.adapterDiscordAppId ?? "",
         adapterDiscordBotToken: "",
@@ -419,6 +431,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           d.inferenceProfiles.some((p) => p.apiKey.trim().length > 0)
         : false;
 
+      const dirtyDevCodexHome = cfgBase
+        ? (d.codexHomeOverrideEnabled ? d.codexHomeOverridePath.trim() : "") !== cfgBase.codexHome.trim()
+        : false;
+
       const dirtyDevDiscord = cfgBase
         ? d.adapterDiscordEnabled !== cfgBase.discordEnabled ||
           d.adapterDiscordAppId.trim() !== cfgBase.discordAppId ||
@@ -426,7 +442,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           !sameStringArray(normalizeGuildIds(d.adapterDiscordGuildIds), cfgBase.discordGuildIds)
         : false;
 
-      return dirtyUi || dirtyDevHostPort || dirtyDevInference || dirtyDevDiscord;
+      return dirtyUi || dirtyDevHostPort || dirtyDevInference || dirtyDevCodexHome || dirtyDevDiscord;
     },
     [
       state.settings.textureDisabled,
@@ -463,6 +479,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       draft.inferenceProfiles.some((p) => p.apiKey.trim().length > 0)
     : false;
 
+  const dirtyDevCodexHome = cfgBase
+    ? (draft.codexHomeOverrideEnabled ? draft.codexHomeOverridePath.trim() : "") !== cfgBase.codexHome.trim()
+    : false;
+
   const dirtyDevDiscord = cfgBase
     ? draft.adapterDiscordEnabled !== cfgBase.discordEnabled ||
       draft.adapterDiscordAppId.trim() !== cfgBase.discordAppId ||
@@ -470,11 +490,12 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       !sameStringArray(normalizeGuildIds(draft.adapterDiscordGuildIds), cfgBase.discordGuildIds)
     : false;
 
-  const dirtyDev = dirtyDevHostPort || dirtyDevInference || dirtyDevDiscord;
+  const dirtyDev = dirtyDevHostPort || dirtyDevInference || dirtyDevCodexHome || dirtyDevDiscord;
 
   const [saving, setSaving] = React.useState(false);
 
   const hostPortValid = draft.consoleHost.trim().length > 0 && isValidPort(draft.consolePort);
+  const codexHomeValid = !draft.codexHomeOverrideEnabled || draft.codexHomeOverridePath.trim().length > 0;
   const openaiValid =
     draft.inferenceProfiles.length > 0 &&
     draft.inferenceProfiles.every((p) => p.name.trim().length > 0 && p.baseUrl.trim().length > 0 && p.modelId.trim().length > 0);
@@ -493,6 +514,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         !cfgLoading &&
         (!dirtyDevHostPort || hostPortValid) &&
         (!dirtyDevInference || inferenceValid) &&
+        (!dirtyDevCodexHome || codexHomeValid) &&
         (!dirtyDevDiscord || discordValid)));
 
   const discard = () => {
@@ -516,6 +538,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         if (!cfgBase) throw new Error("Config service unavailable.");
 
         const body: any = {};
+
+        if (dirtyDevCodexHome) {
+          body.codex_home = draft.codexHomeOverrideEnabled ? draft.codexHomeOverridePath.trim() : "";
+        }
 
         if (dirtyDevHostPort) {
           if (!hostPortValid) throw new Error("Invalid host/port.");
@@ -608,6 +634,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           const nextBase = {
             host: body.console?.host ?? cfgBase.host,
             port: body.console?.port ?? cfgBase.port,
+            codexHome: typeof body.codex_home === "string" ? body.codex_home : cfgBase.codexHome,
             openaiCompatProfiles: nextProfiles,
 
             codexOAuthProfiles: nextCodexProfiles,
@@ -635,6 +662,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                 }))
               : d.inferenceProfiles.map((p) => ({ ...p, apiKey: "" })),
             codexOAuthProfiles: nextBase.codexOAuthProfiles,
+            codexHomeOverrideEnabled: Boolean(nextBase.codexHome.trim().length),
+            codexHomeOverridePath: nextBase.codexHome,
             adapterDiscordBotToken: "",
             adapterDiscordGuildIds: nextBase.discordGuildIds.join("\n")
           }));
@@ -644,6 +673,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
               ? "Saved to eclia.config.local.toml. Restart required to apply host/port changes."
               : dirtyDevDiscord
                 ? "Saved to eclia.config.local.toml. Restart required to apply adapter changes."
+                : dirtyDevCodexHome
+                  ? "Saved to eclia.config.local.toml. Restart required to apply Codex home changes."
                 : "Saved to eclia.config.local.toml."
           );
         } finally {
@@ -718,6 +749,51 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const [codexStatus, setCodexStatus] = React.useState<CodexOAuthStatus | null>(null);
   const [codexStatusError, setCodexStatusError] = React.useState<string | null>(null);
   const [codexStatusCheckedAt, setCodexStatusCheckedAt] = React.useState<number | null>(null);
+
+  const [codexHomePickBusy, setCodexHomePickBusy] = React.useState(false);
+  const [codexHomePickMsg, setCodexHomePickMsg] = React.useState<string | null>(null);
+
+  const pickCodexHome = React.useCallback(async () => {
+    setCodexHomePickMsg(null);
+    setCodexHomePickBusy(true);
+    try {
+      const r = await fetch("/api/native/pick-folder", { method: "POST" });
+      let j: any = null;
+      try {
+        j = await r.json();
+      } catch {
+        j = null;
+      }
+
+      if (!r.ok) {
+        const hint = typeof j?.hint === "string" ? j.hint : null;
+        const err = typeof j?.error === "string" ? j.error : typeof j?.message === "string" ? j.message : null;
+        throw new Error(hint ?? err ?? `Failed to open folder picker (HTTP ${r.status}).`);
+      }
+
+      if (j?.ok !== true) {
+        // Silent no-op on user cancel.
+        const e = typeof j?.error === "string" ? j.error : "";
+        if (e === "cancelled") return;
+        const hint = typeof j?.hint === "string" ? j.hint : null;
+        throw new Error(hint ?? (e || "Folder picker failed."));
+      }
+
+      const p = String(j?.path ?? "").trim();
+      if (!p) throw new Error("No folder selected.");
+
+      setDraft((d) => ({
+        ...d,
+        codexHomeOverrideEnabled: true,
+        codexHomeOverridePath: p
+      }));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to select folder.";
+      setCodexHomePickMsg(msg);
+    } finally {
+      setCodexHomePickBusy(false);
+    }
+  }, [setDraft]);
 
   const refreshCodexStatus = React.useCallback(async () => {
     setCodexStatusError(null);
@@ -1438,23 +1514,25 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                       </div>
 
                       <div className="profileActions profileActionsRow">
-                        <button
-                          type="button"
-                          className="btn subtle"
-                          onClick={() => startCodexBrowserLogin(p.id)}
-                          disabled={cfgLoading || !cfgBase || codexLoginBusyProfileId !== null}
-                        >
-                          {isBusy ? "Starting…" : "Login with browser"}
-                        </button>
+                        <div className="profileActionsLeft">
+                          <button
+                            type="button"
+                            className="btn subtle"
+                            onClick={() => startCodexBrowserLogin(p.id)}
+                            disabled={cfgLoading || !cfgBase || codexLoginBusyProfileId !== null}
+                          >
+                            {isBusy ? "Starting…" : "Login with browser"}
+                          </button>
 
-                        <button
-                          type="button"
-                          className="btn subtle"
-                          onClick={clearCodexOAuthConfig}
-                          disabled={cfgLoading || !cfgBase || codexLoginBusyProfileId !== null}
-                        >
-                          Sign out &amp; reset
-                        </button>
+                          <button
+                            type="button"
+                            className="btn subtle"
+                            onClick={clearCodexOAuthConfig}
+                            disabled={cfgLoading || !cfgBase || codexLoginBusyProfileId !== null}
+                          >
+                            Sign out &amp; reset
+                          </button>
+                        </div>
 
                         {isActivated ? <span className="activatedPill">Activated</span> : null}
                       </div>
@@ -1466,11 +1544,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                       </div>
 
                       {codexLoginMsg ? <div className="devNoteText muted">{codexLoginMsg}</div> : null}
-
-                      <div className="devNoteText muted">
-                        Note: Codex authentication is global to the Codex CLI (not per profile). “Sign out &amp; reset”
-                        clears Codex credentials on this machine and resets this configuration.
-                      </div>
                     </>
                   );
                 })() : (
@@ -1482,6 +1555,66 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                 <div className="card-title">Ollama</div>
                 <div className="devNoteText muted">no configured profiles.</div>
               </div>
+
+              <Collapsible title="Advanced" variant="section">
+                <div className="row">
+                  <div className="row-left">
+                    <div className="row-main">ECLIA_CODEX_HOME override</div>
+                    <div className="row-sub muted">
+                      Overrides <code>CODEX_HOME</code> for the spawned <code>codex app-server</code>. Leave off to use the default
+                      isolated directory.
+                    </div>
+                  </div>
+
+                  <input
+                    type="checkbox"
+                    checked={draft.codexHomeOverrideEnabled}
+                    onChange={(e) =>
+                      setDraft((d) => ({
+                        ...d,
+                        codexHomeOverrideEnabled: e.target.checked,
+                        codexHomeOverridePath: e.target.checked ? d.codexHomeOverridePath : ""
+                      }))
+                    }
+                    aria-label="Override ECLIA_CODEX_HOME"
+                    disabled={cfgLoading || !cfgBase}
+                  />
+                </div>
+
+                {draft.codexHomeOverrideEnabled ? (
+                  <label className="field" style={{ marginTop: 10 }}>
+                    <div className="field-label">Directory</div>
+                    <div className="fieldInline">
+                      <input
+                        className="select"
+                        value={draft.codexHomeOverridePath}
+                        onChange={(e) => setDraft((d) => ({ ...d, codexHomeOverridePath: e.target.value }))}
+                        placeholder={cfgBase?.codexHome?.trim().length ? cfgBase.codexHome : "<repo>/.codex"}
+                        spellCheck={false}
+                        disabled={cfgLoading || !cfgBase}
+                      />
+
+                      <button
+                        type="button"
+                        className="btn subtle"
+                        onClick={pickCodexHome}
+                        disabled={cfgLoading || !cfgBase || codexHomePickBusy}
+                      >
+                        {codexHomePickBusy ? "Browsing…" : "Browse…"}
+                      </button>
+                    </div>
+                    <div className="field-sub muted">
+                      Saved to <code>eclia.config.local.toml</code>. Restart required.
+                    </div>
+                  </label>
+                ) : null}
+
+                {codexHomePickMsg ? <div className="devNoteText muted">{codexHomePickMsg}</div> : null}
+
+                {dirtyDevCodexHome && !codexHomeValid ? (
+                  <div className="devNoteText muted">Please select or enter a directory path.</div>
+                ) : null}
+              </Collapsible>
             </>
             ) : null}
 

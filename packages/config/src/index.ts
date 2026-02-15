@@ -14,6 +14,12 @@ import * as TOML from "@iarna/toml";
  * - UI "preferences" should not be stored in TOML (use localStorage). TOML is for process startup config.
  */
 export type EcliaConfig = {
+  /**
+   * Optional override for Codex CLI local state directory.
+   * If set, gateway will treat this as ECLIA_CODEX_HOME / CODEX_HOME for spawned `codex app-server`.
+   */
+  codex_home?: string;
+
   console: {
     host: string;
     port: number;
@@ -106,6 +112,7 @@ export type CodexOAuthProfile = {
 
 
 export type EcliaConfigPatch = Partial<{
+  codex_home: string;
   console: Partial<EcliaConfig["console"]>;
   api: Partial<EcliaConfig["api"]>;
   inference: Partial<{
@@ -253,6 +260,8 @@ function deepMerge(a: Record<string, any>, b: Record<string, any>): Record<strin
 function coerceConfig(raw: Record<string, any>): EcliaConfig {
   const base = DEFAULT_ECLIA_CONFIG;
 
+  const codex_home = coerceOptionalString((raw as any).codex_home);
+
   const consoleRaw = isRecord(raw.console) ? raw.console : {};
   const apiRaw = isRecord(raw.api) ? raw.api : {};
   const infRaw = isRecord(raw.inference) ? raw.inference : {};
@@ -338,6 +347,7 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
   const codexProfilesOut = (codexProfiles.length ? codexProfiles : base.inference.codex_oauth.profiles).slice(0, 1);
 
   return {
+    ...(codex_home ? { codex_home } : {}),
     console: {
       host: coerceHost(consoleRaw.host, base.console.host),
       port: clampPort(consoleRaw.port, base.console.port)
@@ -537,6 +547,11 @@ export function writeLocalEcliaConfig(
       }
     }
   };
+
+  // codex_home: write only if configured; otherwise omit from TOML.
+  const codexHome = coerceOptionalString((nextLocal as any).codex_home);
+  if (codexHome) (toWrite as any).codex_home = codexHome;
+  else delete (toWrite as any).codex_home;
 
   // inference.openai_compat.profiles[].api_key: only write keys that exist in the file.
   const nextProfilesRaw = (nextLocal as any)?.inference?.openai_compat?.profiles;

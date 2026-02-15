@@ -915,13 +915,81 @@ textarea:focus{
   line-height: 1;
 }
 
+/* Generic collapsible (used for "Advanced" blocks, etc.) */
+.collapsible{
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.collapsibleSummary{
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+}
+.collapsibleSummary::-webkit-details-marker{ display: none; }
+.collapsibleTitle{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.collapsibleTitle::before{
+  content: "▸";
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+}
+.collapsible[open] .collapsibleTitle::before{ content: "▾"; }
+.collapsibleRight{ display: inline-flex; align-items: center; gap: 8px; }
+.collapsibleBody{
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--line);
+}
+
+/* Collapsible variant: subtitle-style section (no outer frame) */
+.collapsibleSection{
+  margin-top: 12px;
+  border: none;
+  background: transparent;
+  border-radius: 0;
+}
+.collapsibleSection .collapsibleSummary{
+  padding: 0;
+  border-radius: 0;
+}
+.collapsibleSection .collapsibleTitle{
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: .02em;
+  color: var(--muted);
+  padding-left: 2px;
+}
+.collapsibleSection .collapsibleBody{
+  padding: 10px 0 0;
+  border-top: none;
+}
+
 .activatedPill{
-  font-size: 12px;
-  padding: 3px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1;
+  padding: 8px 12px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--surface);
   color: var(--muted);
+  white-space: nowrap;
 }
 
 .profileDetails{
@@ -933,7 +1001,8 @@ textarea:focus{
 }
 
 .profileActions{ display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
-.profileActionsRow{ justify-content: space-between; }
+.profileActionsRow{ justify-content: space-between; align-items: center; }
+.profileActionsLeft{ display: flex; gap: 8px; align-items: center; }
 
 .profileFooter{ display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .grid2{
@@ -946,6 +1015,12 @@ textarea:focus{
   flex-direction: column;
   gap: 6px;
 }
+.fieldInline{
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.fieldInline .select{ flex: 1; min-width: 0; }
 .field-label{
   font-size: 12px;
   color: var(--muted);

@@ -5,6 +5,7 @@ import { loadEcliaConfig, preflightListen, type EcliaConfigPatch, writeLocalEcli
 import { json, readJson } from "../httpUtils.js";
 
 type ConfigReqBody = {
+  codex_home?: string;
   console?: { host?: string; port?: number };
   api?: { port?: number };
   inference?: {
@@ -45,6 +46,7 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
     return json(res, 200, {
       ok: true,
       config: {
+        codex_home: config.codex_home,
         console: config.console,
         api: config.api,
         inference: {
@@ -85,6 +87,11 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
     const body = (await readJson(req)) as ConfigReqBody;
 
     const patch: EcliaConfigPatch = {};
+
+    if (typeof body.codex_home === "string") {
+      // Empty string means "unset" (use default).
+      patch.codex_home = body.codex_home.trim();
+    }
     if (body.console) patch.console = body.console;
     if (body.api) patch.api = body.api;
     if (body.inference?.openai_compat?.profiles) {

@@ -14,6 +14,7 @@ import { handleArtifacts } from "./routes/artifacts.js";
 import { handleChat } from "./routes/chat.js";
 import { handleConfig } from "./routes/config.js";
 import { handleCodexOAuth, handleCodexOAuthClear, handleCodexOAuthStatus } from "./routes/codexOAuth.js";
+import { handlePickFolder } from "./routes/nativeDialog.js";
 import { handleSessions } from "./routes/sessions.js";
 import { handleToolApprovals } from "./routes/toolApprovals.js";
 
@@ -31,12 +32,11 @@ async function main() {
   // We therefore default CODEX_HOME to <repo>/.codex unless the user explicitly sets
   // CODEX_HOME or ECLIA_CODEX_HOME.
   // ---------------------------------------------------------------------------
-  const requestedCodexHome = (process.env.ECLIA_CODEX_HOME ?? process.env.CODEX_HOME)?.trim();
+  const codexHomeOverride = (process.env.ECLIA_CODEX_HOME ?? config.codex_home)?.trim();
   const defaultCodexHome = path.join(rootDir, ".codex");
-  const codexHome = requestedCodexHome && requestedCodexHome.length ? requestedCodexHome : defaultCodexHome;
-  if (!process.env.CODEX_HOME || process.env.ECLIA_CODEX_HOME) {
-    process.env.CODEX_HOME = codexHome;
-  }
+  const codexHome = codexHomeOverride && codexHomeOverride.length ? codexHomeOverride : (process.env.CODEX_HOME?.trim() || defaultCodexHome);
+  // Override CODEX_HOME when explicitly requested (env or config). Otherwise keep existing CODEX_HOME.
+  if (!process.env.CODEX_HOME || (codexHomeOverride && codexHomeOverride.length)) process.env.CODEX_HOME = codexHome;
   try {
     fs.mkdirSync(codexHome, { recursive: true });
   } catch (e) {
@@ -126,6 +126,8 @@ async function main() {
     if (pathname === "/api/codex/oauth/clear" && req.method === "POST") return await handleCodexOAuthClear(req, res);
 
     if (pathname === "/api/codex/oauth/status" && req.method === "GET") return await handleCodexOAuthStatus(req, res);
+
+    if (pathname === "/api/native/pick-folder") return await handlePickFolder(req, res);
 
     if (pathname === "/api/artifacts") return await handleArtifacts(req, res, rootDir);
 
