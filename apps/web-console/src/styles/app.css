@@ -516,6 +516,11 @@ textarea:focus{
   justify-content: center;
   box-shadow: none;
 }
+.execModeIcon{
+  width: 22px;
+  height: 22px;
+  display: block;
+}
 .chatbar-btn:hover{ background: var(--surface-hover); }
 
 /* Composer dock (fixed): prevents messages from pushing the composer off-screen. */

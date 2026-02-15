@@ -2,6 +2,34 @@ import React from "react";
 import { useSendMessage } from "./useSendMessage";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 
+function ExecFullAccessIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M3 5v14l8-7-8-7zm9 0v14l8-7-8-7z" />
+    </svg>
+  );
+}
+
+function ExecSafeModeIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M3 5h3v14H3zM8 5v14l13-7-13-7z" />
+    </svg>
+  );
+}
+
 export function ChatComposer({ onOpenMenu }: { onOpenMenu: () => void }) {
   const { sendText } = useSendMessage();
   const [text, setText] = React.useState("");
@@ -50,7 +78,11 @@ export function ChatComposer({ onOpenMenu }: { onOpenMenu: () => void }) {
             aria-label="Exec access mode"
             title={`Exec access: ${accessMode === "full" ? "full" : "safe"}`}
           >
-            {accessMode === "full" ? "⚡" : "🛡"}
+            {accessMode === "full" ? (
+              <ExecFullAccessIcon className="execModeIcon" />
+            ) : (
+              <ExecSafeModeIcon className="execModeIcon" />
+            )}
           </button>
           <button className="chatbar-btn" onClick={onOpenMenu} aria-label="Menu">
             ☰
