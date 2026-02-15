@@ -106,11 +106,42 @@ export function spawnCodexAppServerRpc(args?: {
     closed = true;
     rl.close();
     rlErr.close();
+
+    // Prefer a graceful shutdown so Codex can flush local state (history, rollout metadata, telemetry, etc.).
+    // Hard-killing can leave stale rows in the state DB and cause noisy "missing rollout path" logs later.
     try {
-      proc.kill();
+      proc.stdin.end();
     } catch {
       // ignore
     }
+
+    // Nothing else to do if it's already gone.
+    if (proc.exitCode != null) return;
+
+    // If it doesn't exit quickly (EOF isn't always enough), fall back to SIGTERM then SIGKILL.
+    const termAfterMs = 750;
+    const killAfterMs = 3000;
+
+    const termTimer = setTimeout(() => {
+      try {
+        proc.kill();
+      } catch {
+        // ignore
+      }
+    }, termAfterMs);
+
+    const killTimer = setTimeout(() => {
+      try {
+        proc.kill("SIGKILL");
+      } catch {
+        // ignore
+      }
+    }, killAfterMs);
+
+    proc.once("exit", () => {
+      clearTimeout(termTimer);
+      clearTimeout(killTimer);
+    });
   };
 
   const rejectAll = (err: Error) => {

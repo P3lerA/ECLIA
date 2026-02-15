@@ -6,3 +6,4 @@ dist-ssr
 .vscode
 eclia.config.local.toml
 .eclia/
+.codex/

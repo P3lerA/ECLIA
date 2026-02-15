@@ -1,5 +1,6 @@
 import http from "node:http";
 import path from "node:path";
+import * as fs from "node:fs";
 
 import { loadEcliaConfig } from "@eclia/config";
 
@@ -19,6 +20,28 @@ import { handleToolApprovals } from "./routes/toolApprovals.js";
 async function main() {
   const { config, rootDir } = loadEcliaConfig(process.cwd());
   const port = config.api.port;
+
+  // ---------------------------------------------------------------------------
+  // Codex state isolation
+  //
+  // By default, Codex CLI stores local state under CODEX_HOME (defaults to ~/.codex).
+  // ECLIA spawns `codex app-server` frequently, and we want to avoid polluting a user
+  // machine's global Codex state (and to make it easy to reset/debug).
+  //
+  // We therefore default CODEX_HOME to <repo>/.codex unless the user explicitly sets
+  // CODEX_HOME or ECLIA_CODEX_HOME.
+  // ---------------------------------------------------------------------------
+  const requestedCodexHome = (process.env.ECLIA_CODEX_HOME ?? process.env.CODEX_HOME)?.trim();
+  const defaultCodexHome = path.join(rootDir, ".codex");
+  const codexHome = requestedCodexHome && requestedCodexHome.length ? requestedCodexHome : defaultCodexHome;
+  if (!process.env.CODEX_HOME || process.env.ECLIA_CODEX_HOME) {
+    process.env.CODEX_HOME = codexHome;
+  }
+  try {
+    fs.mkdirSync(codexHome, { recursive: true });
+  } catch (e) {
+    console.warn(`[gateway] warning: failed to create CODEX_HOME at ${codexHome}:`, e);
+  }
 
   // MCP exec toolhost (stdio) ------------------------------------------------
 
