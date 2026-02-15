@@ -35,6 +35,8 @@ Gateway connection:
 Optional:
 
 - `ECLIA_DISCORD_STREAM=1` – periodically edits the reply while the gateway streams.
+- `ECLIA_DISCORD_DEFAULT_STREAM_MODE=full|final` – default stream mode for the `/eclia` slash command when `verbose` is omitted.
+  - Prefer configuring `adapters.discord.default_stream_mode` in `eclia.config.local.toml` (Settings -> Adapters -> Advanced).
 - `ECLIA_DISCORD_ALLOW_MESSAGE_PREFIX=1` – also enable prefix-style chat (`!eclia ...`).
   - Requires Message Content privileged intent.
 - `ECLIA_DISCORD_PREFIX` – default `!eclia`.

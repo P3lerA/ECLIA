@@ -34,6 +34,7 @@ type ConfigReqBody = {
       app_id?: string; // non-secret (optional; empty means unchanged)
       bot_token?: string; // secret (optional; empty means unchanged)
       guild_ids?: string[]; // non-secret (optional)
+      default_stream_mode?: string; // non-secret (optional): "full" | "final"
     };
   };
 };
@@ -75,6 +76,7 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
             enabled: Boolean(config.adapters.discord.enabled),
             app_id: String(config.adapters.discord.app_id ?? ""),
             guild_ids: Array.isArray((config.adapters.discord as any).guild_ids) ? (config.adapters.discord as any).guild_ids : [],
+            default_stream_mode: config.adapters.discord.default_stream_mode,
             app_id_configured: Boolean(config.adapters.discord.app_id && config.adapters.discord.app_id.trim()),
             bot_token_configured: Boolean(config.adapters.discord.bot_token && config.adapters.discord.bot_token.trim())
           }
@@ -135,6 +137,22 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
       patch.inference = { ...(patch.inference ?? {}), codex_oauth: { profiles: out } };
     }
     if (body.adapters?.discord) patch.adapters = { discord: body.adapters.discord };
+
+    // adapters.discord.default_stream_mode: validate and normalize.
+    if (patch.adapters?.discord && typeof (patch.adapters.discord as any).default_stream_mode === "string") {
+      const raw = String((patch.adapters.discord as any).default_stream_mode ?? "").trim();
+      if (!raw) {
+        delete (patch.adapters.discord as any).default_stream_mode;
+      } else if (raw === "full" || raw === "final") {
+        (patch.adapters.discord as any).default_stream_mode = raw;
+      } else {
+        return json(res, 400, {
+          ok: false,
+          error: "bad_request",
+          hint: "adapters.discord.default_stream_mode must be 'full' or 'final'."
+        });
+      }
+    }
 
     // Optional: if user sends bot_token="", treat as "do not change".
     if (patch.adapters?.discord && typeof patch.adapters.discord.bot_token === "string") {

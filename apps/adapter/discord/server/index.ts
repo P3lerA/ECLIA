@@ -47,6 +47,12 @@ function boolEnv(name: string): boolean {
   return v === "1" || v === "true" || v === "yes" || v === "on";
 }
 
+function coerceStreamMode(v: unknown): "full" | "final" | null {
+  const s = typeof v === "string" ? v.trim() : "";
+  if (s === "full" || s === "final") return s;
+  return null;
+}
+
 function normalizeIdList(input: unknown): string[] {
   const raw: string[] = [];
 
@@ -440,6 +446,13 @@ async function main() {
   const gatewayUrl = guessGatewayUrl();
   const streamEdits = boolEnv("ECLIA_DISCORD_STREAM");
   const streamMode: "full" | "final" = streamEdits ? "full" : "final";
+
+  // /eclia slash command: default verbose behavior when the `verbose` option is omitted.
+  // Prefer using Settings -> Adapters -> Advanced (writes adapters.discord.default_stream_mode),
+  // or override via ECLIA_DISCORD_DEFAULT_STREAM_MODE=full|final.
+  const slashDefaultStreamMode: "full" | "final" =
+    coerceStreamMode(env("ECLIA_DISCORD_DEFAULT_STREAM_MODE")) ?? coerceStreamMode(discordCfg.default_stream_mode) ?? "final";
+  const slashDefaultVerbose = slashDefaultStreamMode === "full";
   const allowPrefix = boolEnv("ECLIA_DISCORD_ALLOW_MESSAGE_PREFIX");
   const prefix = env("ECLIA_DISCORD_PREFIX", "!eclia");
   const toolAccessMode = (env("ECLIA_DISCORD_TOOL_ACCESS_MODE", "full") as any) === "safe" ? "safe" : "full";
@@ -496,7 +509,8 @@ async function main() {
     if (interaction.commandName !== "eclia") return;
 
     const prompt = interaction.options.getString("prompt", true);
-    const verbose = interaction.options.getBoolean("verbose") ?? false;
+    const verboseOpt = interaction.options.getBoolean("verbose");
+    const verbose = verboseOpt ?? slashDefaultVerbose;
 
     const origin = originFromInteraction(interaction);
     const sessionId = sessionIdForDiscord(origin);

@@ -57,6 +57,9 @@ type SettingsDraft = {
   adapterDiscordAppId: string; // application id / client id (non-secret)
   adapterDiscordBotToken: string; // input only; empty = unchanged
   adapterDiscordGuildIds: string; // UI input only; newline/comma separated; persisted as adapters.discord.guild_ids
+
+  // Adapters (Discord advanced)
+  adapterDiscordDefaultStreamMode: "full" | "final"; // default for /eclia verbose when omitted
 };
 
 type DevConfig = {
@@ -89,11 +92,17 @@ type DevConfig = {
       enabled?: boolean;
       app_id?: string;
       guild_ids?: string[];
+      default_stream_mode?: string;
       app_id_configured?: boolean;
       bot_token_configured?: boolean;
     };
   };
 };
+
+function normalizeDiscordStreamMode(v: unknown): "full" | "final" {
+  const s = typeof v === "string" ? v.trim() : "";
+  return s === "full" ? "full" : "final";
+}
 
 type ConfigResponse =
   | { ok: true; config: DevConfig; restartRequired?: boolean; warning?: string }
@@ -239,6 +248,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     discordAppId: string;
     discordTokenConfigured: boolean;
     discordGuildIds: string[];
+    discordDefaultStreamMode: "full" | "final";
   } | null>(null);
 
   // Load TOML config (best-effort).
@@ -305,6 +315,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         const discordGuildIds = Array.isArray((disc as any).guild_ids)
           ? (disc as any).guild_ids.map((x: any) => String(x).trim()).filter(Boolean)
           : [];
+        const discordDefaultStreamMode = normalizeDiscordStreamMode((disc as any).default_stream_mode);
 
         const codex = (j.config.inference as any)?.codex_oauth ?? {};
         const rawCodexProfiles = Array.isArray((codex as any).profiles) ? ((codex as any).profiles as any[]) : [];
@@ -340,7 +351,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           discordEnabled,
           discordAppId,
           discordTokenConfigured,
-          discordGuildIds
+          discordGuildIds,
+          discordDefaultStreamMode
         });
       } catch {
         if (cancelled) return;
@@ -395,7 +407,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         adapterDiscordEnabled: cfgBase?.discordEnabled ?? prev?.adapterDiscordEnabled ?? false,
         adapterDiscordAppId: cfgBase?.discordAppId ?? prev?.adapterDiscordAppId ?? "",
         adapterDiscordBotToken: "",
-        adapterDiscordGuildIds: cfgBase ? cfgBase.discordGuildIds.join("\n") : prev?.adapterDiscordGuildIds ?? ""
+        adapterDiscordGuildIds: cfgBase ? cfgBase.discordGuildIds.join("\n") : prev?.adapterDiscordGuildIds ?? "",
+        adapterDiscordDefaultStreamMode: cfgBase?.discordDefaultStreamMode ?? prev?.adapterDiscordDefaultStreamMode ?? "final"
       };
     },
     [
@@ -439,7 +452,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         ? d.adapterDiscordEnabled !== cfgBase.discordEnabled ||
           d.adapterDiscordAppId.trim() !== cfgBase.discordAppId ||
           d.adapterDiscordBotToken.trim().length > 0 ||
-          !sameStringArray(normalizeGuildIds(d.adapterDiscordGuildIds), cfgBase.discordGuildIds)
+          !sameStringArray(normalizeGuildIds(d.adapterDiscordGuildIds), cfgBase.discordGuildIds) ||
+          d.adapterDiscordDefaultStreamMode !== cfgBase.discordDefaultStreamMode
         : false;
 
       return dirtyUi || dirtyDevHostPort || dirtyDevInference || dirtyDevCodexHome || dirtyDevDiscord;
@@ -487,7 +501,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     ? draft.adapterDiscordEnabled !== cfgBase.discordEnabled ||
       draft.adapterDiscordAppId.trim() !== cfgBase.discordAppId ||
       draft.adapterDiscordBotToken.trim().length > 0 ||
-      !sameStringArray(normalizeGuildIds(draft.adapterDiscordGuildIds), cfgBase.discordGuildIds)
+      !sameStringArray(normalizeGuildIds(draft.adapterDiscordGuildIds), cfgBase.discordGuildIds) ||
+      draft.adapterDiscordDefaultStreamMode !== cfgBase.discordDefaultStreamMode
     : false;
 
   const dirtyDev = dirtyDevHostPort || dirtyDevInference || dirtyDevCodexHome || dirtyDevDiscord;
@@ -582,6 +597,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           const appId = draft.adapterDiscordAppId.trim();
           const guildIds = normalizeGuildIds(draft.adapterDiscordGuildIds);
           const guildIdsDirty = !sameStringArray(guildIds, cfgBase.discordGuildIds);
+          const streamModeDirty = draft.adapterDiscordDefaultStreamMode !== cfgBase.discordDefaultStreamMode;
           body.adapters = {
             discord: {
               enabled: Boolean(draft.adapterDiscordEnabled),
@@ -589,7 +605,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
               ...(appId.length && appId !== cfgBase.discordAppId ? { app_id: appId } : {}),
               // bot_token is optional; empty means unchanged.
               ...(draft.adapterDiscordBotToken.trim().length ? { bot_token: draft.adapterDiscordBotToken.trim() } : {}),
-              ...(guildIdsDirty ? { guild_ids: guildIds } : {})
+              ...(guildIdsDirty ? { guild_ids: guildIds } : {}),
+              ...(streamModeDirty ? { default_stream_mode: draft.adapterDiscordDefaultStreamMode } : {})
             }
           };
         }
@@ -642,7 +659,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             discordEnabled: body.adapters?.discord?.enabled ?? cfgBase.discordEnabled,
             discordAppId: body.adapters?.discord?.app_id ?? cfgBase.discordAppId,
             discordTokenConfigured: cfgBase.discordTokenConfigured || Boolean(body.adapters?.discord?.bot_token),
-            discordGuildIds: body.adapters?.discord?.guild_ids ?? cfgBase.discordGuildIds
+            discordGuildIds: body.adapters?.discord?.guild_ids ?? cfgBase.discordGuildIds,
+            discordDefaultStreamMode: normalizeDiscordStreamMode(body.adapters?.discord?.default_stream_mode ?? cfgBase.discordDefaultStreamMode)
           };
 
           setCfgBase(nextBase);
@@ -665,7 +683,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             codexHomeOverrideEnabled: Boolean(nextBase.codexHome.trim().length),
             codexHomeOverridePath: nextBase.codexHome,
             adapterDiscordBotToken: "",
-            adapterDiscordGuildIds: nextBase.discordGuildIds.join("\n")
+            adapterDiscordGuildIds: nextBase.discordGuildIds.join("\n"),
+            adapterDiscordDefaultStreamMode: nextBase.discordDefaultStreamMode
           }));
 
           setCfgSaved(
@@ -1619,79 +1638,106 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             ) : null}
 
             {activeSection === "adapters" ? (
-            <div className="card">
-              <div className="card-title">Discord</div>
+            <>
+              <div className="card">
+                <div className="card-title">Discord</div>
 
-              <div className="row">
-                <div className="row-left">
-                  <div className="row-main">Discord adapter</div>
-                  <div className="row-sub muted">Enables the Discord bot adapter.</div>
+                <div className="row">
+                  <div className="row-left">
+                    <div className="row-main">Discord adapter</div>
+                    <div className="row-sub muted">Enables the Discord bot adapter.</div>
+                  </div>
+
+                  <input
+                    type="checkbox"
+                    checked={draft.adapterDiscordEnabled}
+                    onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordEnabled: e.target.checked }))}
+                    aria-label="Enable Discord adapter"
+                    disabled={cfgLoading || !cfgBase}
+                  />
                 </div>
 
-                <input
-                  type="checkbox"
-                  checked={draft.adapterDiscordEnabled}
-                  onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordEnabled: e.target.checked }))}
-                  aria-label="Enable Discord adapter"
-                  disabled={cfgLoading || !cfgBase}
-                />
+                <div className="grid2">
+                  <label className="field">
+                    <div className="field-label">Application ID (client id)</div>
+                    <input
+                      className="select"
+                      value={draft.adapterDiscordAppId}
+                      onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordAppId: e.target.value }))}
+                      placeholder={cfgBase?.discordAppId ? "configured" : "not set"}
+                      spellCheck={false}
+                      disabled={cfgLoading || !cfgBase}
+                    />
+                    <div className="field-sub muted">
+                      Required for registering slash commands. Find it in the Discord Developer Portal (Application/Client ID).
+                    </div>
+                  </label>
+
+                  <label className="field">
+                    <div className="field-label">Bot token (local)</div>
+                    <input
+                      className="select"
+                      type="password"
+                      value={draft.adapterDiscordBotToken}
+                      onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordBotToken: e.target.value }))}
+                      placeholder={cfgBase?.discordTokenConfigured ? "configured (leave blank to keep)" : "not set"}
+                      spellCheck={false}
+                      disabled={cfgLoading || !cfgBase}
+                    />
+                    <div className="field-sub muted">
+                      Stored in <code>eclia.config.local.toml</code>. Token is never shown after saving.
+                    </div>
+                  </label>
+                </div>
+
+                <div className="grid2">
+                  <label className="field" style={{ gridColumn: "1 / -1" }}>
+                    <div className="field-label">Guild IDs (optional)</div>
+                    <textarea
+                      className="select"
+                      rows={3}
+                      value={draft.adapterDiscordGuildIds}
+                      onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordGuildIds: e.target.value }))}
+                      placeholder={"123456789012345678\n987654321098765432"}
+                      spellCheck={false}
+                      disabled={cfgLoading || !cfgBase}
+                    />
+                    <div className="field-sub muted">
+                      If set, slash commands will be registered as <strong>guild</strong> commands for faster iteration. Leave blank for global registration.
+                    </div>
+                  </label>
+                </div>
+
+                {dirtyDevDiscord && !discordValid ? (
+                  <div className="devNoteText muted">Discord adapter enabled but missing bot token or Application ID.</div>
+                ) : null}
               </div>
 
-              <div className="grid2">
-                <label className="field">
-                  <div className="field-label">Application ID (client id)</div>
+              <Collapsible title="Advanced" variant="section">
+                <div className="row">
+                  <div className="row-left">
+                    <div className="row-main">Discord verbose default</div>
+                    <div className="row-sub muted">
+                      When enabled, <code>/eclia</code> behaves as if <code>verbose=true</code> was set by default (equivalent to setting{" "}
+                      <code>ECLIA_DISCORD_DEFAULT_STREAM_MODE=full</code>). Saved to <code>eclia.config.local.toml</code>. Restart required.
+                    </div>
+                  </div>
+
                   <input
-                    className="select"
-                    value={draft.adapterDiscordAppId}
-                    onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordAppId: e.target.value }))}
-                    placeholder={cfgBase?.discordAppId ? "configured" : "not set"}
-                    spellCheck={false}
+                    type="checkbox"
+                    checked={draft.adapterDiscordDefaultStreamMode === "full"}
+                    onChange={(e) =>
+                      setDraft((d) => ({
+                        ...d,
+                        adapterDiscordDefaultStreamMode: e.target.checked ? "full" : "final"
+                      }))
+                    }
+                    aria-label="Discord verbose default"
                     disabled={cfgLoading || !cfgBase}
                   />
-                  <div className="field-sub muted">
-                    Required for registering slash commands. Find it in the Discord Developer Portal (Application/Client ID).
-                  </div>
-                </label>
-
-                <label className="field">
-                  <div className="field-label">Bot token (local)</div>
-                  <input
-                    className="select"
-                    type="password"
-                    value={draft.adapterDiscordBotToken}
-                    onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordBotToken: e.target.value }))}
-                    placeholder={cfgBase?.discordTokenConfigured ? "configured (leave blank to keep)" : "not set"}
-                    spellCheck={false}
-                    disabled={cfgLoading || !cfgBase}
-                  />
-                  <div className="field-sub muted">
-                    Stored in <code>eclia.config.local.toml</code>. Token is never shown after saving.
-                  </div>
-                </label>
-              </div>
-
-              <div className="grid2">
-                <label className="field" style={{ gridColumn: "1 / -1" }}>
-                  <div className="field-label">Guild IDs (optional)</div>
-                  <textarea
-                    className="select"
-                    rows={3}
-                    value={draft.adapterDiscordGuildIds}
-                    onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordGuildIds: e.target.value }))}
-                    placeholder={"123456789012345678\n987654321098765432"}
-                    spellCheck={false}
-                    disabled={cfgLoading || !cfgBase}
-                  />
-                  <div className="field-sub muted">
-                    If set, slash commands will be registered as <strong>guild</strong> commands for faster iteration. Leave blank for global registration.
-                  </div>
-                </label>
-              </div>
-
-              {dirtyDevDiscord && !discordValid ? (
-                <div className="devNoteText muted">Discord adapter enabled but missing bot token or Application ID.</div>
-              ) : null}
-            </div>
+                </div>
+              </Collapsible>
+            </>
             ) : null}
           </div>
         </div>

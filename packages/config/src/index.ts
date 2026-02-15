@@ -42,6 +42,13 @@ export type EcliaConfig = {
       app_id?: string; // non-secret (application id / client id)
       bot_token?: string; // secret (prefer local overrides)
       guild_ids?: string[]; // optional: register slash commands as guild-scoped
+
+      /**
+       * Default stream mode for the /eclia slash command when `verbose` is omitted.
+       * - final: no intermediate streaming (default)
+       * - full: stream intermediate output (tools/deltas)
+       */
+      default_stream_mode?: "full" | "final";
     };
   };
 };
@@ -165,10 +172,18 @@ export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
   adapters: {
     discord: {
       enabled: false,
-      guild_ids: []
+      guild_ids: [],
+      default_stream_mode: "final"
     }
   }
 };
+
+function coerceDiscordStreamMode(v: unknown, fallback: "full" | "final"): "full" | "final" {
+  if (typeof v !== "string") return fallback;
+  const s = v.trim();
+  if (s === "full" || s === "final") return s;
+  return fallback;
+}
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -372,7 +387,11 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
             ? discordRaw.app_id.trim()
             : undefined,
         bot_token: typeof discordRaw.bot_token === "string" ? discordRaw.bot_token : undefined,
-        guild_ids: coerceStringArray((discordRaw as any).guild_ids, base.adapters.discord.guild_ids ?? [])
+        guild_ids: coerceStringArray((discordRaw as any).guild_ids, base.adapters.discord.guild_ids ?? []),
+        default_stream_mode: coerceDiscordStreamMode(
+          (discordRaw as any).default_stream_mode,
+          (base.adapters.discord.default_stream_mode ?? "final") as any
+        )
       }
     }
   };
