@@ -136,22 +136,38 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
 
       patch.inference = { ...(patch.inference ?? {}), codex_oauth: { profiles: out } };
     }
-    if (body.adapters?.discord) patch.adapters = { discord: body.adapters.discord };
+    if (body.adapters?.discord) {
+      const d = body.adapters.discord;
 
-    // adapters.discord.default_stream_mode: validate and normalize.
-    if (patch.adapters?.discord && typeof (patch.adapters.discord as any).default_stream_mode === "string") {
-      const raw = String((patch.adapters.discord as any).default_stream_mode ?? "").trim();
-      if (!raw) {
-        delete (patch.adapters.discord as any).default_stream_mode;
-      } else if (raw === "full" || raw === "final") {
-        (patch.adapters.discord as any).default_stream_mode = raw;
-      } else {
-        return json(res, 400, {
-          ok: false,
-          error: "bad_request",
-          hint: "adapters.discord.default_stream_mode must be 'full' or 'final'."
-        });
+      const discord: Partial<{
+        enabled: boolean;
+        app_id?: string;
+        bot_token?: string;
+        guild_ids?: string[];
+        default_stream_mode?: "full" | "final";
+      }> = {};
+
+      if (typeof d.enabled === "boolean") discord.enabled = d.enabled;
+      if (typeof d.app_id === "string") discord.app_id = d.app_id;
+      if (typeof d.bot_token === "string") discord.bot_token = d.bot_token;
+      if (Array.isArray(d.guild_ids)) discord.guild_ids = d.guild_ids;
+
+      // adapters.discord.default_stream_mode: validate and normalize.
+      if (typeof d.default_stream_mode === "string") {
+        const raw = d.default_stream_mode.trim();
+        if (raw) {
+          if (raw === "full" || raw === "final") discord.default_stream_mode = raw;
+          else {
+            return json(res, 400, {
+              ok: false,
+              error: "bad_request",
+              hint: "adapters.discord.default_stream_mode must be 'full' or 'final'."
+            });
+          }
+        }
       }
+
+      patch.adapters = { discord };
     }
 
     // Optional: if user sends bot_token="", treat as "do not change".

@@ -1,4 +1,5 @@
 import { buildTruncatedContext } from "../context.js";
+import crypto from "node:crypto";
 
 import { spawnCodexAppServerRpc } from "./codexAppServerRpc.js";
 import { formatCodexError } from "./codexErrors.js";
@@ -54,14 +55,96 @@ function normalizeContent(content: any): string {
   }
 }
 
-function openAIMessagesToTranscript(messages: any[]): string {
+const TOOL_CALLS_OPEN_TAG = "<ECLIA_TOOL_CALLS>";
+const TOOL_CALLS_CLOSE_TAG = "</ECLIA_TOOL_CALLS>";
+
+function safeJsonStringify(v: unknown): string {
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return "null";
+  }
+}
+
+
+function stripMarkdownCodeFence(s: string): string {
+  let t = String(s ?? "").trim();
+  // Allow wrapping the JSON in a fenced code block:
+  // ```json
+  // {...}
+  // ```
+  const m = t.match(/^(```|~~~)[^\n]*\n([\s\S]*?)\n\1\s*$/);
+  if (m) t = String(m[2] ?? "").trim();
+  return t;
+}
+
+function extractJsonLikeSpan(s: string): string {
+  const t = String(s ?? "").trim();
+  // Best-effort fallback: grab the outermost {...} or [...] span.
+  const firstObj = t.indexOf("{");
+  const lastObj = t.lastIndexOf("}");
+  if (firstObj >= 0 && lastObj > firstObj) return t.slice(firstObj, lastObj + 1).trim();
+
+  const firstArr = t.indexOf("[");
+  const lastArr = t.lastIndexOf("]");
+  if (firstArr >= 0 && lastArr > firstArr) return t.slice(firstArr, lastArr + 1).trim();
+
+  return t;
+}
+
+function toolSchemaLines(tools: any[]): string[] {
+  const lines: string[] = [];
+  const list = Array.isArray(tools) ? tools : [];
+  const funcs = list
+    .filter((t) => t && typeof t === "object" && (t as any).type === "function" && (t as any).function)
+    .map((t) => (t as any).function)
+    .filter((f) => f && typeof f === "object" && typeof f.name === "string");
+
+  if (funcs.length === 0) return lines;
+
+  lines.push("ECLIA TOOL CALLING");
+  lines.push("You may call tools when needed.");
+  lines.push("If you need to call one or more tools, append exactly one tool-calls block at the END of your message:");
+  lines.push(TOOL_CALLS_OPEN_TAG);
+  lines.push('{"tool_calls":[{"id":"call_1","name":"<tool name>","arguments":{}}]}');
+  lines.push(TOOL_CALLS_CLOSE_TAG);
+  lines.push("Do not put any text after the closing tag.");
+  lines.push("");
+  lines.push("Rules:");
+  lines.push("- The JSON inside the tags must be valid JSON.");
+  lines.push("- tool_calls must be an array. Each entry must include id, name, and arguments (an object).");
+  lines.push("- Never claim you executed a command or inspected files unless you requested a tool call and received its result.");
+  lines.push("- If the user asks you to run a terminal command (or to 'try it'), you MUST call exec/execution.");
+  lines.push("");
+  lines.push("Example (run pwd):");
+  lines.push(TOOL_CALLS_OPEN_TAG);
+  lines.push('{"tool_calls":[{"id":"call_1","name":"exec","arguments":{"cmd":"pwd","args":[]}}]}');
+  lines.push(TOOL_CALLS_CLOSE_TAG);
+  lines.push("");
+  lines.push("Available tools (OpenAI function schema):");
+  for (const f of funcs) {
+    const name = String(f.name);
+    const desc = typeof f.description === "string" ? f.description.trim() : "";
+    const params = f.parameters ?? { type: "object" };
+    lines.push(`- ${name}${desc ? `: ${desc}` : ""}`);
+    lines.push(`  parameters: ${safeJsonStringify(params)}`);
+  }
+  lines.push("");
+  return lines;
+}
+
+function openAIMessagesToTranscript(messages: any[], tools: any[]): string {
   const lines: string[] = [];
 
-  // We deliberately add a safety instruction since, for now, we do not
-  // integrate Codex's tool ecosystem with ECLIA's toolhost.
-  lines.push(
-    "IMPORTANT: You are running inside ECLIA. You cannot execute commands, modify files, or use external tools. Reply with text only."
-  );
+  // We deliberately prevent Codex from using its own built-in shell/file tooling.
+  // If tool usage is desired, Codex must request ECLIA tools via the explicit block.
+  lines.push("IMPORTANT: You are running inside ECLIA.");
+  lines.push("- Do NOT use Codex built-in shell/file tools (no commandExecution/fileChange). Those approvals will be declined.");
+  lines.push("- If you need to perform an action, request an ECLIA tool call using the protocol below.");
+  lines.push("- Never fabricate command output. If asked to run a command, you MUST request the exec/execution tool.");
+  lines.push("");
+
+  lines.push(...toolSchemaLines(tools));
   lines.push("");
 
   for (const m of messages ?? []) {
@@ -83,12 +166,25 @@ function openAIMessagesToTranscript(messages: any[]): string {
 
     if (role === "assistant") {
       lines.push(`Assistant: ${content}`);
+
+      const toolCalls = Array.isArray((m as any)?.tool_calls) ? (m as any).tool_calls : [];
+      if (toolCalls.length) {
+        lines.push("Assistant requested tool calls:");
+        for (const tc of toolCalls) {
+          const id = typeof tc?.id === "string" ? tc.id : "";
+          const fn = tc?.function;
+          const name = typeof fn?.name === "string" ? fn.name : "";
+          const args = typeof fn?.arguments === "string" ? fn.arguments : "{}";
+          lines.push(`- id=${id} name=${name} arguments=${args}`);
+        }
+      }
       lines.push("");
       continue;
     }
 
     if (role === "tool") {
-      lines.push(`Tool: ${content}`);
+      const callId = typeof (m as any)?.tool_call_id === "string" ? (m as any).tool_call_id : "";
+      lines.push(`Tool result${callId ? ` (callId=${callId})` : ""}: ${content}`);
       lines.push("");
       continue;
     }
@@ -104,19 +200,177 @@ function openAIMessagesToTranscript(messages: any[]): string {
   return lines.join("\n").trim() + "\n";
 }
 
+class ToolCallBlockExtractor {
+  private readonly openTag = TOOL_CALLS_OPEN_TAG;
+  private readonly closeTag = TOOL_CALLS_CLOSE_TAG;
+
+  private readonly keepOpen = Math.max(0, this.openTag.length - 1);
+  private readonly keepClose = Math.max(0, this.closeTag.length - 1);
+
+  private pending = "";
+  private inBlock = false;
+  private sawBlock = false;
+  private toolBlock = "";
+  private _visibleText = "";
+
+  get visibleText(): string {
+    return this._visibleText;
+  }
+  get toolJsonText(): string {
+    return this.toolBlock;
+  }
+  get hasToolBlock(): boolean {
+    return this.sawBlock;
+  }
+
+  ingest(chunk: string, emit: (t: string) => void) {
+    if (!chunk) return;
+    this.pending += chunk;
+
+    // Parse iteratively: there may be multiple blocks or text after a block.
+    while (this.pending.length) {
+      if (!this.inBlock) {
+        const idx = this.pending.indexOf(this.openTag);
+        if (idx === -1) {
+          // Flush everything except a small tail to avoid leaking the open tag across chunks.
+          if (this.keepOpen === 0) {
+            this.flushVisible(this.pending, emit);
+            this.pending = "";
+            return;
+          }
+          if (this.pending.length <= this.keepOpen) return;
+          const flush = this.pending.slice(0, this.pending.length - this.keepOpen);
+          this.flushVisible(flush, emit);
+          this.pending = this.pending.slice(this.pending.length - this.keepOpen);
+          return;
+        }
+
+        // Flush text before the open tag.
+        const before = this.pending.slice(0, idx);
+        if (before) this.flushVisible(before, emit);
+
+        // Consume open tag.
+        this.pending = this.pending.slice(idx + this.openTag.length);
+        this.inBlock = true;
+        this.sawBlock = true;
+        continue;
+      }
+
+      // inBlock
+      const idx = this.pending.indexOf(this.closeTag);
+      if (idx === -1) {
+        // Keep a small tail to avoid splitting the close tag.
+        if (this.keepClose === 0) {
+          this.toolBlock += this.pending;
+          this.pending = "";
+          return;
+        }
+        if (this.pending.length <= this.keepClose) return;
+        this.toolBlock += this.pending.slice(0, this.pending.length - this.keepClose);
+        this.pending = this.pending.slice(this.pending.length - this.keepClose);
+        return;
+      }
+
+      // Close tag found.
+      this.toolBlock += this.pending.slice(0, idx);
+      this.pending = this.pending.slice(idx + this.closeTag.length);
+      this.inBlock = false;
+      continue;
+    }
+  }
+
+  finish(emit: (t: string) => void) {
+    if (!this.pending) return;
+    if (this.inBlock) {
+      // Block opened but not closed: treat the remainder as tool payload.
+      this.toolBlock += this.pending;
+      this.pending = "";
+      return;
+    }
+    // No open tag pending: safe to flush the tail.
+    this.flushVisible(this.pending, emit);
+    this.pending = "";
+  }
+
+  private flushVisible(t: string, emit: (t: string) => void) {
+    if (!t) return;
+    this._visibleText += t;
+    emit(t);
+  }
+}
+
+function parseToolCallsFromToolBlock(toolJsonText: string): Map<string, ToolCall> {
+  const out = new Map<string, ToolCall>();
+  const raw0 = String(toolJsonText ?? "").trim();
+  if (!raw0) return out;
+
+  const raw = extractJsonLikeSpan(stripMarkdownCodeFence(raw0));
+  if (!raw) return out;
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return out;
+  }
+
+  const list: any[] =
+    Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed?.tool_calls)
+        ? parsed.tool_calls
+        : Array.isArray(parsed?.toolCalls)
+          ? parsed.toolCalls
+          : parsed && typeof parsed === "object" && (typeof parsed.name === "string" || typeof parsed?.function?.name === "string")
+            ? [parsed]
+            : [];
+
+  let i = 0;
+  for (const tc of list) {
+    if (!tc || typeof tc !== "object") continue;
+    const fn = (tc as any).function;
+    const name =
+      (typeof (tc as any).name === "string" && (tc as any).name) ||
+      (typeof (tc as any).tool === "string" && (tc as any).tool) ||
+      (typeof fn?.name === "string" && fn.name) ||
+      "";
+    if (!name) continue;
+
+    const callId =
+      (typeof (tc as any).id === "string" && (tc as any).id) ||
+      (typeof (tc as any).callId === "string" && (tc as any).callId) ||
+      crypto.randomUUID();
+
+    const args =
+      (tc as any).arguments !== undefined
+        ? (tc as any).arguments
+        : fn && fn.arguments !== undefined
+          ? fn.arguments
+          : (tc as any).args;
+
+    const argsRaw = typeof args === "string" ? args : safeJsonStringify(args ?? {});
+
+    const call: ToolCall = { callId, index: i++, name, argsRaw };
+    out.set(callId, call);
+  }
+
+  return out;
+}
+
 async function runCodexAppServerTurn(args: {
   upstreamModel: string;
   prompt: string;
   signal: AbortSignal;
   onDelta: (text: string) => void;
-}): Promise<{ assistantText: string; finishReason: string | null }> {
-  let assistantText = "";
+}): Promise<{ assistantText: string; toolCalls: Map<string, ToolCall>; finishReason: string | null }> {
+  const extractor = new ToolCallBlockExtractor();
+  let sawAnyText = false;
   let finishReason: string | null = null;
   let turnCompleted = false;
   let threadId: string | null = null;
   const rpc = spawnCodexAppServerRpc({
     onServerRequest: ({ method, respondResult, respondError }) => {
-      // Safety: deny all approvals. (We are not integrating Codex's tool loop yet.)
+      // Safety: deny Codex built-in shell/file approvals. ECLIA tool calls are executed via toolhost instead.
       if (method === "item/commandExecution/requestApproval" || method === "item/fileChange/requestApproval") {
         respondResult({ decision: "decline" });
         return;
@@ -133,18 +387,20 @@ async function runCodexAppServerTurn(args: {
           (typeof params?.text === "string" && params.text) ||
           "";
         if (delta) {
-          assistantText += delta;
-          args.onDelta(delta);
+          sawAnyText = true;
+          extractor.ingest(delta, args.onDelta);
         }
         return;
       }
 
       if (method === "item/completed") {
-        // Fallback: if we missed deltas, some payloads include the final item.
-        const item = params?.item;
-        const text = typeof item?.text === "string" ? item.text : null;
-        if (text && !assistantText) {
-          assistantText = text;
+        // Fallback: if we missed deltas, some payloads include the final item text.
+        if (!sawAnyText) {
+          const item = params?.item;
+          const text = typeof item?.text === "string" ? item.text : null;
+          if (text) extractor.ingest(text, () => {
+            /* no streaming fallback */
+          });
         }
         return;
       }
@@ -221,7 +477,9 @@ async function runCodexAppServerTurn(args: {
       rpc.request("thread/start", {
         model: args.upstreamModel,
         cwd: process.cwd(),
-        approvalPolicy: "never",
+        // Require approvals for Codex built-in tools; the gateway declines these.
+        // ECLIA tool calls are executed via the gateway toolhost instead.
+        approvalPolicy: "on-request",
         sandbox: codexSandboxValue(style, "readOnly")
       })
     );
@@ -234,7 +492,8 @@ async function runCodexAppServerTurn(args: {
       rpc.request("turn/start", {
         threadId,
         input: [{ type: "text", text: args.prompt }],
-        approvalPolicy: "never",
+        // Require approvals for Codex built-in tools; the gateway declines these.
+        approvalPolicy: "on-request",
         sandboxPolicy: {
           type: codexSandboxValue(style, "readOnly"),
           networkAccess: false
@@ -253,12 +512,34 @@ async function runCodexAppServerTurn(args: {
       finishReason = finishReason ?? "unknown";
     }
 
-    if (!assistantText.trim()) {
-      // Codex can occasionally stream a completed turn with no agent message.
-      assistantText = "";
+    // Flush any trailing tail now that we know the turn is done.
+    extractor.finish(args.onDelta);
+
+    const toolCalls = parseToolCallsFromToolBlock(extractor.toolJsonText);
+
+    // If Codex requested tool calls, surface them to the gateway tool loop.
+    if (toolCalls.size > 0) finishReason = "tool_calls";
+
+    let assistantText = extractor.visibleText.trimEnd();
+
+    // Robustness: if Codex attempted a tool-call block but we couldn't parse it,
+    // surface a visible error so the UI doesn't show an empty assistant bubble.
+    if (toolCalls.size === 0 && extractor.hasToolBlock) {
+      const raw = String(extractor.toolJsonText ?? "").trim();
+      const snippet = raw.length > 240 ? raw.slice(0, 240).trimEnd() + "…" : raw;
+      const errText =
+        `\n\n[error] Codex emitted an invalid ${TOOL_CALLS_OPEN_TAG} payload ` +
+        `(expected valid JSON with tool_calls).` +
+        (snippet ? `\nPayload snippet: ${snippet}` : "");
+      assistantText = (assistantText || "") + errText;
+      try {
+        args.onDelta(errText);
+      } catch {
+        // ignore streaming errors
+      }
     }
 
-    return { assistantText, finishReason };
+    return { assistantText, toolCalls, finishReason };
   } catch (e: any) {
     throw new Error(formatCodexError(e));
   } finally {
@@ -283,11 +564,12 @@ export function createCodexAppServerProvider(args: { upstreamModel: string }): U
       return buildTruncatedContext(history, tokenLimit);
     },
 
-    async streamTurn({ headers, messages, tools: _tools, signal, onDelta }): Promise<ProviderTurnResult> {
+    async streamTurn({ headers, messages, tools, signal, onDelta }): Promise<ProviderTurnResult> {
       // messages are OpenAI-ish. Turn into a single prompt for Codex.
-      const prompt = openAIMessagesToTranscript(messages);
+      const prompt = openAIMessagesToTranscript(messages, tools);
 
       let assistantText: string;
+      let toolCalls: Map<string, ToolCall>;
       let finishReason: string | null;
       try {
         const out = await runCodexAppServerTurn({
@@ -297,6 +579,7 @@ export function createCodexAppServerProvider(args: { upstreamModel: string }): U
           onDelta
         });
         assistantText = out.assistantText;
+        toolCalls = out.toolCalls;
         finishReason = out.finishReason;
       } catch (e) {
         const code = (e as any)?.code;
@@ -310,7 +593,7 @@ export function createCodexAppServerProvider(args: { upstreamModel: string }): U
 
       return {
         assistantText,
-        toolCalls: new Map(),
+        toolCalls,
         finishReason
       };
     },

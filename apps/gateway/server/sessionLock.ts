@@ -9,9 +9,10 @@ export async function withSessionLock<T>(sessionId: string, fn: () => Promise<T>
   // Never let a previous failure permanently block the queue.
   const prevSafe = prev ? prev.catch(() => {}) : Promise.resolve();
 
-  // Use a normal nullable function to avoid TS control-flow weirdness
-  // in some `tsc --watch` builds.
-  let release: (() => void) | null = null;
+  // The Promise executor runs synchronously, so `release` will be assigned
+  // before we ever reach `finally`. Initialize to a no-op to avoid TS watch-mode
+  // narrowing oddities (and keep the `finally` block simple).
+  let release: () => void = () => {};
   const next = new Promise<void>((resolve) => {
     release = () => resolve();
   });
@@ -25,7 +26,7 @@ export async function withSessionLock<T>(sessionId: string, fn: () => Promise<T>
     return await fn();
   } finally {
     // Release the lock for the next queued task.
-    release?.();
+    release();
 
     // Cleanup when the tail drains and nobody replaced it.
     void tail.finally(() => {
