@@ -48,6 +48,9 @@ type SettingsDraft = {
   // Codex OAuth (Codex app-server managed ChatGPT login)
   codexOAuthProfiles: CodexOAuthProfile[];
 
+  // Inference advanced: injected as the ONLY role=system message for all providers.
+  inferenceSystemInstruction: string;
+
   // Codex local state directory override (mapped to gateway's ECLIA_CODEX_HOME / CODEX_HOME).
   codexHomeOverrideEnabled: boolean;
   codexHomeOverridePath: string;
@@ -67,6 +70,7 @@ type DevConfig = {
   console: { host: string; port: number };
   api?: { port: number };
   inference?: {
+    system_instruction?: string;
     provider?: string;
     openai_compat?: {
       profiles?: Array<{
@@ -233,6 +237,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     host: string;
     port: number;
     codexHome: string;
+    systemInstruction: string;
     openaiCompatProfiles: Array<{
       id: string;
       name: string;
@@ -269,6 +274,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         const host = j.config.console.host ?? "127.0.0.1";
         const port = j.config.console.port ?? 5173;
         const codexHome = String((j.config as any).codex_home ?? "").trim();
+        const systemInstruction = String((j.config.inference as any)?.system_instruction ?? "");
 
         const inf = j.config.inference?.openai_compat ?? {};
         const rawProfiles = Array.isArray((inf as any).profiles) ? ((inf as any).profiles as any[]) : [];
@@ -346,6 +352,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           host,
           port,
           codexHome,
+          systemInstruction,
           openaiCompatProfiles: profiles,
           codexOAuthProfiles: codexProfiles,
           discordEnabled,
@@ -401,6 +408,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             ? [{ ...prev.codexOAuthProfiles[0], id: "default" }]
             : [{ id: "default", name: "Default", model: "gpt-5.2-codex" }],
 
+        inferenceSystemInstruction: cfgBase ? cfgBase.systemInstruction : prev?.inferenceSystemInstruction ?? "",
+
         codexHomeOverrideEnabled: cfgBase ? Boolean(cfgBase.codexHome.trim().length) : prev?.codexHomeOverrideEnabled ?? false,
         codexHomeOverridePath: cfgBase ? cfgBase.codexHome : prev?.codexHomeOverridePath ?? "",
 
@@ -441,7 +450,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       const dirtyDevInference = cfgBase
         ? !sameOpenAICompatProfiles(d.inferenceProfiles, cfgBase.openaiCompatProfiles) ||
           !sameCodexOAuthProfiles(d.codexOAuthProfiles, cfgBase.codexOAuthProfiles) ||
-          d.inferenceProfiles.some((p) => p.apiKey.trim().length > 0)
+          d.inferenceProfiles.some((p) => p.apiKey.trim().length > 0) ||
+          d.inferenceSystemInstruction.trim() !== (cfgBase.systemInstruction ?? "").trim()
         : false;
 
       const dirtyDevCodexHome = cfgBase
@@ -490,7 +500,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const dirtyDevInference = cfgBase
     ? !sameOpenAICompatProfiles(draft.inferenceProfiles, cfgBase.openaiCompatProfiles) ||
       !sameCodexOAuthProfiles(draft.codexOAuthProfiles, cfgBase.codexOAuthProfiles) ||
-      draft.inferenceProfiles.some((p) => p.apiKey.trim().length > 0)
+      draft.inferenceProfiles.some((p) => p.apiKey.trim().length > 0) ||
+      draft.inferenceSystemInstruction.trim() !== (cfgBase.systemInstruction ?? "").trim()
     : false;
 
   const dirtyDevCodexHome = cfgBase
@@ -570,6 +581,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           if (!inferenceValid) throw new Error("Invalid inference profile settings.");
 
           const inf: any = {
+            system_instruction: draft.inferenceSystemInstruction,
             openai_compat: {
               profiles: draft.inferenceProfiles.map((p) => ({
                 id: p.id,
@@ -652,6 +664,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             host: body.console?.host ?? cfgBase.host,
             port: body.console?.port ?? cfgBase.port,
             codexHome: typeof body.codex_home === "string" ? body.codex_home : cfgBase.codexHome,
+            systemInstruction: typeof (body.inference as any)?.system_instruction === "string" ? (body.inference as any).system_instruction : cfgBase.systemInstruction,
             openaiCompatProfiles: nextProfiles,
 
             codexOAuthProfiles: nextCodexProfiles,
@@ -680,6 +693,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                 }))
               : d.inferenceProfiles.map((p) => ({ ...p, apiKey: "" })),
             codexOAuthProfiles: nextBase.codexOAuthProfiles,
+            inferenceSystemInstruction: nextBase.systemInstruction,
             codexHomeOverrideEnabled: Boolean(nextBase.codexHome.trim().length),
             codexHomeOverridePath: nextBase.codexHome,
             adapterDiscordBotToken: "",
@@ -1576,6 +1590,22 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
               </div>
 
               <Collapsible title="Advanced" variant="section">
+                <label className="field" style={{ marginBottom: 12 }}>
+                  <div className="field-label">Modify System Instruction</div>
+                  <textarea
+                    className="select"
+                    rows={6}
+                    value={draft.inferenceSystemInstruction}
+                    onChange={(e) => setDraft((d) => ({ ...d, inferenceSystemInstruction: e.target.value }))}
+                    placeholder="(optional)"
+                    spellCheck={false}
+                    disabled={cfgLoading || !cfgBase}
+                  />
+                  <div className="field-sub muted">
+                    Injected as the only <code>system</code> message (role=system) for all providers. Saved to <code>eclia.config.local.toml</code>.
+                  </div>
+                </label>
+
                 <div className="row">
                   <div className="row-left">
                     <div className="row-main">ECLIA_CODEX_HOME override</div>

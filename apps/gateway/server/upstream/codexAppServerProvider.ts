@@ -92,7 +92,7 @@ function extractJsonLikeSpan(s: string): string {
   return t;
 }
 
-function toolSchemaLines(tools: any[]): string[] {
+function toolCatalogLines(tools: any[]): string[] {
   const lines: string[] = [];
   const list = Array.isArray(tools) ? tools : [];
   const funcs = list
@@ -102,25 +102,6 @@ function toolSchemaLines(tools: any[]): string[] {
 
   if (funcs.length === 0) return lines;
 
-  lines.push("ECLIA TOOL CALLING");
-  lines.push("You may call tools when needed.");
-  lines.push("If you need to call one or more tools, append exactly one tool-calls block at the END of your message:");
-  lines.push(TOOL_CALLS_OPEN_TAG);
-  lines.push('{"tool_calls":[{"id":"call_1","name":"<tool name>","arguments":{}}]}');
-  lines.push(TOOL_CALLS_CLOSE_TAG);
-  lines.push("Do not put any text after the closing tag.");
-  lines.push("");
-  lines.push("Rules:");
-  lines.push("- The JSON inside the tags must be valid JSON.");
-  lines.push("- tool_calls must be an array. Each entry must include id, name, and arguments (an object).");
-  lines.push("- Never claim you executed a command or inspected files unless you requested a tool call and received its result.");
-  lines.push("- If the user asks you to run a terminal command (or to 'try it'), you MUST call exec/execution.");
-  lines.push("");
-  lines.push("Example (run pwd):");
-  lines.push(TOOL_CALLS_OPEN_TAG);
-  lines.push('{"tool_calls":[{"id":"call_1","name":"exec","arguments":{"cmd":"pwd","args":[]}}]}');
-  lines.push(TOOL_CALLS_CLOSE_TAG);
-  lines.push("");
   lines.push("Available tools (OpenAI function schema):");
   for (const f of funcs) {
     const name = String(f.name);
@@ -129,28 +110,25 @@ function toolSchemaLines(tools: any[]): string[] {
     lines.push(`- ${name}${desc ? `: ${desc}` : ""}`);
     lines.push(`  parameters: ${safeJsonStringify(params)}`);
   }
-  lines.push("");
   return lines;
 }
 
 function openAIMessagesToTranscript(messages: any[], tools: any[]): string {
   const lines: string[] = [];
 
-  // We deliberately prevent Codex from using its own built-in shell/file tooling.
-  // If tool usage is desired, Codex must request ECLIA tools via the explicit block.
-  lines.push("IMPORTANT: You are running inside ECLIA.");
-  lines.push("- Do NOT use Codex built-in shell/file tools (no commandExecution/fileChange). Those approvals will be declined.");
-  lines.push("- If you need to perform an action, request an ECLIA tool call using the protocol below.");
-  lines.push("- Never fabricate command output. If asked to run a command, you MUST request the exec/execution tool.");
-  lines.push("");
-
-  lines.push(...toolSchemaLines(tools));
-  lines.push("");
+  const catalog = toolCatalogLines(tools);
+  let catalogInserted = false;
 
   for (const m of messages ?? []) {
     const role = typeof m?.role === "string" ? m.role : "";
     const content = normalizeContent(m?.content);
     if (!content) continue;
+
+    if (!catalogInserted && role !== "system" && catalog.length) {
+      lines.push(...catalog);
+      lines.push("");
+      catalogInserted = true;
+    }
 
     if (role === "system") {
       lines.push(`System: ${content}`);
@@ -192,6 +170,12 @@ function openAIMessagesToTranscript(messages: any[], tools: any[]): string {
     // Unknown role: preserve but don't invent structure.
     lines.push(content);
     lines.push("");
+  }
+
+  if (!catalogInserted && catalog.length) {
+    lines.push(...catalog);
+    lines.push("");
+    catalogInserted = true;
   }
 
   // Nudge Codex to answer as the assistant.

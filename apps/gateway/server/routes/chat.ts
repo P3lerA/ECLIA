@@ -225,6 +225,11 @@ export async function handleChat(
 
     const { config, raw, rootDir } = loadEcliaConfig(process.cwd());
 
+    // Global system instruction (from TOML). Injected as the ONLY role=system message for all providers.
+    const systemInstruction = typeof (config.inference as any)?.system_instruction === "string"
+      ? String((config.inference as any).system_instruction)
+      : "";
+
     // Ensure store is initialized and session exists.
     await store.init();
 
@@ -337,9 +342,23 @@ export async function handleChat(
     }
 
     const tokenLimit = safeInt(body.contextTokenLimit, 20000);
-    const history = [...prior.messages, userMsg];
+    const historyBase = [...prior.messages, userMsg].filter((m) => m && m.role !== "system");
 
-    const { messages: contextMessages, usedTokens, dropped } = backend.provider.buildContext(history, tokenLimit);
+    // Inject system instruction as the only system message (when configured).
+    const historyForContext = systemInstruction.trim().length
+      ? [
+          ...historyBase,
+          {
+            id: crypto.randomUUID(),
+            role: "system",
+            createdAt: Date.now(),
+            raw: systemInstruction,
+            blocks: [textBlock(systemInstruction, { adapter: "gateway" })]
+          }
+        ]
+      : historyBase;
+
+    const { messages: contextMessages, usedTokens, dropped } = backend.provider.buildContext(historyForContext, tokenLimit);
 
     const { stopKeepAlive } = beginSse(res);
     send(res, "meta", { sessionId, model: routeModel, usedTokens, dropped });

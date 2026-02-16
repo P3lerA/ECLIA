@@ -28,6 +28,11 @@ export type EcliaConfig = {
     port: number;
   };
   inference: {
+    /**
+     * Optional system instruction injected as the ONLY role=system message for all providers.
+     */
+    system_instruction?: string;
+
     provider: "openai_compat";
     openai_compat: {
       profiles: OpenAICompatProfile[];
@@ -123,6 +128,7 @@ export type EcliaConfigPatch = Partial<{
   console: Partial<EcliaConfig["console"]>;
   api: Partial<EcliaConfig["api"]>;
   inference: Partial<{
+    system_instruction: string;
     provider: EcliaConfig["inference"]["provider"];
     openai_compat: Partial<{
       profiles: Array<
@@ -290,6 +296,8 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
 
   const provider = (infRaw as any).provider === "openai_compat" ? "openai_compat" : base.inference.provider;
 
+  const system_instruction = coerceOptionalString((infRaw as any).system_instruction);
+
   // Profiles (new schema). If missing/empty, fall back to legacy keys on [inference.openai_compat].
   const rawProfiles = Array.isArray((openaiRaw as any).profiles) ? ((openaiRaw as any).profiles as any[]) : null;
 
@@ -371,6 +379,7 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
       port: clampPort(apiRaw.port, base.api.port)
     },
     inference: {
+      ...(system_instruction ? { system_instruction } : {}),
       provider,
       openai_compat: {
         profiles
@@ -566,6 +575,10 @@ export function writeLocalEcliaConfig(
       }
     }
   };
+
+  // inference.system_instruction: write only when non-empty; otherwise remove from TOML.
+  if (normalized.inference.system_instruction) (toWrite as any).inference.system_instruction = normalized.inference.system_instruction;
+  else delete (toWrite as any).inference.system_instruction;
 
   // codex_home: write only if configured; otherwise omit from TOML.
   const codexHome = coerceOptionalString((nextLocal as any).codex_home);

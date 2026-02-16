@@ -9,6 +9,7 @@ type ConfigReqBody = {
   console?: { host?: string; port?: number };
   api?: { port?: number };
   inference?: {
+    system_instruction?: string;
     openai_compat?: {
       profiles?: Array<{
         id: string;
@@ -51,6 +52,7 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
         console: config.console,
         api: config.api,
         inference: {
+          system_instruction: (config.inference as any).system_instruction,
           provider: config.inference.provider,
           openai_compat: {
             profiles: config.inference.openai_compat.profiles.map((p) => ({
@@ -96,6 +98,10 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
     }
     if (body.console) patch.console = body.console;
     if (body.api) patch.api = body.api;
+    if (typeof body.inference?.system_instruction === "string") {
+      const s = body.inference.system_instruction.trim();
+      patch.inference = { ...(patch.inference ?? {}), system_instruction: s };
+    }
     if (body.inference?.openai_compat?.profiles) {
       const raw = body.inference.openai_compat.profiles;
       const out: any[] = [];
