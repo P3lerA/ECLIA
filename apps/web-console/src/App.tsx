@@ -116,6 +116,7 @@ function AppInner() {
       v: 1,
       textureDisabled: state.settings.textureDisabled,
       sessionSyncEnabled: state.settings.sessionSyncEnabled,
+      displayPlainOutput: state.settings.displayPlainOutput,
       transport: state.transport,
       model: state.model,
       contextLimitEnabled: state.settings.contextLimitEnabled,
@@ -125,6 +126,7 @@ function AppInner() {
   }, [
     state.settings.textureDisabled,
     state.settings.sessionSyncEnabled,
+    state.settings.displayPlainOutput,
     state.settings.contextLimitEnabled,
     state.settings.contextTokenLimit,
     state.settings.execAccessMode,

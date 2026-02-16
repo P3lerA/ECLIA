@@ -25,6 +25,7 @@ type CodexOAuthStatus = {
 type SettingsDraft = {
   textureDisabled: boolean;
   sessionSyncEnabled: boolean;
+  displayPlainOutput: boolean;
   transport: TransportId;
   model: string;
   contextTokenLimit: string;
@@ -383,6 +384,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       return {
         textureDisabled: state.settings.textureDisabled,
         sessionSyncEnabled: state.settings.sessionSyncEnabled,
+        displayPlainOutput: Boolean(state.settings.displayPlainOutput ?? false),
         transport: state.transport,
         model: cfgBase ? normalizeActiveModel(state.model, cfgBase.openaiCompatProfiles) : state.model,
         contextTokenLimit: String(state.settings.contextTokenLimit ?? 20000),
@@ -423,6 +425,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     [
       state.settings.textureDisabled,
       state.settings.sessionSyncEnabled,
+      state.settings.displayPlainOutput,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
       state.transport,
@@ -438,6 +441,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       const dirtyUi =
         d.textureDisabled !== state.settings.textureDisabled ||
         d.sessionSyncEnabled !== state.settings.sessionSyncEnabled ||
+        d.displayPlainOutput !== Boolean(state.settings.displayPlainOutput ?? false) ||
         d.transport !== state.transport ||
         d.model !== effectiveStateModel ||
         d.contextLimitEnabled !== state.settings.contextLimitEnabled ||
@@ -471,6 +475,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     [
       state.settings.textureDisabled,
       state.settings.sessionSyncEnabled,
+      state.settings.displayPlainOutput,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
       state.transport,
@@ -485,6 +490,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     syncDeps: [
       state.settings.textureDisabled,
       state.settings.sessionSyncEnabled,
+      state.settings.displayPlainOutput,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
       state.transport,
@@ -722,6 +728,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
       if (draft.sessionSyncEnabled !== state.settings.sessionSyncEnabled) {
         dispatch({ type: "settings/sessionSyncEnabled", enabled: draft.sessionSyncEnabled });
+      }
+
+      if (draft.displayPlainOutput !== Boolean(state.settings.displayPlainOutput ?? false)) {
+        dispatch({ type: "settings/displayPlainOutput", enabled: draft.displayPlainOutput });
       }
       if (draft.transport !== state.transport) {
         dispatch({ type: "transport/set", transport: draft.transport });
@@ -1215,6 +1225,22 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                   checked={draft.sessionSyncEnabled}
                   onChange={(e) => setDraft((d) => ({ ...d, sessionSyncEnabled: e.target.checked }))}
                   aria-label="Enable session sync"
+                />
+              </div>
+
+              <div className="row stack-gap">
+                <div className="row-left">
+                  <div className="row-main">Display Plain Output</div>
+                  <div className="row-sub muted">
+                    Show full raw tool payloads (tool_call/tool_result) and show &lt;think&gt; blocks inline.
+                  </div>
+                </div>
+
+                <input
+                  type="checkbox"
+                  checked={draft.displayPlainOutput}
+                  onChange={(e) => setDraft((d) => ({ ...d, displayPlainOutput: e.target.checked }))}
+                  aria-label="Display plain output"
                 />
               </div>
 

@@ -53,6 +53,12 @@ export type Message = {
   createdAt: number;
 
   /**
+   * Raw upstream text (verbatim). Useful for debug/"plain" rendering modes.
+   * Optional for backward compatibility with older gateways.
+   */
+  raw?: string;
+
+  /**
    * streaming=true means this message will be appended over time (e.g. token deltas).
    */
   streaming?: boolean;

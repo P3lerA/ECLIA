@@ -46,6 +46,16 @@ export type StoredPrefsV1 = {
    */
   sessionSyncEnabled?: boolean;
 
+  /**
+   * Output rendering preference.
+   *
+   * When true, the UI prefers "plain" (debug-friendly) rendering:
+   * - Tool blocks show the full raw payload (tool_call + tool_result) as JSON.
+   * - Thought blocks are shown inline (not collapsed).
+   * - (Future) Markdown rendering can be disabled here as well.
+   */
+  displayPlainOutput?: boolean;
+
 };
 
 const KEY = "eclia-prefs-v1";
@@ -83,6 +93,10 @@ export function readStoredPrefs(): StoredPrefsV1 {
 
     if (typeof (parsed as any).sessionSyncEnabled === "boolean") {
       out.sessionSyncEnabled = Boolean((parsed as any).sessionSyncEnabled);
+    }
+
+    if (typeof (parsed as any).displayPlainOutput === "boolean") {
+      out.displayPlainOutput = Boolean((parsed as any).displayPlainOutput);
     }
 
 

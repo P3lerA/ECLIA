@@ -1,11 +1,14 @@
 import React from "react";
+import ReactMarkdown from "react-markdown";
 import type { CodeBlock, TextBlock, ToolBlock, ThoughtBlock } from "../types";
 import type { BlockRendererRegistry } from "./BlockRendererRegistry";
 import { apiApproveTool, type ToolApprovalDecision } from "../api/tools";
 import { apiArtifactUrl } from "../api/artifacts";
+import { useAppState } from "../../state/AppState";
+import { tryFormatToolPayload } from "./toolPayloadFormat";
 
 export function registerDefaultBlockRenderers(registry: BlockRendererRegistry) {
-  registry.register("text", (b: TextBlock) => <p className="block-text">{b.text}</p>);
+  registry.register("text", (b: TextBlock) => <TextBlockView block={b} />);
 
   registry.register("code", (b: CodeBlock) => (
     <div className="block-code">
@@ -19,12 +22,81 @@ export function registerDefaultBlockRenderers(registry: BlockRendererRegistry) {
   registry.register("tool", (b: ToolBlock) => <ToolBlockView block={b} />);
 
   // Thought blocks are hidden/collapsed by default (dev-friendly).
-  registry.register("thought", (b: ThoughtBlock) => (
-    <details className="block-thought">
-      <summary className="muted">thought</summary>
-      <pre className="code-lite">{b.text}</pre>
-    </details>
-  ));
+  registry.register("thought", (b: ThoughtBlock) => <ThoughtBlockView block={b} />);
+}
+
+function isSafeHref(href: string): boolean {
+  const s = String(href ?? "").trim();
+  if (!s) return false;
+
+  // Relative URLs and in-page anchors.
+  if (s.startsWith("#") || s.startsWith("/") || s.startsWith("./") || s.startsWith("../")) return true;
+
+  // If there's no explicit scheme, treat it as relative.
+  const m = s.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/);
+  if (!m) return true;
+
+  const scheme = m[1].toLowerCase();
+  return scheme === "http" || scheme === "https" || scheme === "mailto" || scheme === "tel";
+}
+
+function TextBlockView({ block }: { block: TextBlock }) {
+  const plainOutput = Boolean(useAppState().settings.displayPlainOutput);
+
+  // Plain output mode: do NOT render markdown.
+  if (plainOutput) {
+    return <p className="block-text">{block.text}</p>;
+  }
+
+  // Default mode: render markdown (CommonMark) safely.
+  // Note: we intentionally do NOT enable raw HTML rendering (rehype-raw).
+  return (
+    <div className="block-markdown">
+      <ReactMarkdown
+        components={{
+          pre({ children, node: _node, ...props }) {
+            // For fenced code blocks, the language (if any) is typically encoded as a
+            // className on the nested <code> element: "language-xyz".
+            // We show a small header with that value; when absent, we show "text".
+            let lang: string | null = null;
+
+            const nodes: any[] = Array.isArray(children) ? (children as any[]) : [children];
+            for (const ch of nodes) {
+              if (!React.isValidElement(ch)) continue;
+              const className = (ch.props as any)?.className;
+              if (typeof className !== "string") continue;
+              const m = className.match(/\blanguage-([^\s]+)/);
+              if (m) {
+                lang = m[1];
+                break;
+              }
+            }
+
+            return (
+              <div className="md-codeblock">
+                <div className="block-code-head">{lang ?? "text"}</div>
+                <pre {...props}>{children}</pre>
+              </div>
+            );
+          },
+          a({ href, children, node: _node, ...props }) {
+            const h = typeof href === "string" ? href : "";
+            const safe = isSafeHref(h);
+            if (!safe) {
+              return <span className="md-link-disabled">{children}</span>;
+            }
+            return (
+              <a href={h} target="_blank" rel="noreferrer" {...props}>
+                {children}
+              </a>
+            );
+          }
+        }}
+      >
+        {block.text}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
 function formatBytes(n: number): string {
@@ -52,6 +124,8 @@ function extractArtifacts(payload: any): any[] {
 }
 
 function ToolBlockView({ block }: { block: ToolBlock }) {
+  const plainOutput = Boolean(useAppState().settings.displayPlainOutput);
+
   const payload: any = block.payload ?? {};
   const approval = payload?.approval ?? null;
   const approvalId = typeof approval?.id === "string" ? approval.id : "";
@@ -132,7 +206,76 @@ function ToolBlockView({ block }: { block: ToolBlock }) {
         </div>
       ) : null}
 
-      <pre className="code-lite">{JSON.stringify(payload ?? {}, null, 2)}</pre>
+      {plainOutput ? (
+        <pre className="code-lite">{JSON.stringify(payload ?? {}, null, 2)}</pre>
+      ) : (
+        <ToolPayloadRendered block={block} payload={payload} />
+      )}
     </div>
+  );
+}
+
+function ToolPayloadRendered({ block, payload }: { block: ToolBlock; payload: any }) {
+  const formatted = tryFormatToolPayload(block, payload);
+
+  if (formatted?.kind === "tool_call_raw") {
+    return (
+      <div>
+        <pre className="code-lite">{formatted.raw}</pre>
+        {formatted.parseError ? (
+          <div className="muted" style={{ marginTop: 6 }}>[error] {formatted.parseError}</div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (formatted?.kind === "exec_stdout_stderr") {
+    const stdout = formatted.stdout ?? "";
+    const stderr = formatted.stderr ?? "";
+
+    if (!stdout && !stderr) {
+      return <div className="muted" style={{ marginTop: 6 }}>[no output]</div>;
+    }
+
+    return (
+      <div>
+        {stdout ? (
+          <div style={{ marginTop: 6 }}>
+            <div className="muted">stdout</div>
+            <pre className="code-lite">{stdout}</pre>
+          </div>
+        ) : null}
+        {stderr ? (
+          <div style={{ marginTop: 6 }}>
+            <div className="muted">stderr</div>
+            <pre className="code-lite">{stderr}</pre>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  // Fallback: keep JSON (compact but complete enough).
+  return <pre className="code-lite">{JSON.stringify(payload ?? {}, null, 2)}</pre>;
+}
+
+function ThoughtBlockView({ block }: { block: ThoughtBlock }) {
+  const plainOutput = Boolean(useAppState().settings.displayPlainOutput);
+
+  if (plainOutput) {
+    return (
+      <div className="block-thought">
+        <div className="muted">thought</div>
+        <pre className="code-lite">{`<think>\n${block.text}\n</think>`}</pre>
+      </div>
+    );
+  }
+
+  // Default: hidden/collapsed (dev-friendly).
+  return (
+    <details className="block-thought">
+      <summary className="muted">thought</summary>
+      <pre className="code-lite">{block.text}</pre>
+    </details>
   );
 }

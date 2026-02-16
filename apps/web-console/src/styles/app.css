@@ -349,6 +349,75 @@ button, input, select, textarea{
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* Markdown rendering (non-streaming / non-plain mode) */
+.block-markdown{
+  margin: 0;
+  line-height: 1.5;
+  font-size: 13.5px;
+  word-break: break-word;
+}
+.block-markdown p{
+  margin: 0 0 10px 0;
+}
+.block-markdown p:last-child{
+  margin-bottom: 0;
+}
+.block-markdown ul,
+.block-markdown ol{
+  /* Browsers default to padding-left ~40px; we control it explicitly to avoid
+     excessive indentation inside chat bubbles. */
+  margin: 0 0 10px 0;
+  padding-left: 22px;
+}
+.block-markdown li{
+  margin: 2px 0;
+}
+.block-markdown blockquote{
+  margin: 8px 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+}
+.block-markdown pre{
+  margin: 8px 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* Code blocks rendered by react-markdown (we wrap them to show language). */
+.md-codeblock{
+  margin: 8px 0;
+}
+.md-codeblock pre{
+  margin: 0;
+}
+.block-markdown code{
+  font-family: var(--mono);
+}
+.block-markdown :not(pre) > code{
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 1px 6px;
+  font-size: 12.5px;
+}
+.block-markdown a{
+  color: var(--muted);
+  text-decoration: underline;
+}
+.md-link-disabled{
+  color: var(--muted);
+  text-decoration: underline dotted;
+  cursor: not-allowed;
+}
 .block-tool{
   margin-top: 8px;
   border: 1px dashed var(--line);
