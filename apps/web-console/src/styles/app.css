@@ -689,6 +689,9 @@ textarea:focus{
   opacity: 0;
   transform: translateX(var(--dist-3));
   pointer-events: none;
+  /* Prevent the inactive view's (potentially taller) content from contributing
+     to the scrollable height of .menusheet-body. */
+  overflow: hidden;
 }
 
 .menuNavStage[data-view="all-sessions"] .menuNavView-all{
@@ -702,6 +705,9 @@ textarea:focus{
   opacity: 0;
   transform: translateX(calc(-1 * var(--dist-3)));
   pointer-events: none;
+  /* Prevent the inactive view's (potentially taller) content from contributing
+     to the scrollable height of .menusheet-body. */
+  overflow: hidden;
 }
 
 @media (prefers-reduced-motion: reduce){
@@ -710,6 +716,51 @@ textarea:focus{
     transform: none !important;
   }
 }
+
+/* Menu internal navigation: browse ↔ manage (inside All sessions)
+   Keep both views mounted for smooth transitions. */
+.menuManageStage{
+  position: relative;
+}
+.menuManageView{
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition:
+    opacity var(--motion-4) var(--ease-standard),
+    transform var(--motion-4) var(--ease-standard);
+  will-change: opacity, transform;
+}
+
+.menuManageStage[data-view="browse"] .menuManageView-browse{
+  position: relative;
+  opacity: 1;
+  transform: none;
+}
+.menuManageStage[data-view="browse"] .menuManageView-manage{
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transform: translateX(var(--dist-3));
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.menuManageStage[data-view="manage"] .menuManageView-manage{
+  position: relative;
+  opacity: 1;
+  transform: none;
+}
+.menuManageStage[data-view="manage"] .menuManageView-browse{
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transform: translateX(calc(-1 * var(--dist-3)));
+  pointer-events: none;
+  overflow: hidden;
+}
+
 
 .menu-section{
   border: 1px solid var(--line-2);
@@ -741,6 +792,23 @@ textarea:focus{
 .menu-item:hover{ background: var(--surface-hover); }
 .menu-item.active{
   border-color: var(--line);
+}
+.menu-item.selected{
+  border-color: var(--line);
+}
+.menu-item-row{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.menu-item-text{
+  min-width: 0;
+  flex: 1;
+}
+.menu-item-check{
+  width: 18px;
+  height: 18px;
+  flex: none;
 }
 .menu-item-main{
   font-weight: 700;

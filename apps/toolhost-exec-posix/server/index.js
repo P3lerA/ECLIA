@@ -586,7 +586,7 @@ async function runExecTool(rawArgs, signal) {
 const EXEC_TOOL_DEF = {
   name: "exec",
   title: "Execute Command",
-  description: "Execute a command on this machine (POSIX shell: macOS/Linux). Prefer cmd+args. Skills live under $ECLIA_SKILLS_DIR/<name> (provided automatically). For large/binary outputs, write files to $ECLIA_ARTIFACT_DIR (provided automatically). Avoid printing huge base64 blobs; decode to a file instead. Files created there will be returned as artifacts. Each artifact includes: path (repo-relative), uri (eclia://artifact/...), and ref (<eclia://artifact/...>) for copy/paste referencing. Returns stdout/stderr/exitCode.",
+  description: "Execute a command on this machine (POSIX shell: macOS/Linux). Prefer cmd+args. For large/binary outputs, write files to $ECLIA_ARTIFACT_DIR (provided automatically). Files created there will be returned as artifacts. Each artifact includes: path (repo-relative), uri (eclia://artifact/...), and ref (<eclia://artifact/...>) for copy/paste referencing. Returns stdout/stderr/exitCode.",
   inputSchema: {
     type: "object",
     properties: {

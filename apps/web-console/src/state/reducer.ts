@@ -68,6 +68,7 @@ export type AppState = {
 export type Action =
   | { type: "theme/setMode"; mode: ThemeMode }
   | { type: "sessions/replace"; sessions: Session[]; activeSessionId?: string }
+  | { type: "sessions/remove"; sessionIds: string[] }
   | { type: "session/add"; session: Session; makeActive?: boolean }
   | { type: "session/update"; sessionId: string; patch: Partial<Session> }
   | { type: "session/select"; sessionId: string }
@@ -103,6 +104,41 @@ export function reducer(state: AppState, action: Action): AppState {
       const active =
         sessions.find((s) => s.id === desired)?.id ?? sessions[0]?.id ?? state.activeSessionId;
       return { ...state, sessions, activeSessionId: active };
+    }
+
+    case "sessions/remove": {
+      const ids = (action.sessionIds ?? []).filter((x) => typeof x === "string" && x.trim());
+      if (ids.length === 0) return state;
+
+      const remove = new Set(ids);
+      let sessions = state.sessions.filter((s) => !remove.has(s.id));
+      const messagesBySession = { ...state.messagesBySession };
+      for (const id of remove) delete messagesBySession[id];
+
+      let activeSessionId = state.activeSessionId;
+      if (remove.has(activeSessionId)) {
+        activeSessionId = sessions[0]?.id ?? activeSessionId;
+      }
+
+      // Ensure the UI never ends up with zero sessions.
+      if (sessions.length === 0) {
+        const id = makeId();
+        const now = Date.now();
+        sessions = [
+          {
+            id,
+            title: "New session",
+            meta: "just now",
+            createdAt: now,
+            updatedAt: now,
+            localOnly: true,
+            started: false
+          }
+        ];
+        activeSessionId = id;
+      }
+
+      return { ...state, sessions, activeSessionId, messagesBySession };
     }
 
     case "session/add": {

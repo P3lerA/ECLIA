@@ -27,6 +27,10 @@ export type ResetSessionResponse =
   | { ok: true; session: SessionMeta }
   | { ok: false; error: string; hint?: string };
 
+export type DeleteSessionResponse =
+  | { ok: true }
+  | { ok: false; error: string; hint?: string };
+
 export async function apiListSessions(limit = 200): Promise<SessionMeta[]> {
   const url = `/api/sessions?limit=${encodeURIComponent(String(limit))}`;
   const r = await fetch(url, { method: "GET" });
@@ -75,6 +79,12 @@ export async function apiResetSession(sessionId: string): Promise<SessionMeta> {
   const j = (await r.json()) as ResetSessionResponse;
   if (!j.ok) throw new Error(j.hint ?? j.error);
   return j.session;
+}
+
+export async function apiDeleteSession(sessionId: string): Promise<void> {
+  const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+  const j = (await r.json()) as DeleteSessionResponse;
+  if (!j.ok) throw new Error(j.hint ?? j.error);
 }
 
 /**

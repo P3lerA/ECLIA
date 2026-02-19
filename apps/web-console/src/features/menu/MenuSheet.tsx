@@ -2,6 +2,7 @@ import React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 import { usePresence } from "../motion/usePresence";
+import { apiDeleteSession } from "../../core/api/sessions";
 
 const FOCUSABLE =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -18,10 +19,25 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
 
   const [view, setView] = React.useState<MenuView>("main");
 
+  const [manageMode, setManageMode] = React.useState(false);
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => new Set());
+
   // Reset to the default view whenever the sheet closes.
   React.useEffect(() => {
-    if (!open) setView("main");
+    if (!open) {
+      setView("main");
+      setManageMode(false);
+      setSelectedIds(new Set());
+    }
   }, [open]);
+
+  // Leaving the "all-sessions" view should also exit manage mode.
+  React.useEffect(() => {
+    if (view !== "all-sessions") {
+      setManageMode(false);
+      setSelectedIds(new Set());
+    }
+  }, [view]);
 
   const sheetRef = React.useRef<HTMLDivElement | null>(null);
   const closeBtnRef = React.useRef<HTMLButtonElement | null>(null);
@@ -78,29 +94,115 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
   const sectionDelay = (ms: number) =>
     ({ ["--motion-delay" as any]: `${ms}ms` }) as React.CSSProperties;
 
-  const renderSessions = (sessions: typeof state.sessions) => {
+  const toggleSelected = (sessionId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
+      return next;
+    });
+  };
+
+  const clearSelected = () => setSelectedIds(new Set());
+
+  const allSessionIds = state.sessions.map((s) => s.id);
+
+  const allSelected =
+    manageMode && allSessionIds.length > 0 && allSessionIds.every((id) => selectedIds.has(id));
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      if (allSessionIds.length === 0) return new Set();
+      const isAll = allSessionIds.every((id) => prev.has(id));
+      return isAll ? new Set() : new Set(allSessionIds);
+    });
+  };
+
+
+  const deleteSelected = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+
+    const ok = window.confirm(
+      `Delete ${ids.length} session${ids.length === 1 ? "" : "s"}?\n\nThis will also delete their artifacts.`
+    );
+    if (!ok) return;
+
+    const deleted: string[] = [];
+    const failed: Array<{ id: string; error: string }> = [];
+
+    for (const id of ids) {
+      const s = state.sessions.find((x) => x.id === id);
+      // Local-only draft sessions exist only in UI memory.
+      if (s?.localOnly) {
+        deleted.push(id);
+        continue;
+      }
+
+      try {
+        await apiDeleteSession(id);
+        deleted.push(id);
+      } catch (e) {
+        const msg = String((e as any)?.message ?? e);
+        failed.push({ id, error: msg });
+      }
+    }
+
+    if (deleted.length > 0) {
+      dispatch({ type: "sessions/remove", sessionIds: deleted });
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of deleted) next.delete(id);
+        return next;
+      });
+
+      // If the user just deleted the session they're currently viewing, bounce to landing
+      // to avoid recreating it as a local placeholder.
+      if (deleted.includes(state.activeSessionId) && location.pathname.startsWith("/session/")) {
+        navigate("/", { replace: true });
+      }
+    }
+
+    if (failed.length > 0) {
+      // Keep it simple: show a basic error so the user knows which ones failed.
+      window.alert(
+        `Failed to delete ${failed.length} session${failed.length === 1 ? "" : "s"}:\n\n` +
+          failed.map((f) => `${f.id}: ${f.error}`).join("\n")
+      );
+    }
+  };
+
+  const renderSessions = (sessions: typeof state.sessions, opts?: { manage?: boolean }) => {
+    const manage = Boolean(opts?.manage);
     return (
       <div className="menu-list">
-        <button
-          className="btn subtle"
-          onClick={() => {
-            // New sessions are draft-only until the first message.
-            // This avoids generating empty .eclia/sessions/* directories.
-            dispatch({ type: "session/new" });
-            navigate("/");
-            onClose();
-          }}
-        >
-          + New session
-        </button>
+        {!manage ? (
+          <button
+            className="btn subtle"
+            onClick={() => {
+              // New sessions are draft-only until the first message.
+              // This avoids generating empty .eclia/sessions/* directories.
+              dispatch({ type: "session/new" });
+              navigate("/");
+              onClose();
+            }}
+          >
+            + New session
+          </button>
+        ) : null}
 
         {sessions.map((s) => {
           const active = s.id === state.activeSessionId;
+          const selected = manage && selectedIds.has(s.id);
           return (
             <button
               key={s.id}
-              className={"menu-item" + (active ? " active" : "")}
+              className={"menu-item" + (active ? " active" : "") + (selected ? " selected" : "")}
               onClick={() => {
+                if (manage) {
+                  toggleSelected(s.id);
+                  return;
+                }
                 // Draft local sessions (no messages yet) should route to the landing view.
                 const hasLocalMsgs = (state.messagesBySession[s.id]?.length ?? 0) > 0;
                 const isDraft = Boolean(s.localOnly) && !hasLocalMsgs && !s.started;
@@ -118,8 +220,27 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
                 onClose();
               }}
             >
-              <div className="menu-item-main">{s.title}</div>
-              <div className="menu-item-sub">{s.meta}</div>
+              {manage ? (
+                <div className="menu-item-row">
+                  <div className="menu-item-text">
+                    <div className="menu-item-main">{s.title}</div>
+                    <div className="menu-item-sub">{s.meta}</div>
+                  </div>
+                  <input
+                    className="menu-item-check"
+                    type="checkbox"
+                    checked={selected}
+                    onChange={() => toggleSelected(s.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label={selected ? `Deselect session ${s.title}` : `Select session ${s.title}`}
+                  />
+                </div>
+              ) : (
+                <>
+                  <div className="menu-item-main">{s.title}</div>
+                  <div className="menu-item-sub">{s.meta}</div>
+                </>
+              )}
             </button>
           );
         })}
@@ -152,9 +273,57 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
 
           <div className="menusheet-head-actions">
             {view === "all-sessions" ? (
-              <button className="btn subtle" onClick={() => setView("main")} aria-label="Back to menu">
-                Back
-              </button>
+              <>
+                {manageMode ? (
+                  <button
+                    className="btn subtle"
+                    onClick={toggleSelectAll}
+                    disabled={state.sessions.length === 0}
+                    aria-label={allSelected ? "Unselect all sessions" : "Select all sessions"}
+                  >
+                    {allSelected ? "Unselect all" : "Select all"}
+                  </button>
+                ) : null}
+
+                {manageMode ? (
+                  <button
+                    className="btn subtle"
+                    onClick={() => {
+                      void deleteSelected();
+                    }}
+                    disabled={selectedIds.size === 0}
+                    aria-label="Delete selected sessions"
+                  >
+                    Delete
+                  </button>
+                ) : null}
+
+                <button
+                  className="btn subtle"
+                  onClick={() => {
+                    setManageMode((v) => {
+                      const next = !v;
+                      if (!next) clearSelected();
+                      return next;
+                    });
+                  }}
+                  aria-label={manageMode ? "Exit manage mode" : "Manage sessions"}
+                >
+                  {manageMode ? "Done" : "Manage"}
+                </button>
+
+                <button
+                  className="btn subtle"
+                  onClick={() => {
+                    setView("main");
+                    setManageMode(false);
+                    clearSelected();
+                  }}
+                  aria-label="Back to menu"
+                >
+                  Back
+                </button>
+              </>
             ) : null}
 
             <button ref={closeBtnRef} className="btn icon" onClick={onClose} aria-label="Close menu">
@@ -221,7 +390,23 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
             >
               <section className="menu-section motion-item" style={sectionDelay(40)}>
                 <div className="menu-section-title">Sessions</div>
-                {renderSessions(state.sessions)}
+                <div className="menuManageStage" data-view={manageMode ? "manage" : "browse"}>
+                  <div
+                    className="menuManageView menuManageView-browse"
+                    aria-hidden={manageMode}
+                    {...(manageMode ? ({ inert: "" } as any) : {})}
+                  >
+                    {renderSessions(state.sessions)}
+                  </div>
+
+                  <div
+                    className="menuManageView menuManageView-manage"
+                    aria-hidden={!manageMode}
+                    {...(!manageMode ? ({ inert: "" } as any) : {})}
+                  >
+                    {renderSessions(state.sessions, { manage: true })}
+                  </div>
+                </div>
               </section>
             </div>
           </div>

@@ -287,7 +287,57 @@ export class SessionStore {
     const resetEv: SessionEventV1 = { v: 1, id: crypto.randomUUID(), ts: now, type: "reset" };
     await fsp.appendFile(this.eventsPath(sessionId), JSON.stringify(resetEv) + "\n", "utf-8");
 
+    // Best-effort: clear artifacts for this session (/.eclia/artifacts/<sessionId>/...).
+    // Note: we intentionally do NOT clear /.eclia/debug (request captures) here.
+    await this.clearSessionArtifacts(sessionId);
+
     return next;
+  }
+
+  /**
+   * Permanently delete a session from disk.
+   *
+   * - Removes /.eclia/sessions/<sessionId>/...
+   * - Best-effort clears /.eclia/artifacts/<sessionId>/...
+   *
+   * Note: we intentionally do NOT touch /.eclia/debug here.
+   */
+  async deleteSession(sessionId: string): Promise<void> {
+    await this.init();
+
+    const sid = safeId(sessionId);
+    if (!sid) throw new Error("invalid_session_id");
+
+    // Best-effort: clear artifacts first.
+    await this.clearSessionArtifacts(sid);
+
+    const dir = this.dirFor(sid);
+
+    // Extra guard to ensure we never delete outside the sessions root.
+    const absRoot = path.resolve(this.sessionsDir);
+    const absTarget = path.resolve(dir);
+    if (absTarget !== absRoot && !absTarget.startsWith(absRoot + path.sep)) {
+      throw new Error("invalid_session_id");
+    }
+
+    await fsp.rm(absTarget, { recursive: true, force: true });
+  }
+
+  private async clearSessionArtifacts(sessionId: string): Promise<void> {
+    const artifactsRoot = path.join(this.dataDir, "artifacts");
+    const target = path.join(artifactsRoot, sessionId);
+
+    // Extra guard (sessionId is already validated) to ensure we never delete outside the artifacts root.
+    const absRoot = path.resolve(artifactsRoot);
+    const absTarget = path.resolve(target);
+    if (absTarget !== absRoot && !absTarget.startsWith(absRoot + path.sep)) return;
+
+    try {
+      await fsp.rm(absTarget, { recursive: true, force: true });
+    } catch (e) {
+      const msg = String((e as any)?.message ?? e);
+      console.warn(`[sessionStore] Failed to clear artifacts for session ${sessionId}: ${msg}`);
+    }
   }
 
   private async readEvents(sessionId: string): Promise<SessionEventV1[]> {

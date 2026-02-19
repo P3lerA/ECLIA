@@ -61,6 +61,20 @@ export async function handleSessions(req: http.IncomingMessage, res: http.Server
     return json(res, 200, { ok: true, session: detail.meta, messages: detail.messages });
   }
 
+  if (m1 && req.method === "DELETE") {
+    const id = safeDecodeSegment(m1[1]);
+    if (!id) return json(res, 400, { ok: false, error: "invalid_session_id" });
+
+    if (!store.isValidSessionId(id)) return json(res, 400, { ok: false, error: "invalid_session_id" });
+
+    try {
+      await store.deleteSession(id);
+      return json(res, 200, { ok: true });
+    } catch {
+      return json(res, 500, { ok: false, error: "delete_failed" });
+    }
+  }
+
   // /api/sessions/:id/reset
   const m2 = pathname.match(/^\/api\/sessions\/([^/]+)\/reset$/);
   if (m2 && req.method === "POST") {
