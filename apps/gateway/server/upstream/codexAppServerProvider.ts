@@ -1,6 +1,8 @@
 import { buildTruncatedContext } from "../context.js";
 import crypto from "node:crypto";
 
+import { dumpUpstreamRequestBody } from "../debug/upstreamRequests.js";
+
 import { spawnCodexAppServerRpc } from "./codexAppServerRpc.js";
 import { formatCodexError } from "./codexErrors.js";
 
@@ -548,9 +550,24 @@ export function createCodexAppServerProvider(args: { upstreamModel: string }): U
       return buildTruncatedContext(history, tokenLimit);
     },
 
-    async streamTurn({ headers, messages, tools, signal, onDelta }): Promise<ProviderTurnResult> {
+    async streamTurn({ headers, messages, tools, signal, onDelta, debug }): Promise<ProviderTurnResult> {
       // messages are OpenAI-ish. Turn into a single prompt for Codex.
       const prompt = openAIMessagesToTranscript(messages, tools);
+
+      if (debug) {
+        dumpUpstreamRequestBody({
+          rootDir: debug.rootDir,
+          sessionId: debug.sessionId,
+          seq: debug.seq,
+          providerKind: "codex_oauth",
+          upstreamModel,
+          url: "codex_app_server",
+          body: {
+            model: upstreamModel,
+            prompt
+          }
+        });
+      }
 
       let assistantText: string;
       let toolCalls: Map<string, ToolCall>;

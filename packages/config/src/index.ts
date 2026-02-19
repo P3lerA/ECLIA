@@ -29,6 +29,20 @@ export type EcliaConfig = {
   };
 
   /**
+   * Debug/dev features.
+   *
+   * These options are intended for local development and troubleshooting.
+   */
+  debug: {
+    /**
+     * When enabled, the gateway will dump the *full* upstream request body for each
+     * model request under:
+     *   <repo>/.eclia/debug/<sessionId>/
+     */
+    capture_upstream_requests: boolean;
+  };
+
+  /**
    * Optional "skills" system.
    *
    * Skills are user-enabled capability packs stored under:
@@ -146,6 +160,7 @@ export type EcliaConfigPatch = Partial<{
   codex_home: string;
   console: Partial<EcliaConfig["console"]>;
   api: Partial<EcliaConfig["api"]>;
+  debug: Partial<EcliaConfig["debug"]>;
   skills: Partial<EcliaConfig["skills"]>;
   inference: Partial<{
     system_instruction: string;
@@ -171,6 +186,9 @@ export type EcliaConfigPatch = Partial<{
 export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
   console: { host: "127.0.0.1", port: 5173 },
   api: { port: 8787 },
+  debug: {
+    capture_upstream_requests: false
+  },
   skills: {
     enabled: []
   },
@@ -308,6 +326,7 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
 
   const consoleRaw = isRecord(raw.console) ? raw.console : {};
   const apiRaw = isRecord(raw.api) ? raw.api : {};
+  const debugRaw = isRecord((raw as any).debug) ? ((raw as any).debug as any) : {};
   const skillsRaw = isRecord((raw as any).skills) ? ((raw as any).skills as any) : {};
   const infRaw = isRecord(raw.inference) ? raw.inference : {};
 
@@ -401,6 +420,9 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
     },
     api: {
       port: clampPort(apiRaw.port, base.api.port)
+    },
+    debug: {
+      capture_upstream_requests: coerceBool((debugRaw as any).capture_upstream_requests, base.debug.capture_upstream_requests)
     },
     skills: {
       enabled: coerceStringArray((skillsRaw as any).enabled, base.skills.enabled ?? [])
@@ -580,6 +602,10 @@ export function writeLocalEcliaConfig(
     ...nextLocal,
     console: { host: normalized.console.host, port: normalized.console.port },
     api: { port: normalized.api.port },
+    debug: {
+      ...(isRecord((nextLocal as any).debug) ? (nextLocal as any).debug : {}),
+      capture_upstream_requests: normalized.debug.capture_upstream_requests
+    },
     skills: {
       ...(isRecord((nextLocal as any).skills) ? (nextLocal as any).skills : {}),
       enabled: normalized.skills.enabled
@@ -614,6 +640,16 @@ export function writeLocalEcliaConfig(
     const hasOtherKeys = rawSkills ? Object.keys(rawSkills).some((k) => k !== "enabled") : false;
     if (!hasOtherKeys && normalized.skills.enabled.length === 0) {
       delete (toWrite as any).skills;
+    }
+  }
+
+  // debug.capture_upstream_requests: omit the whole [debug] table when it would be default (false)
+  // AND it doesn't contain any other user-defined keys.
+  {
+    const rawDebug = isRecord((nextLocal as any).debug) ? ((nextLocal as any).debug as Record<string, any>) : null;
+    const hasOtherKeys = rawDebug ? Object.keys(rawDebug).some((k) => k !== "capture_upstream_requests") : false;
+    if (!hasOtherKeys && normalized.debug.capture_upstream_requests === false) {
+      delete (toWrite as any).debug;
     }
   }
 

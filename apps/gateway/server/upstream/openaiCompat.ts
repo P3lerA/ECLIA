@@ -1,5 +1,9 @@
 import crypto from "node:crypto";
 
+import type { UpstreamRequestDebugCapture } from "./provider.js";
+
+import { dumpUpstreamRequestBody } from "../debug/upstreamRequests.js";
+
 export type ToolCallAccum = { callId: string; index?: number; name: string; argsRaw: string };
 
 type ToolCallAccState = {
@@ -132,8 +136,29 @@ export async function streamOpenAICompatTurn(args: {
   signal: AbortSignal;
   tools: any[];
   onDelta: (text: string) => void;
+  debug?: UpstreamRequestDebugCapture;
 }): Promise<UpstreamTurnResult> {
   let upstream: Response;
+
+  const requestBody = {
+    model: args.model,
+    stream: true,
+    tool_choice: "auto",
+    tools: args.tools,
+    messages: args.messages
+  };
+
+  if (args.debug) {
+    dumpUpstreamRequestBody({
+      rootDir: args.debug.rootDir,
+      sessionId: args.debug.sessionId,
+      seq: args.debug.seq,
+      providerKind: "openai_compat",
+      upstreamModel: args.model,
+      url: args.url,
+      body: requestBody
+    });
+  }
 
   upstream = await fetch(args.url, {
     method: "POST",
@@ -142,13 +167,7 @@ export async function streamOpenAICompatTurn(args: {
       "Accept": "text/event-stream",
       ...args.headers
     },
-    body: JSON.stringify({
-      model: args.model,
-      stream: true,
-      tool_choice: "auto",
-      tools: args.tools,
-      messages: args.messages
-    }),
+    body: JSON.stringify(requestBody),
     signal: args.signal
   });
 

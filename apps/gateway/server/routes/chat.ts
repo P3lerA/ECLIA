@@ -389,6 +389,9 @@ export async function handleChat(
 
     const origin = backend.provider.origin;
 
+    const captureUpstreamRequests = Boolean((config as any)?.debug?.capture_upstream_requests);
+    let upstreamReqSeq = 0;
+
     // We build the upstream transcript progressively so tool results are fed back correctly.
     const upstreamMessages: any[] = [...contextMessages];
 
@@ -402,7 +405,8 @@ export async function handleChat(
           tools: toolsForModel,
           onDelta: (text) => {
             if (streamMode === "full") send(res, "delta", { text });
-          }
+          },
+          debug: captureUpstreamRequests ? { rootDir, sessionId, seq: ++upstreamReqSeq } : undefined
         });
 
         const assistantText = turn.assistantText;

@@ -23,13 +23,15 @@ export function buildSkillsInstructionPart(rootDir: string, enabledSkillNames: s
     enabled.push(s);
   }
 
-  const blurbFromFile = readSkillsSystemBlurb(rootDir);
-  const blurb =
-    blurbFromFile.trim().length > 0
-      ? blurbFromFile.trim()
-      : "Skills are optional capability packs. Enabled skills are listed below. For full instructions, read $ECLIA_SKILLS_DIR/<name>/skill.md.";
+  // Optional: user-provided skills system blurb (kept out of code; lives under skills/_system.md).
+  // If omitted/empty, we only inject the enabled-skill list (no default boilerplate).
+  const blurbFromFile = readSkillsSystemBlurb(rootDir).trim();
 
-  const content = [`[Skills]`, blurb, `Enabled skills:\n${formatEnabledSkills(enabled)}`].join("\n\n");
+  const sections: string[] = ["[Skills]"];
+  if (blurbFromFile) sections.push(blurbFromFile);
+  sections.push(`Enabled skills:\n${formatEnabledSkills(enabled)}`);
+
+  const content = sections.join("\n\n");
 
   return {
     id: "skills",

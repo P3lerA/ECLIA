@@ -26,6 +26,7 @@ type SettingsDraft = {
   textureDisabled: boolean;
   sessionSyncEnabled: boolean;
   displayPlainOutput: boolean;
+  debugCaptureUpstreamRequests: boolean;
   transport: TransportId;
   model: string;
   contextTokenLimit: string;
@@ -73,6 +74,7 @@ type DevConfig = {
   codex_home?: string;
   console: { host: string; port: number };
   api?: { port: number };
+  debug?: { capture_upstream_requests?: boolean };
   skills?: {
     enabled?: string[];
     available?: Array<{ name?: string; summary?: string }>;
@@ -245,6 +247,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     host: string;
     port: number;
     codexHome: string;
+    debugCaptureUpstreamRequests: boolean;
     systemInstruction: string;
     openaiCompatProfiles: Array<{
       id: string;
@@ -285,6 +288,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         const host = j.config.console.host ?? "127.0.0.1";
         const port = j.config.console.port ?? 5173;
         const codexHome = String((j.config as any).codex_home ?? "").trim();
+        const debugCaptureUpstreamRequests = Boolean((j.config as any)?.debug?.capture_upstream_requests ?? false);
         const systemInstruction = String((j.config.inference as any)?.system_instruction ?? "");
 
         const inf = j.config.inference?.openai_compat ?? {};
@@ -380,6 +384,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           host,
           port,
           codexHome,
+          debugCaptureUpstreamRequests,
           systemInstruction,
           openaiCompatProfiles: profiles,
           codexOAuthProfiles: codexProfiles,
@@ -415,6 +420,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         textureDisabled: state.settings.textureDisabled,
         sessionSyncEnabled: state.settings.sessionSyncEnabled,
         displayPlainOutput: Boolean(state.settings.displayPlainOutput ?? false),
+        debugCaptureUpstreamRequests: cfgBase ? cfgBase.debugCaptureUpstreamRequests : prev?.debugCaptureUpstreamRequests ?? false,
         transport: state.transport,
         model: cfgBase ? normalizeActiveModel(state.model, cfgBase.openaiCompatProfiles) : state.model,
         contextTokenLimit: String(state.settings.contextTokenLimit ?? 20000),
@@ -483,6 +489,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         ? d.consoleHost.trim() !== cfgBase.host || portNumber(d.consolePort) !== cfgBase.port
         : false;
 
+      const dirtyDevDebug = cfgBase ? d.debugCaptureUpstreamRequests !== cfgBase.debugCaptureUpstreamRequests : false;
+
       const dirtyDevInference = cfgBase
         ? !sameOpenAICompatProfiles(d.inferenceProfiles, cfgBase.openaiCompatProfiles) ||
           !sameCodexOAuthProfiles(d.codexOAuthProfiles, cfgBase.codexOAuthProfiles) ||
@@ -504,7 +512,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
       const dirtyDevSkills = cfgBase ? !sameStringArray(d.skillsEnabled, cfgBase.skillsEnabled) : false;
 
-      return dirtyUi || dirtyDevHostPort || dirtyDevInference || dirtyDevCodexHome || dirtyDevDiscord || dirtyDevSkills;
+      return dirtyUi || dirtyDevHostPort || dirtyDevDebug || dirtyDevInference || dirtyDevCodexHome || dirtyDevDiscord || dirtyDevSkills;
     },
     [
       state.settings.textureDisabled,
@@ -537,6 +545,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     ? draft.consoleHost.trim() !== cfgBase.host || portNumber(draft.consolePort) !== cfgBase.port
     : false;
 
+  const dirtyDevDebug = cfgBase ? draft.debugCaptureUpstreamRequests !== cfgBase.debugCaptureUpstreamRequests : false;
+
   const dirtyDevInference = cfgBase
     ? !sameOpenAICompatProfiles(draft.inferenceProfiles, cfgBase.openaiCompatProfiles) ||
       !sameCodexOAuthProfiles(draft.codexOAuthProfiles, cfgBase.codexOAuthProfiles) ||
@@ -558,7 +568,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
   const dirtyDevSkills = cfgBase ? !sameStringArray(draft.skillsEnabled, cfgBase.skillsEnabled) : false;
 
-  const dirtyDev = dirtyDevHostPort || dirtyDevInference || dirtyDevCodexHome || dirtyDevDiscord || dirtyDevSkills;
+  const dirtyDev = dirtyDevHostPort || dirtyDevDebug || dirtyDevInference || dirtyDevCodexHome || dirtyDevDiscord || dirtyDevSkills;
 
   const [saving, setSaving] = React.useState(false);
 
@@ -616,6 +626,12 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           body.console = {
             host: draft.consoleHost.trim(),
             port: Number(draft.consolePort)
+          };
+        }
+
+        if (dirtyDevDebug) {
+          body.debug = {
+            capture_upstream_requests: Boolean(draft.debugCaptureUpstreamRequests)
           };
         }
 
@@ -712,6 +728,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             host: body.console?.host ?? cfgBase.host,
             port: body.console?.port ?? cfgBase.port,
             codexHome: typeof body.codex_home === "string" ? body.codex_home : cfgBase.codexHome,
+            debugCaptureUpstreamRequests:
+              typeof (body as any).debug?.capture_upstream_requests === "boolean"
+                ? Boolean((body as any).debug.capture_upstream_requests)
+                : cfgBase.debugCaptureUpstreamRequests,
             systemInstruction: typeof (body.inference as any)?.system_instruction === "string" ? (body.inference as any).system_instruction : cfgBase.systemInstruction,
             openaiCompatProfiles: nextProfiles,
 
@@ -752,6 +772,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             adapterDiscordBotToken: "",
             adapterDiscordGuildIds: nextBase.discordGuildIds.join("\n"),
             adapterDiscordDefaultStreamMode: nextBase.discordDefaultStreamMode,
+
+            debugCaptureUpstreamRequests: nextBase.debugCaptureUpstreamRequests,
 
             skillsEnabled: [...nextBase.skillsEnabled]
           }));
@@ -1290,6 +1312,23 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                   checked={draft.displayPlainOutput}
                   onChange={(e) => setDraft((d) => ({ ...d, displayPlainOutput: e.target.checked }))}
                   aria-label="Display plain output"
+                />
+              </div>
+
+              <div className="row stack-gap">
+                <div className="row-left">
+                  <div className="row-main">Capture Upstream Requests</div>
+                  <div className="row-sub muted">
+                    Save the full upstream request body to <code>.eclia/debug/&lt;sessionId&gt;/</code> for debugging.
+                  </div>
+                </div>
+
+                <input
+                  type="checkbox"
+                  checked={draft.debugCaptureUpstreamRequests}
+                  onChange={(e) => setDraft((d) => ({ ...d, debugCaptureUpstreamRequests: e.target.checked }))}
+                  aria-label="Capture upstream requests"
+                  disabled={cfgLoading || !cfgBase}
                 />
               </div>
 

@@ -26,6 +26,15 @@ export type UpstreamOrigin = {
   model?: string;
 };
 
+export type UpstreamRequestDebugCapture = {
+  /** Repository/project root (used to resolve <repo>/.eclia/debug). */
+  rootDir: string;
+  /** Session id (used to bucket dumps by session). */
+  sessionId: string;
+  /** Best-effort monotonically increasing counter (per session). */
+  seq: number;
+};
+
 /**
  * Abstraction boundary for "upstream" inference.
  *
@@ -49,6 +58,7 @@ export interface UpstreamProvider {
     tools: any[];
     signal: AbortSignal;
     onDelta: (text: string) => void;
+    debug?: UpstreamRequestDebugCapture;
   }): Promise<ProviderTurnResult>;
 
   buildAssistantToolCallMessage(args: { assistantText: string; toolCalls: ToolCall[] }): any;

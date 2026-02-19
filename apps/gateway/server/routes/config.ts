@@ -10,6 +10,9 @@ type ConfigReqBody = {
   codex_home?: string;
   console?: { host?: string; port?: number };
   api?: { port?: number };
+  debug?: {
+    capture_upstream_requests?: boolean;
+  };
   skills?: {
     enabled?: string[];
   };
@@ -57,6 +60,7 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
         codex_home: config.codex_home,
         console: config.console,
         api: config.api,
+        debug: config.debug,
         skills: {
           enabled: config.skills.enabled,
           available: availableSkills.map((s) => ({ name: s.name, summary: s.summary }))
@@ -108,6 +112,13 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
     }
     if (body.console) patch.console = body.console;
     if (body.api) patch.api = body.api;
+
+    if (body.debug && Object.prototype.hasOwnProperty.call(body.debug, "capture_upstream_requests")) {
+      patch.debug = {
+        capture_upstream_requests: Boolean((body.debug as any).capture_upstream_requests)
+      };
+    }
+
     if (body.skills && Object.prototype.hasOwnProperty.call(body.skills, "enabled")) {
       const vr = validateEnabledSkills((body.skills as any).enabled, availableSkills);
       if (!vr.ok) {
