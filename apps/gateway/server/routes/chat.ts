@@ -19,6 +19,8 @@ import { resolveUpstreamBackend } from "../upstream/resolve.js";
 import type { ToolCall } from "../upstream/provider.js";
 import { json, readJson, safeInt, safeJsonStringify } from "../httpUtils.js";
 import { sanitizeExecResultForUiAndModel } from "../tools/execResultSanitize.js";
+import { composeSystemInstruction } from "../instructions/systemInstruction.js";
+import { buildSkillsInstructionPart } from "../instructions/skillsInstruction.js";
 
 type ChatReqBody = {
   sessionId?: string;
@@ -226,9 +228,17 @@ export async function handleChat(
     const { config, raw, rootDir } = loadEcliaConfig(process.cwd());
 
     // Global system instruction (from TOML). Injected as the ONLY role=system message for all providers.
-    const systemInstruction = typeof (config.inference as any)?.system_instruction === "string"
-      ? String((config.inference as any).system_instruction)
-      : "";
+    const { text: systemInstruction } = composeSystemInstruction([
+      {
+        id: "toml",
+        source: "toml",
+        priority: 100,
+        content: typeof (config.inference as any)?.system_instruction === "string" ? String((config.inference as any).system_instruction) : ""
+      },
+
+      // Skills (enabled by user in TOML; only inject enabled names + one-line summaries).
+      buildSkillsInstructionPart(rootDir, config.skills.enabled)
+    ]);
 
     // Ensure store is initialized and session exists.
     await store.init();

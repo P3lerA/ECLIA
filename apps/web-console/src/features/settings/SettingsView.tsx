@@ -64,12 +64,19 @@ type SettingsDraft = {
 
   // Adapters (Discord advanced)
   adapterDiscordDefaultStreamMode: "full" | "final"; // default for /eclia verbose when omitted
+
+  // Skills (dev-only; stored in eclia.config.local.toml)
+  skillsEnabled: string[];
 };
 
 type DevConfig = {
   codex_home?: string;
   console: { host: string; port: number };
   api?: { port: number };
+  skills?: {
+    enabled?: string[];
+    available?: Array<{ name?: string; summary?: string }>;
+  };
   inference?: {
     system_instruction?: string;
     provider?: string;
@@ -255,6 +262,9 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     discordTokenConfigured: boolean;
     discordGuildIds: string[];
     discordDefaultStreamMode: "full" | "final";
+
+    skillsEnabled: string[];
+    skillsAvailable: Array<{ name: string; summary: string }>;
   } | null>(null);
 
   // Load TOML config (best-effort).
@@ -349,6 +359,23 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
         const codexProfiles: CodexOAuthProfile[] = [codexProfile];
 
+        const skillsEnabled = Array.isArray((j.config as any)?.skills?.enabled)
+          ? ((j.config as any).skills.enabled as any[]).map((x: any) => String(x).trim()).filter(Boolean)
+          : [];
+        skillsEnabled.sort((a, b) => a.localeCompare(b));
+
+        const rawAvail = Array.isArray((j.config as any)?.skills?.available) ? ((j.config as any).skills.available as any[]) : [];
+        const skillsAvailable: Array<{ name: string; summary: string }> = [];
+        const seenSkills = new Set<string>();
+        for (const row of rawAvail) {
+          const name = String((row as any)?.name ?? "").trim();
+          if (!name || seenSkills.has(name)) continue;
+          seenSkills.add(name);
+          const summary = String((row as any)?.summary ?? "").trim();
+          skillsAvailable.push({ name, summary });
+        }
+        skillsAvailable.sort((a, b) => a.name.localeCompare(b.name));
+
         setCfgBase({
           host,
           port,
@@ -360,7 +387,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           discordAppId,
           discordTokenConfigured,
           discordGuildIds,
-          discordDefaultStreamMode
+          discordDefaultStreamMode,
+
+          skillsEnabled,
+          skillsAvailable
         });
       } catch {
         if (cancelled) return;
@@ -419,7 +449,9 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         adapterDiscordAppId: cfgBase?.discordAppId ?? prev?.adapterDiscordAppId ?? "",
         adapterDiscordBotToken: "",
         adapterDiscordGuildIds: cfgBase ? cfgBase.discordGuildIds.join("\n") : prev?.adapterDiscordGuildIds ?? "",
-        adapterDiscordDefaultStreamMode: cfgBase?.discordDefaultStreamMode ?? prev?.adapterDiscordDefaultStreamMode ?? "final"
+        adapterDiscordDefaultStreamMode: cfgBase?.discordDefaultStreamMode ?? prev?.adapterDiscordDefaultStreamMode ?? "final",
+
+        skillsEnabled: cfgBase ? [...cfgBase.skillsEnabled] : prev?.skillsEnabled ?? []
       };
     },
     [
@@ -470,7 +502,9 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           d.adapterDiscordDefaultStreamMode !== cfgBase.discordDefaultStreamMode
         : false;
 
-      return dirtyUi || dirtyDevHostPort || dirtyDevInference || dirtyDevCodexHome || dirtyDevDiscord;
+      const dirtyDevSkills = cfgBase ? !sameStringArray(d.skillsEnabled, cfgBase.skillsEnabled) : false;
+
+      return dirtyUi || dirtyDevHostPort || dirtyDevInference || dirtyDevCodexHome || dirtyDevDiscord || dirtyDevSkills;
     },
     [
       state.settings.textureDisabled,
@@ -522,7 +556,9 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       draft.adapterDiscordDefaultStreamMode !== cfgBase.discordDefaultStreamMode
     : false;
 
-  const dirtyDev = dirtyDevHostPort || dirtyDevInference || dirtyDevCodexHome || dirtyDevDiscord;
+  const dirtyDevSkills = cfgBase ? !sameStringArray(draft.skillsEnabled, cfgBase.skillsEnabled) : false;
+
+  const dirtyDev = dirtyDevHostPort || dirtyDevInference || dirtyDevCodexHome || dirtyDevDiscord || dirtyDevSkills;
 
   const [saving, setSaving] = React.useState(false);
 
@@ -629,6 +665,12 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           };
         }
 
+        if (dirtyDevSkills) {
+          body.skills = {
+            enabled: Array.isArray(draft.skillsEnabled) ? draft.skillsEnabled : []
+          };
+        }
+
         setCfgLoading(true);
         try {
           const r = await fetch("/api/config", {
@@ -679,7 +721,12 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             discordAppId: body.adapters?.discord?.app_id ?? cfgBase.discordAppId,
             discordTokenConfigured: cfgBase.discordTokenConfigured || Boolean(body.adapters?.discord?.bot_token),
             discordGuildIds: body.adapters?.discord?.guild_ids ?? cfgBase.discordGuildIds,
-            discordDefaultStreamMode: normalizeDiscordStreamMode(body.adapters?.discord?.default_stream_mode ?? cfgBase.discordDefaultStreamMode)
+            discordDefaultStreamMode: normalizeDiscordStreamMode(body.adapters?.discord?.default_stream_mode ?? cfgBase.discordDefaultStreamMode),
+
+            skillsEnabled: Array.isArray((body as any).skills?.enabled)
+              ? ([...((body as any).skills.enabled as string[])].sort((a, b) => a.localeCompare(b)) as string[])
+              : cfgBase.skillsEnabled,
+            skillsAvailable: cfgBase.skillsAvailable
           };
 
           setCfgBase(nextBase);
@@ -704,7 +751,9 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             codexHomeOverridePath: nextBase.codexHome,
             adapterDiscordBotToken: "",
             adapterDiscordGuildIds: nextBase.discordGuildIds.join("\n"),
-            adapterDiscordDefaultStreamMode: nextBase.discordDefaultStreamMode
+            adapterDiscordDefaultStreamMode: nextBase.discordDefaultStreamMode,
+
+            skillsEnabled: [...nextBase.skillsEnabled]
           }));
 
           setCfgSaved(
@@ -1793,6 +1842,62 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                   />
                 </div>
               </Collapsible>
+            </>
+            ) : null}
+
+            {activeSection === "skills" ? (
+            <>
+              <div className="card">
+                <div className="card-title">Skills</div>
+
+                <div className="devNoteText muted">
+                  Skills are stored under <code>skills/&lt;name&gt;/skill.md</code>. Skill names are strict: the config name, the registered name, and the directory name must match exactly.
+                </div>
+
+                {!cfgBase ? (
+                  <div className="devNoteText muted">Config service unavailable. Start the backend (pnpm dev:all) to edit skills.</div>
+                ) : cfgBase.skillsAvailable.length === 0 ? (
+                  <div className="devNoteText muted">
+                    No skills discovered. Create a folder like <code>skills/my-skill/</code> with a <code>skill.md</code> inside.
+                  </div>
+                ) : (
+                  <div className="stack">
+                    {cfgBase.skillsAvailable.map((s) => {
+                      const enabled = draft.skillsEnabled.includes(s.name);
+
+                      return (
+                        <div key={s.name} className="row stack-gap">
+                          <div className="row-left">
+                            <div className="row-main">{s.name}</div>
+                            <div className="row-sub muted">{s.summary || "(no summary)"}</div>
+                          </div>
+
+                          <input
+                            type="checkbox"
+                            checked={enabled}
+                            onChange={(e) => {
+                              const on = e.target.checked;
+                              setDraft((d) => {
+                                const cur = Array.isArray(d.skillsEnabled) ? d.skillsEnabled : [];
+                                const next = new Set(cur);
+                                if (on) next.add(s.name);
+                                else next.delete(s.name);
+                                return { ...d, skillsEnabled: Array.from(next).sort((a, b) => a.localeCompare(b)) };
+                              });
+                            }}
+                            aria-label={`Enable skill ${s.name}`}
+                            disabled={cfgLoading || !cfgBase}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="devNoteText muted">
+                  Tip: to customize the short "skill system" blurb injected into the model's system instruction, create <code>skills/_system.md</code> (kept short; not required).
+                </div>
+              </div>
             </>
             ) : null}
           </div>

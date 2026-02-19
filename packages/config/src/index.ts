@@ -27,6 +27,25 @@ export type EcliaConfig = {
   api: {
     port: number;
   };
+
+  /**
+   * Optional "skills" system.
+   *
+   * Skills are user-enabled capability packs stored under:
+   *   <repo>/skills/<name>/skill.md
+   *
+   * NOTE: The config only tracks which skills are enabled.
+   * Skill discovery/metadata is handled by the gateway at runtime.
+   */
+  skills: {
+    /**
+     * Names of enabled skills.
+     *
+     * IMPORTANT: the skill name must exactly match its directory name under /skills.
+     */
+    enabled: string[];
+  };
+
   inference: {
     /**
      * Optional system instruction injected as the ONLY role=system message for all providers.
@@ -127,6 +146,7 @@ export type EcliaConfigPatch = Partial<{
   codex_home: string;
   console: Partial<EcliaConfig["console"]>;
   api: Partial<EcliaConfig["api"]>;
+  skills: Partial<EcliaConfig["skills"]>;
   inference: Partial<{
     system_instruction: string;
     provider: EcliaConfig["inference"]["provider"];
@@ -151,6 +171,9 @@ export type EcliaConfigPatch = Partial<{
 export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
   console: { host: "127.0.0.1", port: 5173 },
   api: { port: 8787 },
+  skills: {
+    enabled: []
+  },
   inference: {
     provider: "openai_compat",
     openai_compat: {
@@ -285,6 +308,7 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
 
   const consoleRaw = isRecord(raw.console) ? raw.console : {};
   const apiRaw = isRecord(raw.api) ? raw.api : {};
+  const skillsRaw = isRecord((raw as any).skills) ? ((raw as any).skills as any) : {};
   const infRaw = isRecord(raw.inference) ? raw.inference : {};
 
   const openaiRaw = isRecord((infRaw as any).openai_compat) ? (infRaw as any).openai_compat : {};
@@ -377,6 +401,9 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
     },
     api: {
       port: clampPort(apiRaw.port, base.api.port)
+    },
+    skills: {
+      enabled: coerceStringArray((skillsRaw as any).enabled, base.skills.enabled ?? [])
     },
     inference: {
       ...(system_instruction ? { system_instruction } : {}),
@@ -553,6 +580,10 @@ export function writeLocalEcliaConfig(
     ...nextLocal,
     console: { host: normalized.console.host, port: normalized.console.port },
     api: { port: normalized.api.port },
+    skills: {
+      ...(isRecord((nextLocal as any).skills) ? (nextLocal as any).skills : {}),
+      enabled: normalized.skills.enabled
+    },
     inference: {
       ...(isRecord(nextLocal.inference) ? nextLocal.inference : {}),
       provider: normalized.inference.provider,
@@ -575,6 +606,16 @@ export function writeLocalEcliaConfig(
       }
     }
   };
+
+  // skills.enabled: omit the whole [skills] table when it would be empty AND
+  // it doesn't contain any other user-defined keys.
+  {
+    const rawSkills = isRecord((nextLocal as any).skills) ? ((nextLocal as any).skills as Record<string, any>) : null;
+    const hasOtherKeys = rawSkills ? Object.keys(rawSkills).some((k) => k !== "enabled") : false;
+    if (!hasOtherKeys && normalized.skills.enabled.length === 0) {
+      delete (toWrite as any).skills;
+    }
+  }
 
   // inference.system_instruction: write only when non-empty; otherwise remove from TOML.
   if (normalized.inference.system_instruction) (toWrite as any).inference.system_instruction = normalized.inference.system_instruction;

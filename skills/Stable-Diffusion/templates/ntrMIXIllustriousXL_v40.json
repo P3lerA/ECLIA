@@ -1,0 +1,24 @@
+{
+  "prompt": "masterpiece, best quality, amazing quality, very aesthetic, absurdres",
+  "negative_prompt": "censored, text, watermark, bad anatomy, bad proportions, extra limbs, extra digits, disfigured, missing arms, too many fingers, fused fingers, missing fingers, unclear eyes, username",
+  "steps": 30,
+  "cfg_scale": 5,
+  "sampler_name": "DPM++ 2M",
+  "scheduler": "Karras",
+  "width": 832,
+  "height": 1216,
+  "seed": -1,
+  "batch_size": 1,
+  "n_iter": 1,
+
+  "override_settings": {
+    "sd_model_checkpoint": "ntrMIXIllustriousXL_v40"
+  },
+
+  "enable_hr": false,
+  "hr_second_pass_steps": 20,
+  "hr_scale": 1.5,
+  "hr_upscaler": "8x_NMKD-Superscale_150000_G",
+  "hr_prompt": "",
+  "hr_negative_prompt": ""
+}

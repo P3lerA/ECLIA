@@ -44,8 +44,12 @@ export function messageToVisibleText(msg: StoredMessage): string {
 
     if ((b as any).type === "tool") {
       const name = typeof (b as any).name === "string" ? (b as any).name : "tool";
+      const status = typeof (b as any).status === "string" ? (b as any).status : "ok";
       const payload = (b as any).payload ?? {};
-      parts.push(`\n\n[tool:${name}] ${safeJson(payload)}\n\n`);
+      // IMPORTANT: Avoid serializing tool blocks using a bracketed tag like "[tool:...]".
+      // Some models may imitate that format and emit fake tool calls as plain text.
+      // Use a neutral, informational format instead.
+      parts.push(`\n\nTool ${name} (${status}): ${safeJson(payload)}\n\n`);
       continue;
     }
   }

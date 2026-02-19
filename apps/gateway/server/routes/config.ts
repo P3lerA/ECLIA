@@ -2,12 +2,17 @@ import http from "node:http";
 
 import { loadEcliaConfig, preflightListen, type EcliaConfigPatch, writeLocalEcliaConfig } from "@eclia/config";
 
+import { discoverSkills, validateEnabledSkills } from "../skills/registry.js";
+
 import { json, readJson } from "../httpUtils.js";
 
 type ConfigReqBody = {
   codex_home?: string;
   console?: { host?: string; port?: number };
   api?: { port?: number };
+  skills?: {
+    enabled?: string[];
+  };
   inference?: {
     system_instruction?: string;
     openai_compat?: {
@@ -42,6 +47,7 @@ type ConfigReqBody = {
 
 export async function handleConfig(req: http.IncomingMessage, res: http.ServerResponse) {
   const { config, rootDir } = loadEcliaConfig(process.cwd());
+  const availableSkills = discoverSkills(rootDir);
 
   if (req.method === "GET") {
     // Do NOT return secrets.
@@ -51,6 +57,10 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
         codex_home: config.codex_home,
         console: config.console,
         api: config.api,
+        skills: {
+          enabled: config.skills.enabled,
+          available: availableSkills.map((s) => ({ name: s.name, summary: s.summary }))
+        },
         inference: {
           system_instruction: (config.inference as any).system_instruction,
           provider: config.inference.provider,
@@ -98,6 +108,18 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
     }
     if (body.console) patch.console = body.console;
     if (body.api) patch.api = body.api;
+    if (body.skills && Object.prototype.hasOwnProperty.call(body.skills, "enabled")) {
+      const vr = validateEnabledSkills((body.skills as any).enabled, availableSkills);
+      if (!vr.ok) {
+        return json(res, 400, {
+          ok: false,
+          error: vr.error,
+          hint: vr.hint
+        });
+      }
+
+      patch.skills = { enabled: vr.enabled };
+    }
     if (typeof body.inference?.system_instruction === "string") {
       const s = body.inference.system_instruction.trim();
       patch.inference = { ...(patch.inference ?? {}), system_instruction: s };

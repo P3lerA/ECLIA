@@ -11,6 +11,13 @@ port = 5173
 # Gateway API server port (dev)
 port = 8787
 
+[skills]
+# Skills are optional capability packs stored under: skills/<name>/skill.md
+#
+# Enable skills by listing names that EXACTLY match their directory names.
+# Default: none enabled.
+enabled = []
+
 [inference]
 # Current MVP: OpenAI-compatible provider (works with any OpenAI-like API).
 provider = "openai_compat"

@@ -54,6 +54,29 @@ function nowMs() {
   return Date.now();
 }
 
+function expandEcliaSkillsDirPlaceholders(s, skillsDirAbs) {
+  if (typeof s !== "string" || !skillsDirAbs) return s;
+
+  return s
+    .replace(/\$\{ECLIA_SKILLS_DIR\}/g, skillsDirAbs)
+    .replace(/\$ECLIA_SKILLS_DIR(?![A-Za-z0-9_])/g, skillsDirAbs)
+    .replace(/%ECLIA_SKILLS_DIR%/g, skillsDirAbs)
+    .replace(/\$env:ECLIA_SKILLS_DIR\b/g, skillsDirAbs);
+}
+
+function expandExecArgsSkillsDir(args, skillsDirAbs) {
+  if (!args || typeof args !== "object" || !skillsDirAbs) return args;
+
+  if (typeof args.cwd === "string") args.cwd = expandEcliaSkillsDirPlaceholders(args.cwd, skillsDirAbs);
+  if (typeof args.cmd === "string") args.cmd = expandEcliaSkillsDirPlaceholders(args.cmd, skillsDirAbs);
+  if (typeof args.command === "string") args.command = expandEcliaSkillsDirPlaceholders(args.command, skillsDirAbs);
+  if (Array.isArray(args.args)) {
+    args.args = args.args.map((a) => (typeof a === "string" ? expandEcliaSkillsDirPlaceholders(a, skillsDirAbs) : a));
+  }
+
+  return args;
+}
+
 // --- Exec implementation ----------------------------------------------------
 
 function resolveCwd(projectRoot, cwdArg) {
@@ -259,6 +282,8 @@ async function runExecTool(rawArgs, signal) {
   const meta = readEcliaMeta(rawArgs);
   const args = parseExecArgs(rawArgs);
   const projectRoot = process.cwd();
+  const skillsDirAbs = path.join(projectRoot, "skills");
+  expandExecArgsSkillsDir(args, skillsDirAbs);
 
   const artifactsRoot = path.join(projectRoot, ".eclia", "artifacts");
   const artifactDirAbs =
@@ -370,7 +395,8 @@ async function runExecTool(rawArgs, signal) {
   // (especially when using nvm in a Git-Bash-like shell) emit warnings when
   // npm_config_prefix is set. Strip it from inherited env by default.
   const inheritedEnv = sanitizeNpmEnvForNvm({ ...process.env }, args.env);
-  const baseEnv = applyPlatformPathFixes({ ...inheritedEnv, ...args.env });
+  const baseEnv0 = applyPlatformPathFixes({ ...inheritedEnv, ...args.env });
+  const baseEnv = { ...baseEnv0, ECLIA_SKILLS_DIR: skillsDirAbs };
   const env =
     artifactDirAbs
       ? {
@@ -547,7 +573,7 @@ async function runExecTool(rawArgs, signal) {
 const EXEC_TOOL_DEF = {
   name: "exec",
   title: "Execute Command",
-  description: "Execute a command on this machine (Windows). Prefer cmd+args. For large/binary outputs, write files to %ECLIA_ARTIFACT_DIR% (or $env:ECLIA_ARTIFACT_DIR in PowerShell). Avoid printing huge base64 blobs; decode to a file instead. Files created there will be returned as artifacts. Each artifact includes: path (repo-relative), uri (eclia://artifact/...), and ref (<eclia://artifact/...>) for copy/paste referencing. Returns stdout/stderr/exitCode.",
+  description: "Execute a command on this machine (Windows). Prefer cmd+args. Skills live under %ECLIA_SKILLS_DIR%/<name> (or $env:ECLIA_SKILLS_DIR in PowerShell). For large/binary outputs, write files to %ECLIA_ARTIFACT_DIR% (or $env:ECLIA_ARTIFACT_DIR in PowerShell). Avoid printing huge base64 blobs; decode to a file instead. Files created there will be returned as artifacts. Each artifact includes: path (repo-relative), uri (eclia://artifact/...), and ref (<eclia://artifact/...>) for copy/paste referencing. Returns stdout/stderr/exitCode.",
   inputSchema: {
     type: "object",
     properties: {
