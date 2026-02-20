@@ -1,5 +1,6 @@
 import http from "node:http";
 import crypto from "node:crypto";
+import path from "node:path";
 
 import {
   loadEcliaConfig
@@ -442,6 +443,10 @@ export async function handleChat(
     const captureUpstreamRequests = Boolean((config as any)?.debug?.capture_upstream_requests);
     let upstreamReqSeq = 0;
 
+    // Capture dumps should live alongside the session store under <repo>/.eclia/debug/<sessionId>/.
+    // Derive <repo> from the store path rather than process.cwd()/config discovery to avoid surprises.
+    const debugRootDir = path.dirname(path.dirname(store.sessionsDir));
+
     // We build the upstream transcript progressively so tool results are fed back correctly.
     const upstreamMessages: any[] = [...contextMessages];
 
@@ -456,7 +461,7 @@ export async function handleChat(
           onDelta: (text) => {
             if (streamMode === "full") send(res, "delta", { text });
           },
-          debug: captureUpstreamRequests ? { rootDir, sessionId, seq: ++upstreamReqSeq } : undefined
+          debug: captureUpstreamRequests ? { rootDir: debugRootDir, sessionId, seq: ++upstreamReqSeq } : undefined
         });
 
         const assistantText = turn.assistantText;

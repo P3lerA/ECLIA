@@ -50,7 +50,16 @@ export function dumpUpstreamRequestBody(args: {
     };
 
     fs.writeFileSync(absPath, JSON.stringify(payload, null, 2), "utf-8");
-  } catch {
-    // ignore
+  } catch (e: any) {
+    // Debugging must not break inference, but silent failure makes this feature look "broken".
+    // Log only the error and destination (never the request body / headers).
+    try {
+      const msg = typeof e?.message === "string" ? e.message : String(e);
+      console.warn(
+        `[gateway] warning: failed to dump upstream request (session=${String(args.sessionId)} provider=${String(args.providerKind)}): ${msg}`
+      );
+    } catch {
+      // ignore
+    }
   }
 }

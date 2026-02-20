@@ -127,9 +127,8 @@ function transcriptToMessages(records: TranscriptRecord[]): Message[] {
       const raw = typeof (m as any).content === "string" ? String((m as any).content) : safeJson((m as any).content);
       const blocks = blocksFromAssistantRaw(raw);
 
-      // Assistant bubble (text/thoughts). Tool calls are rendered as separate TOOL bubbles.
-      out.push({ id: (r as any).id ?? cryptoId(), role: "assistant", createdAt: ts, blocks, raw });
-
+      // Render tool calls *inside* the assistant bubble. This matches OpenAI semantics:
+      // tool_calls belong to the assistant message, while tool results are separate role=tool messages.
       const toolCalls = Array.isArray((m as any).tool_calls) ? ((m as any).tool_calls as OpenAICompatToolCall[]) : [];
       for (const tc of toolCalls) {
         const callId = typeof tc?.id === "string" ? tc.id : "";
@@ -138,14 +137,25 @@ function transcriptToMessages(records: TranscriptRecord[]): Message[] {
 
         if (callId) callIdToName.set(callId, name);
 
-        out.push({
-          id: `${(r as any).id ?? cryptoId()}:tool_call:${callId || name}`,
-          role: "tool",
-          createdAt: ts,
-          blocks: [{ type: "tool", name, status: "calling", payload: { callId, raw: argsRaw } } as any],
-          raw: argsRaw
-        });
+        // Best-effort parse for richer UI display (parse errors are surfaced).
+        let parsed: any = null;
+        let parseError: string | undefined;
+        try {
+          parsed = argsRaw ? JSON.parse(argsRaw) : {};
+        } catch (e: any) {
+          parsed = {};
+          parseError = String(e?.message ?? e);
+        }
+
+        blocks.push({
+          type: "tool",
+          name,
+          status: "calling",
+          payload: { callId, raw: argsRaw, parsed, parseError }
+        } as any);
       }
+
+      out.push({ id: (r as any).id ?? cryptoId(), role: "assistant", createdAt: ts, blocks, raw });
       continue;
     }
 

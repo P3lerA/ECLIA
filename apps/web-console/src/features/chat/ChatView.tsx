@@ -48,7 +48,9 @@ function collapseMessagesToFinalPerTurn(messages: Message[]): Message[] {
       }
       if (x.role === "user") break;
       if (x.role === "tool") lastToolIdx = j;
-      if (x.role === "assistant") assistantIdxs.push(j);
+      if (x.role === "assistant") {
+        assistantIdxs.push(j);
+      }
       j++;
     }
 
@@ -61,8 +63,8 @@ function collapseMessagesToFinalPerTurn(messages: Message[]): Message[] {
       pick = safe[idx] ?? null;
       break;
     }
-    // No post-tool assistant yet (tool still running) → show nothing (user only).
-    if (!pick && lastToolIdx < 0 && assistantIdxs.length) {
+    // No post-tool assistant yet (tool still running) → show the latest assistant so far.
+    if (!pick && assistantIdxs.length) {
       pick = safe[assistantIdxs[assistantIdxs.length - 1]] ?? null;
     }
 
@@ -113,17 +115,24 @@ export function ChatView({
             </div>
 
             <div className="chatview-actions" aria-label="Actions">
-              <div className="themeSwitch compact" role="group" aria-label="Work process">
+              <div className="themeSwitch compact" role="group" aria-label="Steps">
+                <button
+                  type="button"
+                  className={"themeSwitch-btn" + (!showWork ? " active" : "")}
+                  aria-pressed={!showWork}
+                  onClick={() => dispatch({ type: "settings/displayWorkProcess", enabled: false })}
+                  title="Show final answers only"
+                >
+                  Final
+                </button>
                 <button
                   type="button"
                   className={"themeSwitch-btn" + (showWork ? " active" : "")}
                   aria-pressed={showWork}
-                  onClick={() =>
-                    dispatch({ type: "settings/displayWorkProcess", enabled: !showWork })
-                  }
-                  title={showWork ? "Hide work process" : "Show work process"}
+                  onClick={() => dispatch({ type: "settings/displayWorkProcess", enabled: true })}
+                  title="Show full work process"
                 >
-                  Steps
+                  Full
                 </button>
               </div>
               <ThemeModeSwitch compact />

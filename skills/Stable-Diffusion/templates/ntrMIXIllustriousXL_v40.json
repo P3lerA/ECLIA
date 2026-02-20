@@ -1,6 +1,6 @@
 {
   "prompt": "masterpiece, best quality, amazing quality, very aesthetic, absurdres",
-  "negative_prompt": "censored, text, watermark, bad anatomy, bad proportions, extra limbs, extra digits, disfigured, missing arms, too many fingers, fused fingers, missing fingers, unclear eyes, username",
+  "negative_prompt": "nsfw, nude, censored, text, watermark, bad anatomy, bad proportions, extra limbs, extra digits, disfigured, missing arms, too many fingers, fused fingers, missing fingers, unclear eyes, username",
   "steps": 30,
   "cfg_scale": 5,
   "sampler_name": "DPM++ 2M",

@@ -95,6 +95,7 @@ export type Action =
   | { type: "assistant/stream/start"; sessionId: string; messageId: string }
   | { type: "assistant/stream/append"; sessionId: string; text: string }
   | { type: "assistant/stream/finalize"; sessionId: string }
+  | { type: "assistant/appendBlocksToLast"; sessionId: string; blocks: Block[] }
   | { type: "assistant/addBlocks"; sessionId: string; blocks: Block[] }
   | { type: "messages/clear"; sessionId: string }
   | { type: "inspector/tab"; tab: InspectorTabId }
@@ -324,6 +325,30 @@ export function reducer(state: AppState, action: Action): AppState {
 
       const msg = list[idx];
       const updated: Message = { ...msg, streaming: false };
+      return {
+        ...state,
+        messagesBySession: {
+          ...state.messagesBySession,
+          [action.sessionId]: replaceAt(list, idx, updated)
+        }
+      };
+    }
+
+    case "assistant/appendBlocksToLast": {
+      const list = state.messagesBySession[action.sessionId] ?? [];
+
+      let idx = -1;
+      for (let i = list.length - 1; i >= 0; i--) {
+        if (list[i].role === "assistant") {
+          idx = i;
+          break;
+        }
+      }
+      if (idx < 0) return state;
+
+      const msg = list[idx];
+      const updated: Message = { ...msg, blocks: [...msg.blocks, ...(action.blocks ?? [])] };
+
       return {
         ...state,
         messagesBySession: {

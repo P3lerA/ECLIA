@@ -112,15 +112,17 @@ export function useSendMessage() {
         }
 
         if (evt.type === "tool_call") {
+          // Tool calls belong to the *assistant* message (OpenAI semantics).
+          // Render them as blocks inside the most recent assistant bubble.
+          const payload =
+            evt.callId && typeof evt.callId === "string"
+              ? { ...(evt.args as any), callId: evt.callId }
+              : evt.args;
+
           dispatch({
-            type: "message/add",
+            type: "assistant/appendBlocksToLast",
             sessionId,
-            message: {
-              id: makeId(),
-              role: "tool",
-              createdAt: evt.at,
-              blocks: [{ type: "tool", name: evt.name, status: "calling", payload: evt.args }]
-            }
+            blocks: [{ type: "tool", name: evt.name, status: "calling", payload }]
           });
         }
 
