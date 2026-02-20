@@ -133,6 +133,8 @@ function ToolBlockView({ block }: { block: ToolBlock }) {
   const sessionId = typeof payload?.sessionId === "string" ? payload.sessionId : undefined;
 
   const artifacts = extractArtifacts(payload);
+  const isSendTool = block.name === "send";
+  const hidePayloadInRichView = isSendTool && block.status === "ok";
 
   const [busy, setBusy] = React.useState(false);
   const [decision, setDecision] = React.useState<ToolApprovalDecision | null>(null);
@@ -175,7 +177,7 @@ function ToolBlockView({ block }: { block: ToolBlock }) {
 
       {err ? <div className="muted" style={{ marginTop: 6 }}>[error] {err}</div> : null}
 
-      {artifacts.length ? (
+      {!plainOutput && artifacts.length ? (
         <div className="block-tool-artifacts">
           {artifacts.map((a: any, i: number) => {
             const p = typeof a?.path === "string" ? a.path : "";
@@ -196,7 +198,7 @@ function ToolBlockView({ block }: { block: ToolBlock }) {
                     {label}
                   </a>
                   {typeof bytes === "number" ? <span className="muted">· {formatBytes(bytes)}</span> : null}
-                  <span className="muted">· {p}</span>
+                  {!isSendTool ? <span className="muted">· {p}</span> : null}
                 </div>
 
                 {isImage ? <img className="artifact-img" src={url} alt={label} loading="lazy" /> : null}
@@ -208,7 +210,7 @@ function ToolBlockView({ block }: { block: ToolBlock }) {
 
       {plainOutput ? (
         <pre className="code-lite">{JSON.stringify(payload ?? {}, null, 2)}</pre>
-      ) : (
+      ) : hidePayloadInRichView ? null : (
         <ToolPayloadRendered block={block} payload={payload} />
       )}
     </div>
@@ -255,7 +257,74 @@ function ToolPayloadRendered({ block, payload }: { block: ToolBlock; payload: an
     );
   }
 
+  if (formatted?.kind === "exec_error_summary") {
+    const stdout = formatted.stdout ?? "";
+    const stderr = formatted.stderr ?? "";
+    const exitCode = formatted.exitCode;
+
+    return (
+      <div>
+        <div style={{ marginTop: 6 }}>
+          <div className="muted">exitCode</div>
+          <pre className="code-lite">{exitCode === null ? "null" : String(exitCode)}</pre>
+        </div>
+
+        {stdout ? (
+          <div style={{ marginTop: 6 }}>
+            <div className="muted">stdout</div>
+            <pre className="code-lite">{stdout}</pre>
+          </div>
+        ) : null}
+        {stderr ? (
+          <div style={{ marginTop: 6 }}>
+            <div className="muted">stderr</div>
+            <pre className="code-lite">{stderr}</pre>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (formatted?.kind === "send_error_summary") {
+    const stdout = formatted.stdout ?? "";
+    const stderr = formatted.stderr ?? "";
+    const exitCode = formatted.exitCode;
+
+    return (
+      <div>
+        <div style={{ marginTop: 6 }}>
+          <div className="muted">exitCode</div>
+          <pre className="code-lite">{exitCode === null ? "null" : String(exitCode)}</pre>
+        </div>
+
+        {stdout ? (
+          <div style={{ marginTop: 6 }}>
+            <div className="muted">stdout</div>
+            <pre className="code-lite">{stdout}</pre>
+          </div>
+        ) : null}
+        {stderr ? (
+          <div style={{ marginTop: 6 }}>
+            <div className="muted">stderr</div>
+            <pre className="code-lite">{stderr}</pre>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   // Fallback: keep JSON (compact but complete enough).
+  if (block.name === "send" && block.status === "error") {
+    // In rich mode, avoid dumping a huge JSON blob for send errors. Users can toggle
+    // "display plain text" to see the raw payload.
+    const out = (payload && typeof payload === "object" && (payload as any).output) ? (payload as any).output : payload;
+    const msg =
+      out && typeof out === "object" && (out as any).error && typeof (out as any).error.message === "string"
+        ? String((out as any).error.message)
+        : "send failed";
+    return <div className="muted" style={{ marginTop: 6 }}>[error] {msg}</div>;
+  }
+
   return <pre className="code-lite">{JSON.stringify(payload ?? {}, null, 2)}</pre>;
 }
 

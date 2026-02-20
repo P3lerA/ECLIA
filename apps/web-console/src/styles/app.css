@@ -463,6 +463,16 @@ button, input, select, textarea{
   flex-direction: column;
   gap: 10px;
 }
+
+.block-tool-images{
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.block-tool-images .artifact-img{
+  margin-top: 0;
+}
 .artifact-item{
   border: 1px solid var(--line);
   background: var(--surface);

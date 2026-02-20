@@ -6,7 +6,8 @@ import { loadEcliaConfig } from "@eclia/config";
 
 import { SessionStore } from "./sessionStore.js";
 import { ToolApprovalHub } from "./tools/approvalHub.js";
-import { EXEC_TOOL_NAME, EXECUTION_TOOL_NAME } from "./tools/toolSchemas.js";
+import { EXEC_TOOL_NAME, EXECUTION_TOOL_NAME, SEND_TOOL_NAME } from "./tools/toolSchemas.js";
+import { SEND_TOOL_SCHEMA } from "./tools/sendTool.js";
 import { McpStdioClient, type McpToolDef } from "./mcp/stdioClient.js";
 import { json } from "./httpUtils.js";
 
@@ -82,6 +83,16 @@ async function main() {
         name: EXECUTION_TOOL_NAME,
         description: execTool.description || "Alias of 'exec'. Execute a command on the local machine.",
         parameters
+      }
+    },
+    {
+      type: "function",
+      function: {
+        name: SEND_TOOL_NAME,
+        description:
+          "Send text and/or artifacts to the request origin (web/discord) or an explicitly specified destination. " +
+          "Artifact refs (from exec results) are always allowed. In safe mode, sending local files by absolute path or manually specifying a destination requires user approval.",
+        parameters: SEND_TOOL_SCHEMA
       }
     }
   ];

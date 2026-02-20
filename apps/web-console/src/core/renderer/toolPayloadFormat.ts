@@ -10,10 +10,34 @@ export type FormattedToolPayload =
       kind: "exec_stdout_stderr";
       stdout?: string;
       stderr?: string;
+    }
+  | {
+      kind: "exec_error_summary";
+      stdout?: string;
+      stderr?: string;
+      exitCode: number | null;
+    }
+  | {
+      kind: "send_error_summary";
+      stdout?: string;
+      stderr?: string;
+      exitCode: number | null;
     };
 
 function isRecord(v: unknown): v is Record<string, any> {
   return Boolean(v) && typeof v === "object" && !Array.isArray(v);
+}
+
+function parseExitCode(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (v === null) return null;
+  if (typeof v === "string") {
+    const t = v.trim();
+    if (!t) return null;
+    const n = Number(t);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
 }
 
 /**
@@ -43,17 +67,15 @@ export function tryFormatToolPayload(block: ToolBlock, payload: any): FormattedT
       return { kind: "tool_call_raw", raw, parseError };
     }
 
-    // 2) Exec results: for ok runs, show only stdout/stderr.
+    // 2) Exec results: show only stdout/stderr (and exitCode on errors).
     // The payload shape differs between:
     // - live SSE blocks: payload === output
     // - persisted blocks: payload === { callId, ok, output }
     const isExecTool = block.name === "exec" || block.name === "execution";
     if (isExecTool && (block.status === "ok" || block.status === "error")) {
       const out = isRecord(payload) && isRecord(payload.output) ? payload.output : payload;
-
       if (!isRecord(out)) return null;
 
-      // Only do the concise view for successful execs; errors keep JSON by default.
       const ok =
         typeof (out as any).ok === "boolean"
           ? Boolean((out as any).ok)
@@ -61,15 +83,50 @@ export function tryFormatToolPayload(block: ToolBlock, payload: any): FormattedT
             ? Boolean((payload as any).ok)
             : block.status === "ok";
 
-      if (!ok) return null;
-
       const stdout = typeof (out as any).stdout === "string" ? (out as any).stdout : "";
       const stderr = typeof (out as any).stderr === "string" ? (out as any).stderr : "";
 
+      if (ok) {
+        return {
+          kind: "exec_stdout_stderr",
+          stdout: stdout || undefined,
+          stderr: stderr || undefined
+        };
+      }
+
       return {
-        kind: "exec_stdout_stderr",
+        kind: "exec_error_summary",
         stdout: stdout || undefined,
-        stderr: stderr || undefined
+        stderr: stderr || undefined,
+        exitCode: parseExitCode((out as any).exitCode)
+      };
+    }
+
+    // 3) Send errors: show only stdout/stderr/exitCode (if present). In most cases,
+    // send failures carry an { error: { code, message } } payload, so we surface the
+    // message as stderr to keep the UI consistent with exec errors.
+    const isSendTool = block.name === "send";
+    if (isSendTool && block.status === "error") {
+      const out = isRecord(payload) && isRecord(payload.output) ? payload.output : payload;
+      if (!isRecord(out)) {
+        return { kind: "send_error_summary", exitCode: null };
+      }
+
+      const stdout = typeof (out as any).stdout === "string" ? String((out as any).stdout) : "";
+      let stderr = typeof (out as any).stderr === "string" ? String((out as any).stderr) : "";
+
+      if (!stderr) {
+        const errObj = isRecord((out as any).error) ? (out as any).error : null;
+        const code = errObj && typeof errObj.code === "string" ? String(errObj.code) : "";
+        const msg = errObj && typeof errObj.message === "string" ? String(errObj.message) : "";
+        if (msg) stderr = code ? `[${code}] ${msg}` : msg;
+      }
+
+      return {
+        kind: "send_error_summary",
+        stdout: stdout || undefined,
+        stderr: stderr || undefined,
+        exitCode: parseExitCode((out as any).exitCode)
       };
     }
 
@@ -78,4 +135,3 @@ export function tryFormatToolPayload(block: ToolBlock, payload: any): FormattedT
     return null;
   }
 }
-

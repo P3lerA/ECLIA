@@ -11,7 +11,15 @@ import { blocksFromAssistantRaw, textBlock } from "../normalize.js";
 import { ToolApprovalHub } from "../tools/approvalHub.js";
 import { parseExecArgs } from "../tools/execTool.js";
 import { checkExecNeedsApproval, loadExecAllowlist, type ToolAccessMode } from "../tools/policy.js";
-import { EXEC_TOOL_NAME, EXECUTION_TOOL_NAME } from "../tools/toolSchemas.js";
+import { checkSendNeedsApproval, parseSendArgs, prepareSendAttachments } from "../tools/sendTool.js";
+import {
+  planToolApproval,
+  waitForToolApproval,
+  approvalOutcomeToError,
+  type ToolSafetyCheck,
+  type ToolApprovalWaiter
+} from "../tools/approvalFlow.js";
+import { EXEC_TOOL_NAME, EXECUTION_TOOL_NAME, SEND_TOOL_NAME } from "../tools/toolSchemas.js";
 import { McpStdioClient } from "../mcp/stdioClient.js";
 import { sseHeaders, initSse, send, startSseKeepAlive } from "../sse.js";
 import { withSessionLock } from "../sessionLock.js";
@@ -124,6 +132,51 @@ function deriveTitleFromOrigin(origin: SessionMetaV1["origin"] | undefined): str
 
   // Keep titles short-ish for UI lists.
   return s.length > 96 ? s.slice(0, 96).trimEnd() + "…" : s;
+}
+
+function guessDiscordAdapterBaseUrl(): string {
+  const explicit = (process.env.ECLIA_DISCORD_ADAPTER_URL ?? "").trim();
+  if (explicit) return explicit;
+  const portRaw = (process.env.ECLIA_DISCORD_ADAPTER_PORT ?? "8790").trim();
+  const port = Number(portRaw);
+  return `http://127.0.0.1:${Number.isFinite(port) && port > 0 ? port : 8790}`;
+}
+
+async function postDiscordAdapterSend(args: {
+  adapterBaseUrl: string;
+  adapterKey?: string;
+  origin: any;
+  content: string;
+  refs: string[];
+}): Promise<{ ok: true } | { ok: false; error: { code: string; message: string } }> {
+  const url = `${args.adapterBaseUrl.replace(/\/$/, "")}/send`;
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const key = typeof args.adapterKey === "string" ? args.adapterKey.trim() : "";
+  if (key) headers["x-eclia-adapter-key"] = key;
+
+  const payload = {
+    origin: args.origin,
+    content: args.content,
+    refs: Array.isArray(args.refs) ? args.refs : []
+  };
+
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 30_000);
+  try {
+    const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(payload), signal: ctrl.signal as any });
+    const j = (await r.json().catch(() => null)) as any;
+    if (!r.ok || !j?.ok) {
+      const err = typeof j?.error === "string" ? j.error : `http_${r.status}`;
+      return { ok: false, error: { code: "send_failed", message: `Discord adapter send failed: ${err}` } };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    const msg = String(e?.name === "AbortError" ? "timeout" : e?.message ?? e);
+    return { ok: false, error: { code: "adapter_unreachable", message: `Discord adapter unreachable: ${msg}` } };
+  } finally {
+    clearTimeout(t);
+  }
 }
 
 function extractRequestedOrigin(body: ChatReqBody): SessionMetaV1["origin"] | undefined {
@@ -439,12 +492,11 @@ export async function handleChat(
         upstreamMessages.push(backend.provider.buildAssistantToolCallMessage({ assistantText, toolCalls }));
 
         // Emit tool_call blocks (now we have complete args) and persist them.
-        const approvalWaiters = new Map<
-          string,
-          { approvalId: string; wait: ReturnType<ToolApprovalHub["create"]>["wait"] }
-        >();
+        const approvalWaiters = new Map<string, ToolApprovalWaiter>();
+        const safetyCheckByCall = new Map<string, ToolSafetyCheck>();
         const parsedArgsByCall = new Map<string, any>();
         const parsedExecArgsByCall = new Map<string, ReturnType<typeof parseExecArgs>>();
+        const parsedSendArgsByCall = new Map<string, ReturnType<typeof parseSendArgs>>();
         const parseErrorByCall = new Map<string, string | undefined>();
 
         for (const call of toolCalls) {
@@ -468,7 +520,6 @@ export async function handleChat(
           parsedArgsByCall.set(call.callId, parsed);
           parseErrorByCall.set(call.callId, parseError);
 
-          // For now, only exec/execution exists.
           let approvalInfo: any = null;
 
           if (call.name === EXEC_TOOL_NAME || call.name === EXECUTION_TOOL_NAME) {
@@ -476,14 +527,21 @@ export async function handleChat(
             parsedExecArgsByCall.set(call.callId, execArgs);
 
             const check = checkExecNeedsApproval(execArgs, toolAccessMode, execAllowlist);
+            safetyCheckByCall.set(call.callId, check);
 
-            if (check.requireApproval) {
-              const { approvalId, wait } = approvals.create({ sessionId, timeoutMs: 5 * 60_000 });
-              approvalWaiters.set(call.callId, { approvalId, wait });
-              approvalInfo = { required: true, id: approvalId, reason: check.reason };
-            } else {
-              approvalInfo = { required: false, reason: check.reason, matchedAllowlist: check.matchedAllowlist };
-            }
+            const plan = planToolApproval({ approvals, sessionId, check, timeoutMs: 5 * 60_000 });
+            if (plan.waiter) approvalWaiters.set(call.callId, plan.waiter);
+            approvalInfo = plan.approval;
+          } else if (call.name === SEND_TOOL_NAME) {
+            const sendArgs = parseSendArgs(parsed);
+            parsedSendArgsByCall.set(call.callId, sendArgs);
+
+            const check = checkSendNeedsApproval(sendArgs, toolAccessMode);
+            safetyCheckByCall.set(call.callId, check);
+
+            const plan = planToolApproval({ approvals, sessionId, check, timeoutMs: 5 * 60_000 });
+            if (plan.waiter) approvalWaiters.set(call.callId, plan.waiter);
+            approvalInfo = plan.approval;
           }
 
           if (streamMode === "full")
@@ -509,6 +567,7 @@ export async function handleChat(
           const parsed = parsedArgsByCall.get(call.callId) ?? {};
           const parseError = parseErrorByCall.get(call.callId);
           const execArgs = parsedExecArgsByCall.get(call.callId);
+          const sendArgs = parsedSendArgsByCall.get(call.callId);
 
           let ok = false;
           let output: any = null;
@@ -523,7 +582,7 @@ export async function handleChat(
                 argsRaw: call.argsRaw
               };
             } else {
-              const check = checkExecNeedsApproval(execArgs ?? {}, toolAccessMode, execAllowlist);
+              const check = safetyCheckByCall.get(call.callId) ?? checkExecNeedsApproval(execArgs ?? {}, toolAccessMode, execAllowlist);
               const waiter = approvalWaiters.get(call.callId);
 
               const invokeExec = async (): Promise<{ ok: boolean; result: any }> => {
@@ -591,16 +650,13 @@ export async function handleChat(
               };
 
               if (check.requireApproval) {
-                const decision = waiter ? await waiter.wait : { decision: "deny" as const, timedOut: false };
+                const decision = await waitForToolApproval(waiter);
                 if (decision.decision !== "approve") {
                   ok = false;
                   output = {
                     type: "exec_result",
                     ok: false,
-                    error: {
-                      code: decision.timedOut ? "approval_timeout" : "denied_by_user",
-                      message: decision.timedOut ? "Approval timed out" : "User denied execution"
-                    },
+                    error: approvalOutcomeToError(decision, { actionLabel: "execution" }),
                     policy: { mode: toolAccessMode, ...check, approvalId: waiter?.approvalId },
                     args: execArgs ?? parsed
                   };
@@ -619,6 +675,176 @@ export async function handleChat(
                 ok = r.ok;
                 output = {
                   type: "exec_result",
+                  ...r.result,
+                  ok,
+                  policy: { mode: toolAccessMode, ...check }
+                };
+              }
+            }
+          } else if (name === SEND_TOOL_NAME) {
+            if (parseError) {
+              ok = false;
+              output = {
+                type: "send_result",
+                ok: false,
+                error: { code: "bad_arguments_json", message: `Invalid JSON arguments: ${parseError}` },
+                argsRaw: call.argsRaw
+              };
+            } else {
+              const args = sendArgs ?? parseSendArgs(parsed);
+              const check = safetyCheckByCall.get(call.callId) ?? checkSendNeedsApproval(args, toolAccessMode);
+              const waiter = approvalWaiters.get(call.callId);
+
+              const invokeSend = async (): Promise<{ ok: boolean; result: any }> => {
+                // Destination resolution:
+                // - Default is "origin" (request source).
+                // - Fallback to persisted session origin.
+                const effectiveOrigin = (requestedOrigin ?? metaPatch.origin ?? prior.meta.origin ?? { kind: "web" }) as any;
+
+                let destination: any = args.destination;
+                if (!destination || destination.kind === "origin") destination = effectiveOrigin;
+
+                // If the model specified {kind:"discord"} without ids, inherit from origin when possible.
+                if (destination && destination.kind === "discord") {
+                  if (!destination.channelId && effectiveOrigin?.kind === "discord") {
+                    destination = { ...effectiveOrigin, ...destination };
+                    if (!destination.channelId) destination.channelId = effectiveOrigin.channelId;
+                    if (!destination.threadId && effectiveOrigin.threadId) destination.threadId = effectiveOrigin.threadId;
+                  }
+                }
+
+                if (!destination || typeof destination !== "object") {
+                  return {
+                    ok: false,
+                    result: {
+                      type: "send_result",
+                      ok: false,
+                      error: { code: "invalid_destination", message: "Destination is missing or invalid" },
+                      args
+                    }
+                  };
+                }
+
+                const destKind = typeof destination.kind === "string" ? destination.kind : "";
+                if (destKind !== "web" && destKind !== "discord") {
+                  return {
+                    ok: false,
+                    result: {
+                      type: "send_result",
+                      ok: false,
+                      error: { code: "invalid_destination", message: `Unsupported destination kind: ${String(destKind)}` },
+                      args
+                    }
+                  };
+                }
+
+                const prep = await prepareSendAttachments({
+                  rootDir,
+                  sessionId,
+                  callId: call.callId,
+                  refs: args.refs,
+                  paths: args.paths
+                });
+
+                if (!prep.ok) {
+                  return { ok: false, result: { type: "send_result", ok: false, error: prep.error, args } };
+                }
+
+                // Deliver
+                if (destKind === "discord") {
+                  if (!config.adapters.discord.enabled) {
+                    return {
+                      ok: false,
+                      result: {
+                        type: "send_result",
+                        ok: false,
+                        error: { code: "adapter_disabled", message: "Discord adapter is disabled" },
+                        destination,
+                        args,
+                        artifacts: prep.value.artifacts,
+                        refs: prep.value.refs
+                      }
+                    };
+                  }
+
+                  const channelId = typeof destination.channelId === "string" ? destination.channelId.trim() : "";
+                  if (!channelId) {
+                    return {
+                      ok: false,
+                      result: {
+                        type: "send_result",
+                        ok: false,
+                        error: { code: "invalid_destination", message: "discord destination requires channelId" },
+                        destination,
+                        args
+                      }
+                    };
+                  }
+
+                  const r = await postDiscordAdapterSend({
+                    adapterBaseUrl: guessDiscordAdapterBaseUrl(),
+                    adapterKey: process.env.ECLIA_ADAPTER_KEY,
+                    origin: { ...destination, kind: "discord", channelId },
+                    content: typeof args.content === "string" ? args.content : "",
+                    refs: prep.value.refs
+                  });
+
+                  if (!r.ok) {
+                    return {
+                      ok: false,
+                      result: {
+                        type: "send_result",
+                        ok: false,
+                        error: r.error,
+                        destination,
+                        args,
+                        artifacts: prep.value.artifacts,
+                        refs: prep.value.refs
+                      }
+                    };
+                  }
+                }
+
+                return {
+                  ok: true,
+                  result: {
+                    type: "send_result",
+                    ok: true,
+                    destination,
+                    content: typeof args.content === "string" ? args.content : "",
+                    refs: prep.value.refs,
+                    artifacts: prep.value.artifacts,
+                    copiedFromPaths: prep.value.copiedFromPaths
+                  }
+                };
+              };
+
+              if (check.requireApproval) {
+                const decision = await waitForToolApproval(waiter);
+                if (decision.decision !== "approve") {
+                  ok = false;
+                  output = {
+                    type: "send_result",
+                    ok: false,
+                    error: approvalOutcomeToError(decision, { actionLabel: "send" }),
+                    policy: { mode: toolAccessMode, ...check, approvalId: waiter?.approvalId },
+                    args
+                  };
+                } else {
+                  const r = await invokeSend();
+                  ok = r.ok;
+                  output = {
+                    type: "send_result",
+                    ...r.result,
+                    ok,
+                    policy: { mode: toolAccessMode, ...check, approvalId: waiter?.approvalId, decision: "approve" }
+                  };
+                }
+              } else {
+                const r = await invokeSend();
+                ok = r.ok;
+                output = {
+                  type: "send_result",
                   ...r.result,
                   ok,
                   policy: { mode: toolAccessMode, ...check }
