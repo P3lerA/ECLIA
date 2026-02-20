@@ -132,6 +132,8 @@ function ToolBlockView({ block }: { block: ToolBlock }) {
   const approvalRequired = Boolean(approval?.required && approvalId);
   const sessionId = typeof payload?.sessionId === "string" ? payload.sessionId : undefined;
 
+  const parseWarning = typeof (payload as any)?.parseWarning === "string" ? String((payload as any).parseWarning).trim() : "";
+
   const artifacts = extractArtifacts(payload);
   const isSendTool = block.name === "send";
   const hidePayloadInRichView = isSendTool && block.status === "ok";
@@ -164,14 +166,19 @@ function ToolBlockView({ block }: { block: ToolBlock }) {
       </div>
 
       {approvalRequired ? (
-        <div className="block-tool-actions">
-          <span className="muted">
-            approval: {decision ? decision : busy ? "sending…" : "required"}
-          </span>
-          <div className="block-tool-actionsBtns">
-            <button className="btn" disabled={busy || !!decision} onClick={() => void takeDecision("approve")}>Approve</button>
-            <button className="btn" disabled={busy || !!decision} onClick={() => void takeDecision("deny")}>Deny</button>
+        <div style={{ marginTop: 8 }}>
+          <div className="block-tool-actions" style={{ marginTop: 0 }}>
+            <span className="muted">
+              approval: {decision ? decision : busy ? "sending…" : "required"}
+            </span>
+            <div className="block-tool-actionsBtns">
+              <button className="btn" disabled={busy || !!decision} onClick={() => void takeDecision("approve")}>Approve</button>
+              <button className="btn" disabled={busy || !!decision} onClick={() => void takeDecision("deny")}>Deny</button>
+            </div>
           </div>
+          {parseWarning ? (
+            <div className="muted" style={{ marginTop: 6 }}>[warning] {parseWarning}</div>
+          ) : null}
         </div>
       ) : null}
 

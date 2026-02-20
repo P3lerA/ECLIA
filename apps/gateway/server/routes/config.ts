@@ -12,6 +12,7 @@ type ConfigReqBody = {
   api?: { port?: number };
   debug?: {
     capture_upstream_requests?: boolean;
+    parse_assistant_output?: boolean;
   };
   skills?: {
     enabled?: string[];
@@ -113,10 +114,15 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
     if (body.console) patch.console = body.console;
     if (body.api) patch.api = body.api;
 
+    const debugPatch: any = {};
     if (body.debug && Object.prototype.hasOwnProperty.call(body.debug, "capture_upstream_requests")) {
-      patch.debug = {
-        capture_upstream_requests: Boolean((body.debug as any).capture_upstream_requests)
-      };
+      debugPatch.capture_upstream_requests = Boolean((body.debug as any).capture_upstream_requests);
+    }
+    if (body.debug && Object.prototype.hasOwnProperty.call(body.debug, "parse_assistant_output")) {
+      debugPatch.parse_assistant_output = Boolean((body.debug as any).parse_assistant_output);
+    }
+    if (Object.keys(debugPatch).length) {
+      patch.debug = debugPatch;
     }
 
     if (body.skills && Object.prototype.hasOwnProperty.call(body.skills, "enabled")) {

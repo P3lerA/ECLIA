@@ -30,6 +30,9 @@ import { sanitizeExecResultForUiAndModel } from "../tools/execResultSanitize.js"
 import { composeSystemInstruction } from "../instructions/systemInstruction.js";
 import { buildSkillsInstructionPart } from "../instructions/skillsInstruction.js";
 
+import { appendSessionWarning } from "../debug/warnings.js";
+import { parseAssistantToolCallsFromText } from "../tools/assistantOutputParse.js";
+
 type ChatReqBody = {
   sessionId?: string;
   model?: string; // UI route key OR a real upstream model id
@@ -463,7 +466,46 @@ export async function handleChat(
         });
 
         const assistantText = turn.assistantText;
-        const toolCallsMap = turn.toolCalls;
+        let toolCallsMap = turn.toolCalls;
+
+        const parseAssistantOutput = Boolean((config as any)?.debug?.parse_assistant_output);
+        const parsedWarningByCall = new Map<string, string>();
+        if (parseAssistantOutput && toolCallsMap.size === 0) {
+          const allowed = new Set<string>([EXEC_TOOL_NAME, EXECUTION_TOOL_NAME, SEND_TOOL_NAME]);
+          // Also allow any tool names that are actually exposed to the model for this request.
+          for (const t of toolsForModel as any[]) {
+            const n = typeof t?.function?.name === "string" ? t.function.name : typeof t?.name === "string" ? t.name : "";
+            if (n) allowed.add(n);
+          }
+
+          const parsed = parseAssistantToolCallsFromText(assistantText, allowed);
+          if (parsed.length) {
+            // NOTE: We keep assistantText as-is (it may contain the transcript).
+            // This is a compatibility fallback; the warning below makes it visible in approval UI and debug logs.
+            toolCallsMap = new Map();
+            for (const row of parsed) {
+              toolCallsMap.set(row.call.callId, row.call);
+              parsedWarningByCall.set(row.call.callId, row.warning);
+
+              appendSessionWarning({
+                rootDir,
+                sessionId,
+                event: {
+                  kind: "parsed_assistant_output_tool_call",
+                  provider: origin.vendor ?? origin.adapter,
+                  upstreamModel: backend.upstreamModel,
+                  tool: row.call.name,
+                  callId: row.call.callId,
+                  line: row.line
+                }
+              });
+            }
+
+            console.warn(
+              `[gateway] Parsed ${parsed.length} tool call(s) from assistant plaintext output (provider=${origin.vendor} model=${backend.upstreamModel}).`
+            );
+          }
+        }
 
         if (turn.finishReason === "tool_calls" && toolCallsMap.size === 0) {
           console.warn(
@@ -553,7 +595,8 @@ export async function handleChat(
                 raw: call.argsRaw,
                 parsed,
                 parseError,
-                approval: approvalInfo
+                approval: approvalInfo,
+                parseWarning: parsedWarningByCall.get(call.callId)
               }
             });
         }

@@ -27,6 +27,7 @@ type SettingsDraft = {
   sessionSyncEnabled: boolean;
   displayPlainOutput: boolean;
   debugCaptureUpstreamRequests: boolean;
+  debugParseAssistantOutput: boolean;
   transport: TransportId;
   model: string;
   contextTokenLimit: string;
@@ -74,7 +75,7 @@ type DevConfig = {
   codex_home?: string;
   console: { host: string; port: number };
   api?: { port: number };
-  debug?: { capture_upstream_requests?: boolean };
+  debug?: { capture_upstream_requests?: boolean; parse_assistant_output?: boolean };
   skills?: {
     enabled?: string[];
     available?: Array<{ name?: string; summary?: string }>;
@@ -248,6 +249,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     port: number;
     codexHome: string;
     debugCaptureUpstreamRequests: boolean;
+    debugParseAssistantOutput: boolean;
     systemInstruction: string;
     openaiCompatProfiles: Array<{
       id: string;
@@ -289,6 +291,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         const port = j.config.console.port ?? 5173;
         const codexHome = String((j.config as any).codex_home ?? "").trim();
         const debugCaptureUpstreamRequests = Boolean((j.config as any)?.debug?.capture_upstream_requests ?? false);
+        const debugParseAssistantOutput = Boolean((j.config as any)?.debug?.parse_assistant_output ?? false);
         const systemInstruction = String((j.config.inference as any)?.system_instruction ?? "");
 
         const inf = j.config.inference?.openai_compat ?? {};
@@ -385,6 +388,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           port,
           codexHome,
           debugCaptureUpstreamRequests,
+          debugParseAssistantOutput,
           systemInstruction,
           openaiCompatProfiles: profiles,
           codexOAuthProfiles: codexProfiles,
@@ -421,6 +425,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         sessionSyncEnabled: state.settings.sessionSyncEnabled,
         displayPlainOutput: Boolean(state.settings.displayPlainOutput ?? false),
         debugCaptureUpstreamRequests: cfgBase ? cfgBase.debugCaptureUpstreamRequests : prev?.debugCaptureUpstreamRequests ?? false,
+        debugParseAssistantOutput: cfgBase ? cfgBase.debugParseAssistantOutput : prev?.debugParseAssistantOutput ?? false,
         transport: state.transport,
         model: cfgBase ? normalizeActiveModel(state.model, cfgBase.openaiCompatProfiles) : state.model,
         contextTokenLimit: String(state.settings.contextTokenLimit ?? 20000),
@@ -489,7 +494,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         ? d.consoleHost.trim() !== cfgBase.host || portNumber(d.consolePort) !== cfgBase.port
         : false;
 
-      const dirtyDevDebug = cfgBase ? d.debugCaptureUpstreamRequests !== cfgBase.debugCaptureUpstreamRequests : false;
+      const dirtyDevDebug = cfgBase ?
+    d.debugCaptureUpstreamRequests !== cfgBase.debugCaptureUpstreamRequests ||
+    d.debugParseAssistantOutput !== cfgBase.debugParseAssistantOutput
+    : false;
 
       const dirtyDevInference = cfgBase
         ? !sameOpenAICompatProfiles(d.inferenceProfiles, cfgBase.openaiCompatProfiles) ||
@@ -545,7 +553,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     ? draft.consoleHost.trim() !== cfgBase.host || portNumber(draft.consolePort) !== cfgBase.port
     : false;
 
-  const dirtyDevDebug = cfgBase ? draft.debugCaptureUpstreamRequests !== cfgBase.debugCaptureUpstreamRequests : false;
+  const dirtyDevDebug = cfgBase ?
+    draft.debugCaptureUpstreamRequests !== cfgBase.debugCaptureUpstreamRequests ||
+    draft.debugParseAssistantOutput !== cfgBase.debugParseAssistantOutput
+    : false;
 
   const dirtyDevInference = cfgBase
     ? !sameOpenAICompatProfiles(draft.inferenceProfiles, cfgBase.openaiCompatProfiles) ||
@@ -631,7 +642,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
         if (dirtyDevDebug) {
           body.debug = {
-            capture_upstream_requests: Boolean(draft.debugCaptureUpstreamRequests)
+            capture_upstream_requests: Boolean(draft.debugCaptureUpstreamRequests),
+            parse_assistant_output: Boolean(draft.debugParseAssistantOutput)
           };
         }
 
@@ -732,6 +744,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
               typeof (body as any).debug?.capture_upstream_requests === "boolean"
                 ? Boolean((body as any).debug.capture_upstream_requests)
                 : cfgBase.debugCaptureUpstreamRequests,
+            debugParseAssistantOutput:
+              typeof (body as any).debug?.parse_assistant_output === "boolean"
+                ? Boolean((body as any).debug.parse_assistant_output)
+                : cfgBase.debugParseAssistantOutput,
             systemInstruction: typeof (body.inference as any)?.system_instruction === "string" ? (body.inference as any).system_instruction : cfgBase.systemInstruction,
             openaiCompatProfiles: nextProfiles,
 
@@ -1255,6 +1271,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         <div className="settings-content">
           <div key={activeSection} className="settings-section motion-item">
             {activeSection === "general" ? (
+            <>
             <div className="card">
               <div className="card-title">Development</div>
 
@@ -1340,6 +1357,28 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
               {cfgSaved ? <div className="devNoteText muted">{cfgSaved}</div> : null}
             </div>
+
+              <Collapsible title="Advanced" variant="section">
+                <div className="row stack-gap">
+                  <div className="row-left">
+                    <div className="row-main">Parse Assistant Output</div>
+                    <div className="row-sub muted">
+                      Attempt to recover tool calls from assistant plaintext output when the provider fails to emit structured tool calls.
+                      Writes warnings to <code>.eclia/debug/&lt;sessionId&gt;/warnings.ndjson</code> and shows a warning in approval prompts.
+                    </div>
+                  </div>
+
+                  <input
+                    type="checkbox"
+                    checked={draft.debugParseAssistantOutput}
+                    onChange={(e) => setDraft((d) => ({ ...d, debugParseAssistantOutput: e.target.checked }))}
+                    aria-label="Parse assistant output"
+                    disabled={cfgLoading || !cfgBase}
+                  />
+                </div>
+              </Collapsible>
+
+            </>
             ) : null}
 
             {activeSection === "appearance" ? (

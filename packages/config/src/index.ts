@@ -40,6 +40,15 @@ export type EcliaConfig = {
      *   <repo>/.eclia/debug/<sessionId>/
      */
     capture_upstream_requests: boolean;
+
+    /**
+     * When enabled, the gateway will attempt to recover tool calls from assistant
+     * plaintext output (e.g. "Tool exec (calling): ...") if the upstream provider
+     * fails to emit structured tool_calls.
+     *
+     * WARNING: This is a best-effort fallback intended for debugging and compatibility.
+     */
+    parse_assistant_output: boolean;
   };
 
   /**
@@ -187,7 +196,8 @@ export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
   console: { host: "127.0.0.1", port: 5173 },
   api: { port: 8787 },
   debug: {
-    capture_upstream_requests: false
+    capture_upstream_requests: false,
+    parse_assistant_output: false
   },
   skills: {
     enabled: []
@@ -422,7 +432,8 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
       port: clampPort(apiRaw.port, base.api.port)
     },
     debug: {
-      capture_upstream_requests: coerceBool((debugRaw as any).capture_upstream_requests, base.debug.capture_upstream_requests)
+      capture_upstream_requests: coerceBool((debugRaw as any).capture_upstream_requests, base.debug.capture_upstream_requests),
+      parse_assistant_output: coerceBool((debugRaw as any).parse_assistant_output, (base.debug as any).parse_assistant_output ?? false)
     },
     skills: {
       enabled: coerceStringArray((skillsRaw as any).enabled, base.skills.enabled ?? [])
@@ -604,7 +615,8 @@ export function writeLocalEcliaConfig(
     api: { port: normalized.api.port },
     debug: {
       ...(isRecord((nextLocal as any).debug) ? (nextLocal as any).debug : {}),
-      capture_upstream_requests: normalized.debug.capture_upstream_requests
+      capture_upstream_requests: normalized.debug.capture_upstream_requests,
+      parse_assistant_output: (normalized.debug as any).parse_assistant_output ?? false
     },
     skills: {
       ...(isRecord((nextLocal as any).skills) ? (nextLocal as any).skills : {}),
@@ -647,8 +659,9 @@ export function writeLocalEcliaConfig(
   // AND it doesn't contain any other user-defined keys.
   {
     const rawDebug = isRecord((nextLocal as any).debug) ? ((nextLocal as any).debug as Record<string, any>) : null;
-    const hasOtherKeys = rawDebug ? Object.keys(rawDebug).some((k) => k !== "capture_upstream_requests") : false;
-    if (!hasOtherKeys && normalized.debug.capture_upstream_requests === false) {
+    const hasOtherKeys = rawDebug ? Object.keys(rawDebug).some((k) => k !== "capture_upstream_requests" && k !== "parse_assistant_output") : false;
+    const parseEnabled = Boolean((normalized.debug as any).parse_assistant_output ?? false);
+    if (!hasOtherKeys && normalized.debug.capture_upstream_requests === false && parseEnabled === false) {
       delete (toWrite as any).debug;
     }
   }
