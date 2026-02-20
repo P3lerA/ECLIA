@@ -56,6 +56,13 @@ export type StoredPrefsV1 = {
    */
   displayPlainOutput?: boolean;
 
+  /**
+   * Chat rendering preference.
+   * - true: show every step (assistant/tool_call/tool_result)
+   * - false: show only the final assistant message per user turn
+   */
+  displayWorkProcess?: boolean;
+
 };
 
 const KEY = "eclia-prefs-v1";
@@ -97,6 +104,10 @@ export function readStoredPrefs(): StoredPrefsV1 {
 
     if (typeof (parsed as any).displayPlainOutput === "boolean") {
       out.displayPlainOutput = Boolean((parsed as any).displayPlainOutput);
+    }
+
+    if (typeof (parsed as any).displayWorkProcess === "boolean") {
+      out.displayWorkProcess = Boolean((parsed as any).displayWorkProcess);
     }
 
 

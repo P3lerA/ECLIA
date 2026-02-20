@@ -20,7 +20,7 @@ export type CreateSessionResponse =
   | { ok: false; error: string; hint?: string };
 
 export type GetSessionResponse =
-  | { ok: true; session: SessionMeta; messages: Message[] }
+  | { ok: true; session: SessionMeta; transcript: TranscriptRecord[] }
   | { ok: false; error: string; hint?: string };
 
 export type ResetSessionResponse =
@@ -67,7 +67,160 @@ export async function apiGetSession(sessionId: string): Promise<{ session: Sessi
   const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: "GET" });
   const j = (await r.json()) as GetSessionResponse;
   if (!j.ok) throw new Error(j.hint ?? j.error);
-  return { session: j.session, messages: j.messages };
+  return { session: j.session, messages: transcriptToMessages(j.transcript) };
+}
+
+// ---- Transcript types (mirrors gateway/server/transcriptTypes.ts) ----
+
+type OpenAICompatToolCall = {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+};
+
+type OpenAICompatMessage =
+  | { role: "system"; content: any }
+  | { role: "user"; content: any }
+  | { role: "assistant"; content: any; tool_calls?: OpenAICompatToolCall[] }
+  | { role: "tool"; tool_call_id: string; content: any };
+
+type TranscriptRecord =
+  | { v: 1; id: string; ts: number; type: "msg"; msg: OpenAICompatMessage }
+  | { v: 1; id: string; ts: number; type: "reset" }
+  | { v: 1; id: string; ts: number; type: "turn"; turn: { tokenLimit: number; usedTokens: number } };
+
+function transcriptToMessages(records: TranscriptRecord[]): Message[] {
+  const out: Message[] = [];
+
+  // Map tool_call_id -> tool name (from the assistant tool_calls).
+  // This lets us render tool result bubbles with stable names.
+  const callIdToName = new Map<string, string>();
+
+  const safeRecords = Array.isArray(records) ? records : [];
+
+  for (const r of safeRecords) {
+    if (!r || (r as any).v !== 1) continue;
+
+    if ((r as any).type === "reset") {
+      out.length = 0;
+      callIdToName.clear();
+      continue;
+    }
+
+    // Turn marker is a persistence-only record; UI can use it later for grouping,
+    // but for now we keep the chat timeline message-only.
+    if ((r as any).type === "turn") {
+      continue;
+    }
+
+    if ((r as any).type !== "msg" || !(r as any).msg) continue;
+    const m = (r as any).msg as OpenAICompatMessage;
+    const ts = typeof (r as any).ts === "number" ? (r as any).ts : Date.now();
+
+    if (m.role === "user") {
+      const text = typeof (m as any).content === "string" ? String((m as any).content) : safeJson((m as any).content);
+      out.push({ id: (r as any).id ?? cryptoId(), role: "user", createdAt: ts, blocks: [{ type: "text", text }], raw: text });
+      continue;
+    }
+
+    if (m.role === "assistant") {
+      const raw = typeof (m as any).content === "string" ? String((m as any).content) : safeJson((m as any).content);
+      const blocks = blocksFromAssistantRaw(raw);
+
+      // Assistant bubble (text/thoughts). Tool calls are rendered as separate TOOL bubbles.
+      out.push({ id: (r as any).id ?? cryptoId(), role: "assistant", createdAt: ts, blocks, raw });
+
+      const toolCalls = Array.isArray((m as any).tool_calls) ? ((m as any).tool_calls as OpenAICompatToolCall[]) : [];
+      for (const tc of toolCalls) {
+        const callId = typeof tc?.id === "string" ? tc.id : "";
+        const name = typeof tc?.function?.name === "string" ? tc.function.name : "tool";
+        const argsRaw = typeof tc?.function?.arguments === "string" ? tc.function.arguments : "";
+
+        if (callId) callIdToName.set(callId, name);
+
+        out.push({
+          id: `${(r as any).id ?? cryptoId()}:tool_call:${callId || name}`,
+          role: "tool",
+          createdAt: ts,
+          blocks: [{ type: "tool", name, status: "calling", payload: { callId, raw: argsRaw } } as any],
+          raw: argsRaw
+        });
+      }
+      continue;
+    }
+
+    if (m.role === "tool") {
+      const callId = typeof (m as any).tool_call_id === "string" ? String((m as any).tool_call_id) : "";
+      const content = (m as any).content;
+      const raw = typeof content === "string" ? content : safeJson(content);
+      const parsed = tryParseJson(raw);
+
+      // Best-effort: tool result payloads are usually JSON.
+      const ok = typeof (parsed as any)?.ok === "boolean" ? Boolean((parsed as any).ok) : undefined;
+      const status: "ok" | "error" = ok === false ? "error" : "ok";
+
+      const name = callId ? callIdToName.get(callId) ?? "tool" : "tool";
+      out.push({
+        id: (r as any).id ?? cryptoId(),
+        role: "tool",
+        createdAt: ts,
+        blocks: [{ type: "tool", name, status, payload: { callId, ok: ok ?? true, output: parsed } } as any],
+        raw
+      });
+      continue;
+    }
+
+    if (m.role === "system") {
+      const text = typeof (m as any).content === "string" ? String((m as any).content) : safeJson((m as any).content);
+      out.push({ id: (r as any).id ?? cryptoId(), role: "system", createdAt: ts, blocks: [{ type: "text", text }], raw: text });
+      continue;
+    }
+  }
+
+  return out;
+}
+
+function blocksFromAssistantRaw(raw: string) {
+  const { thoughts, visible } = splitThink(raw);
+  const blocks: any[] = [];
+  for (const t of thoughts) blocks.push({ type: "thought", text: t, visibility: "internal" });
+  blocks.push({ type: "text", text: visible ?? "" });
+  return blocks;
+}
+
+function splitThink(raw: string): { thoughts: string[]; visible: string } {
+  const s = typeof raw === "string" ? raw : "";
+  if (!s) return { thoughts: [], visible: "" };
+  const re = /<think>([\s\S]*?)<\/think>/gi;
+  const thoughts: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s))) {
+    const inner = (m[1] ?? "").trim();
+    if (inner) thoughts.push(inner);
+  }
+  const visible = s.replace(re, "").trim();
+  return { thoughts, visible };
+}
+
+function tryParseJson(s: string): any {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return { raw: s };
+  }
+}
+
+function safeJson(v: unknown): string {
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
+}
+
+function cryptoId(): string {
+  // Avoid pulling in crypto just for UI ids.
+  return `ui_${Math.random().toString(16).slice(2)}_${Date.now()}`;
 }
 
 export async function apiResetSession(sessionId: string): Promise<SessionMeta> {

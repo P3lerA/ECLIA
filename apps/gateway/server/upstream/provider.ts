@@ -1,4 +1,4 @@
-import type { StoredMessage } from "../sessionTypes.js";
+import type { OpenAICompatMessage } from "../transcriptTypes.js";
 
 export type ToolCall = {
   callId: string;
@@ -50,7 +50,13 @@ export interface UpstreamProvider {
   /** Upstream model id. */
   readonly upstreamModel: string;
 
-  buildContext(history: StoredMessage[], tokenLimit: number): BuiltContext;
+  /**
+   * Build a truncated OpenAI-compatible message list for the upstream.
+   *
+   * NOTE: Some providers require <think> blocks to be present in replayed context;
+   * the gateway therefore persists assistant content verbatim and does not strip it.
+   */
+  buildContext(history: OpenAICompatMessage[], tokenLimit: number): BuiltContext;
 
   streamTurn(args: {
     headers: Record<string, string>;

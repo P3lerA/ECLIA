@@ -1296,6 +1296,7 @@ textarea:focus{
 .chatview-actions{
   margin-left: auto;
   display: flex;
+  gap: 10px;
   align-items: center;
   justify-content: flex-end;
 }

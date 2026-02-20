@@ -113,24 +113,34 @@ export function useSendMessage() {
 
         if (evt.type === "tool_call") {
           dispatch({
-            type: "assistant/addBlocks",
+            type: "message/add",
             sessionId,
-            blocks: [{ type: "tool", name: evt.name, status: "calling", payload: evt.args }]
+            message: {
+              id: makeId(),
+              role: "tool",
+              createdAt: evt.at,
+              blocks: [{ type: "tool", name: evt.name, status: "calling", payload: evt.args }]
+            }
           });
         }
 
         if (evt.type === "tool_result") {
           dispatch({
-            type: "assistant/addBlocks",
+            type: "message/add",
             sessionId,
-            blocks: [
-              {
-                type: "tool",
-                name: evt.name,
-                status: evt.ok ? "ok" : "error",
-                payload: evt.result
-              }
-            ]
+            message: {
+              id: makeId(),
+              role: "tool",
+              createdAt: evt.at,
+              blocks: [
+                {
+                  type: "tool",
+                  name: evt.name,
+                  status: evt.ok ? "ok" : "error",
+                  payload: evt.result
+                }
+              ]
+            }
           });
         }
 

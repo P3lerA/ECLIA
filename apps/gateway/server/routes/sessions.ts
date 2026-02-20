@@ -56,9 +56,9 @@ export async function handleSessions(req: http.IncomingMessage, res: http.Server
 
     if (!store.isValidSessionId(id)) return json(res, 400, { ok: false, error: "invalid_session_id" });
 
-    const detail = await store.readSession(id, { includeTools: true });
+    const detail = await store.readTranscript(id);
     if (!detail) return json(res, 404, { ok: false, error: "not_found" });
-    return json(res, 200, { ok: true, session: detail.meta, messages: detail.messages });
+    return json(res, 200, { ok: true, session: detail.meta, transcript: detail.transcript });
   }
 
   if (m1 && req.method === "DELETE") {

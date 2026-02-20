@@ -41,6 +41,13 @@ export type AppSettings = {
    * When true, prefers "plain" output (debug-friendly).
    */
   displayPlainOutput: boolean;
+
+  /**
+   * Chat rendering preference.
+   * - true: show every step (assistant/tool_call/tool_result)
+   * - false: show only the final assistant message per user turn
+   */
+  displayWorkProcess: boolean;
 };
 
 export type AppGPU = {
@@ -81,6 +88,7 @@ export type Action =
   | { type: "settings/contextTokenLimit"; value: number }
   | { type: "settings/execAccessMode"; mode: "full" | "safe" }
   | { type: "settings/displayPlainOutput"; enabled: boolean }
+  | { type: "settings/displayWorkProcess"; enabled: boolean }
   | { type: "gpu/available"; available: boolean }
   | { type: "message/add"; sessionId: string; message: Message }
   | { type: "messages/set"; sessionId: string; messages: Message[] }
@@ -185,6 +193,10 @@ export function reducer(state: AppState, action: Action): AppState {
     case "settings/displayPlainOutput":
       if (state.settings.displayPlainOutput === action.enabled) return state;
       return { ...state, settings: { ...state.settings, displayPlainOutput: action.enabled } };
+
+    case "settings/displayWorkProcess":
+      if (state.settings.displayWorkProcess === action.enabled) return state;
+      return { ...state, settings: { ...state.settings, displayWorkProcess: action.enabled } };
 
     case "gpu/available":
       if (state.gpu.available === action.available) return state;

@@ -6,8 +6,8 @@ import {
 } from "@eclia/config";
 
 import { SessionStore } from "../sessionStore.js";
-import type { SessionDetail, SessionEventV1, SessionMetaV1, StoredMessage } from "../sessionTypes.js";
-import { blocksFromAssistantRaw, textBlock } from "../normalize.js";
+import type { SessionMetaV1 } from "../sessionTypes.js";
+import type { OpenAICompatMessage, TranscriptRecordV1 } from "../transcriptTypes.js";
 import { ToolApprovalHub } from "../tools/approvalHub.js";
 import { parseExecArgs } from "../tools/execTool.js";
 import { checkExecNeedsApproval, loadExecAllowlist, type ToolAccessMode } from "../tools/policy.js";
@@ -95,11 +95,11 @@ function deriveTitle(userText: string): string {
   return s.length > max ? s.slice(0, max).trimEnd() + "…" : s;
 }
 
-function firstUserTextInSession(messages: StoredMessage[]): string | null {
+function firstUserTextInTranscript(messages: OpenAICompatMessage[]): string | null {
   for (const m of messages) {
     if (!m || m.role !== "user") continue;
-    const raw = typeof m.raw === "string" ? m.raw : "";
-    const t = raw.trim();
+    const c = (m as any).content;
+    const t = typeof c === "string" ? c.trim() : "";
     if (t) return t;
   }
   return null;
@@ -135,6 +135,22 @@ function deriveTitleFromOrigin(origin: SessionMetaV1["origin"] | undefined): str
 
   // Keep titles short-ish for UI lists.
   return s.length > 96 ? s.slice(0, 96).trimEnd() + "…" : s;
+}
+
+function transcriptRecordsToMessages(records: TranscriptRecordV1[]): OpenAICompatMessage[] {
+  const out: OpenAICompatMessage[] = [];
+  const rows = Array.isArray(records) ? records : [];
+  for (const r of rows) {
+    if (!r || (r as any).v !== 1) continue;
+    if ((r as any).type === "reset") {
+      out.length = 0;
+      continue;
+    }
+    if ((r as any).type === "msg" && (r as any).msg && typeof (r as any).msg.role === "string") {
+      out.push((r as any).msg as OpenAICompatMessage);
+    }
+  }
+  return out;
 }
 
 function guessDiscordAdapterBaseUrl(): string {
@@ -193,25 +209,31 @@ async function persistAssistantText(args: {
   store: SessionStore;
   sessionId: string;
   text: string;
-  origin: { adapter: string; vendor?: string; baseUrl?: string; model?: string };
+  toolCallsForTranscript?: ToolCall[];
 }) {
-  const assistantMsg: StoredMessage = {
-    id: crypto.randomUUID(),
-    role: "assistant",
-    createdAt: Date.now(),
-    raw: args.text,
-    blocks: blocksFromAssistantRaw(args.text, args.origin)
-  };
+  // Canonical transcript (OpenAI-compatible): assistant message + optional tool_calls.
+  const ts = Date.now();
+  const tc = Array.isArray(args.toolCallsForTranscript) ? args.toolCallsForTranscript : [];
+  const tool_calls = tc
+    .filter((c) => c && typeof c.callId === "string" && typeof c.name === "string" && typeof c.argsRaw === "string")
+    .map((c) => ({
+      id: c.callId,
+      type: "function" as const,
+      function: {
+        name: c.name,
+        arguments: c.argsRaw
+      }
+    }));
 
-  const assistantEv: SessionEventV1 = {
-    v: 1,
-    id: crypto.randomUUID(),
-    ts: assistantMsg.createdAt,
-    type: "message",
-    message: assistantMsg
-  };
-
-  await args.store.appendEvent(args.sessionId, assistantEv, { touchMeta: false });
+  await args.store.appendTranscript(
+    args.sessionId,
+    {
+      role: "assistant",
+      content: args.text,
+      ...(tool_calls.length ? { tool_calls } : {})
+    } as any,
+    ts
+  );
 }
 
 async function persistAssistantError(args: {
@@ -220,23 +242,8 @@ async function persistAssistantError(args: {
   message: string;
 }) {
   const text = args.message.trim() ? args.message.trim() : "Unknown error";
-  const msg: StoredMessage = {
-    id: crypto.randomUUID(),
-    role: "assistant",
-    createdAt: Date.now(),
-    raw: text,
-    blocks: [textBlock(`[error] ${text}`, { adapter: "gateway" })]
-  };
-
-  const ev: SessionEventV1 = {
-    v: 1,
-    id: crypto.randomUUID(),
-    ts: msg.createdAt,
-    type: "message",
-    message: msg
-  };
-
-  await args.store.appendEvent(args.sessionId, ev, { touchMeta: false });
+  const visible = `[error] ${text}`;
+  await args.store.appendTranscript(args.sessionId, { role: "assistant", content: visible } as any, Date.now());
 }
 
 function beginSse(res: http.ServerResponse): { stopKeepAlive: () => void } {
@@ -299,14 +306,15 @@ export async function handleChat(
     // Ensure store is initialized and session exists.
     await store.init();
 
-    let prior: SessionDetail;
+    let priorMeta!: SessionMetaV1;
+    let priorMessages: OpenAICompatMessage[] = [];
     const metaPatch: Partial<SessionMetaV1> = {};
 
     try {
-      // Include tool events when projecting the session, otherwise the next turn "forgets" tool results.
-      const existing = await store.readSession(sessionId, { includeTools: true });
+      const existing = await store.readTranscript(sessionId);
       if (existing) {
-        prior = existing;
+        priorMeta = existing.meta;
+        priorMessages = transcriptRecordsToMessages(existing.transcript);
         // Persist/merge origin metadata when provided.
         // For example: discord adapter now sends guildName/channelName, which is useful for session titles.
         if (requestedOrigin) {
@@ -329,7 +337,8 @@ export async function handleChat(
               origin: requestedOrigin
             } as any)
           : undefined;
-        prior = { meta: await store.ensureSession(sessionId, seed), messages: [] };
+        priorMeta = await store.ensureSession(sessionId, seed);
+        priorMessages = [];
       }
     } catch {
       return json(res, 400, { ok: false, error: "invalid_session_id" });
@@ -340,34 +349,23 @@ export async function handleChat(
     // - Discord behavior: prefer guild/channel/thread names (if provided in origin).
     // - Migration: if an older discord session was titled by the first prompt, retitle it.
     const originTitle = deriveTitleFromOrigin(requestedOrigin);
-    const hasDefaultTitle = prior.meta.title === "New session" || !prior.meta.title.trim();
+    const hasDefaultTitle = priorMeta.title === "New session" || !priorMeta.title.trim();
 
-    if (prior.messages.length === 0 && hasDefaultTitle) {
+    if (priorMessages.length === 0 && hasDefaultTitle) {
       metaPatch.title = originTitle ?? deriveTitle(userText);
     } else if (originTitle) {
-      const firstUserText = firstUserTextInSession(prior.messages);
+      const firstUserText = firstUserTextInTranscript(priorMessages);
       const legacyTitle = firstUserText ? deriveTitle(firstUserText) : null;
-      if (legacyTitle && prior.meta.title === legacyTitle) metaPatch.title = originTitle;
+      if (legacyTitle && priorMeta.title === legacyTitle) metaPatch.title = originTitle;
       else if (hasDefaultTitle) metaPatch.title = originTitle;
     }
 
     // Persist the user message first (so the session survives even if upstream fails).
-    const userMsg: StoredMessage = {
-      id: crypto.randomUUID(),
-      role: "user",
-      createdAt: Date.now(),
-      raw: userText,
-      blocks: [textBlock(userText, { adapter: "client" })]
-    };
+    const userTs = Date.now();
+    const userMsg: OpenAICompatMessage = { role: "user", content: userText } as any;
+    await store.appendTranscript(sessionId, userMsg as any, userTs);
 
-    const userEv: SessionEventV1 = {
-      v: 1,
-      id: crypto.randomUUID(),
-      ts: userMsg.createdAt,
-      type: "message",
-      message: userMsg
-    };
-    await store.appendEvent(sessionId, userEv, { touchMeta: false });
+    const tokenLimit = safeInt(body.contextTokenLimit, 20000);
 
     // Resolve upstream backend (provider + credentials).
     let backend: ReturnType<typeof resolveUpstreamBackend>;
@@ -379,6 +377,7 @@ export async function handleChat(
 
       const msg = String(e?.message ?? e);
       await persistAssistantError({ store, sessionId, message: msg });
+      await store.appendTurn(sessionId, { tokenLimit, usedTokens: 0 }, Date.now());
       await store.updateMeta(sessionId, { ...metaPatch, updatedAt: Date.now(), lastModel: routeModel });
 
       send(res, "error", { message: msg });
@@ -398,6 +397,7 @@ export async function handleChat(
 
       const msg = String(e?.message ?? e);
       await persistAssistantError({ store, sessionId, message: msg });
+      await store.appendTurn(sessionId, { tokenLimit, usedTokens: 0 }, Date.now());
       await store.updateMeta(sessionId, { ...metaPatch, updatedAt: Date.now(), lastModel: routeModel || backend.upstreamModel });
 
       send(res, "error", { message: msg });
@@ -407,30 +407,24 @@ export async function handleChat(
       return;
     }
 
-    const tokenLimit = safeInt(body.contextTokenLimit, 20000);
-    const historyBase = [...prior.messages, userMsg].filter((m) => m && m.role !== "system");
+    const historyBase = [...priorMessages, userMsg].filter((m) => m && m.role !== "system");
 
     // Inject system instruction as the only system message (when configured).
     const historyForContext = systemInstruction.trim().length
       ? [
           ...historyBase,
-          {
-            id: crypto.randomUUID(),
-            role: "system",
-            createdAt: Date.now(),
-            raw: systemInstruction,
-            blocks: [textBlock(systemInstruction, { adapter: "gateway" })]
-          }
+          ({ role: "system", content: systemInstruction } as any)
         ]
       : historyBase;
 
     const { messages: contextMessages, usedTokens, dropped } = backend.provider.buildContext(historyForContext, tokenLimit);
 
     const { stopKeepAlive } = beginSse(res);
-    send(res, "meta", { sessionId, model: routeModel, usedTokens, dropped });
+    // NOTE: keep meta minimal; turn-level stats are persisted in transcript.ndjson.
+    send(res, "meta", { sessionId, model: routeModel, usedTokens });
 
     console.log(
-      `[gateway] POST /api/chat  session=${sessionId} model=${backend.upstreamModel} ctx≈${usedTokens} dropped=${dropped} tools=on mode=${toolAccessMode}`
+      `[gateway] POST /api/chat  session=${sessionId} model=${backend.upstreamModel} ctx≈${usedTokens} tools=on mode=${toolAccessMode}`
     );
 
     const execAllowlist = loadExecAllowlist(raw);
@@ -513,16 +507,16 @@ export async function handleChat(
           );
         }
 
-        // Persist assistant message (even if empty; it anchors tool blocks).
-        await persistAssistantText({ store, sessionId, text: assistantText, origin });
-
-        // Close the current assistant streaming phase in the UI.
-        if (streamMode === "full") send(res, "assistant_end", {});
-
         const toolCalls = Array.from(toolCallsMap.values())
           .filter(isToolCall)
           .filter((c) => c.name && c.name.trim());
         toolCalls.sort((a, b) => (a.index ?? 999999) - (b.index ?? 999999));
+
+        // Persist assistant message (even if empty; it anchors tool blocks).
+        await persistAssistantText({ store, sessionId, text: assistantText, toolCallsForTranscript: toolCalls });
+
+        // Close the current assistant streaming phase in the UI.
+        if (streamMode === "full") send(res, "assistant_end", {});
 
         if (toolCalls.length === 0) {
           // No tool calls: final answer.
@@ -533,7 +527,7 @@ export async function handleChat(
         // Append the provider-specific assistant tool-call message to the upstream transcript.
         upstreamMessages.push(backend.provider.buildAssistantToolCallMessage({ assistantText, toolCalls }));
 
-        // Emit tool_call blocks (now we have complete args) and persist them.
+        // Emit tool_call blocks (now we have complete args).
         const approvalWaiters = new Map<string, ToolApprovalWaiter>();
         const safetyCheckByCall = new Map<string, ToolSafetyCheck>();
         const parsedArgsByCall = new Map<string, any>();
@@ -542,15 +536,6 @@ export async function handleChat(
         const parseErrorByCall = new Map<string, string | undefined>();
 
         for (const call of toolCalls) {
-          const tev: SessionEventV1 = {
-            v: 1,
-            id: crypto.randomUUID(),
-            ts: Date.now(),
-            type: "tool_call",
-            call: { callId: call.callId, name: call.name, argsRaw: call.argsRaw }
-          };
-          await store.appendEvent(sessionId, tev, { touchMeta: false });
-
           let parsed: any = null;
           let parseError: string | undefined;
           try {
@@ -742,7 +727,7 @@ export async function handleChat(
                 // Destination resolution:
                 // - Default is "origin" (request source).
                 // - Fallback to persisted session origin.
-                const effectiveOrigin = (requestedOrigin ?? metaPatch.origin ?? prior.meta.origin ?? { kind: "web" }) as any;
+                const effectiveOrigin = (requestedOrigin ?? metaPatch.origin ?? priorMeta.origin ?? { kind: "web" }) as any;
 
                 let destination: any = args.destination;
                 if (!destination || destination.kind === "origin") destination = effectiveOrigin;
@@ -907,19 +892,21 @@ export async function handleChat(
           if (streamMode === "full") send(res, "tool_result", { callId: call.callId, name, ok, result: output });
 
           // Persist
-          const rev: SessionEventV1 = {
-            v: 1,
-            id: crypto.randomUUID(),
-            ts: Date.now(),
-            type: "tool_result",
-            result: { callId: call.callId, name, ok, output }
-          };
-          await store.appendEvent(sessionId, rev, { touchMeta: false });
+          const toolTs = Date.now();
+          const toolContent = safeJsonStringify(output);
+
+          await store.appendTranscript(
+            sessionId,
+            {
+              role: "tool",
+              tool_call_id: call.callId,
+              content: toolContent
+            } as any,
+            toolTs
+          );
 
           // Feed back to model
-          toolMessages.push(
-            backend.provider.buildToolResultMessage({ callId: call.callId, content: safeJsonStringify(output) })
-          );
+          toolMessages.push(backend.provider.buildToolResultMessage({ callId: call.callId, content: toolContent }));
         }
 
         upstreamMessages.push(...toolMessages);
@@ -927,6 +914,9 @@ export async function handleChat(
         // Start a fresh assistant streaming phase (the model's post-tool response).
         if (streamMode === "full") send(res, "assistant_start", { messageId: crypto.randomUUID() });
       }
+
+      // Mark end of a logical user-turn (even if it involved tool loops).
+      await store.appendTurn(sessionId, { tokenLimit, usedTokens }, Date.now());
 
       await store.updateMeta(sessionId, {
         ...metaPatch,
@@ -954,6 +944,9 @@ export async function handleChat(
 
       // Persist an assistant-visible error so the UI doesn't "flash then disappear" after re-sync.
       await persistAssistantError({ store, sessionId, message: msg });
+
+      // Still close the turn so UI can collapse it.
+      await store.appendTurn(sessionId, { tokenLimit, usedTokens }, Date.now());
       await store.updateMeta(sessionId, { ...metaPatch, updatedAt: Date.now(), lastModel: routeModel || backend.upstreamModel });
 
       if (!res.writableEnded) {

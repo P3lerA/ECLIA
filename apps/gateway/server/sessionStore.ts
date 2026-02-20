@@ -3,7 +3,9 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import readline from "node:readline";
-import type { SessionDetail, SessionEventV1, SessionMetaV1, StoredMessage } from "./sessionTypes.js";
+import type { SessionMetaV1 } from "./sessionTypes.js";
+import type { SessionsIndexEventV1 } from "./sessionsIndexTypes.js";
+import type { OpenAICompatMessage, TranscriptRecordV1, TranscriptTurnV1 } from "./transcriptTypes.js";
 
 const SAFE_ID = /^[a-zA-Z0-9_-]{1,120}$/;
 
@@ -60,6 +62,12 @@ export class SessionStore {
 
   async init(): Promise<void> {
     await ensureDir(this.sessionsDir);
+
+    // Ensure the global sessions index exists.
+    const idx = this.sessionsIndexPath();
+    if (!fs.existsSync(idx)) {
+      await fsp.writeFile(idx, "", { encoding: "utf-8", flag: "a" });
+    }
   }
 
   /**
@@ -80,8 +88,12 @@ export class SessionStore {
     return path.join(this.dirFor(sessionId), "meta.json");
   }
 
-  private eventsPath(sessionId: string): string {
-    return path.join(this.dirFor(sessionId), "events.ndjson");
+  private transcriptPath(sessionId: string): string {
+    return path.join(this.dirFor(sessionId), "transcript.ndjson");
+  }
+
+  private sessionsIndexPath(): string {
+    return path.join(this.sessionsDir, "sessions.ndjson");
   }
 
   async createSession(title?: string): Promise<SessionMetaV1> {
@@ -105,14 +117,25 @@ export class SessionStore {
 
     const metaFile = this.metaPath(sessionId);
     const existing = await readJsonFile<SessionMetaV1>(metaFile);
-    if (existing && existing.id) return coerceMeta(existing, sessionId);
+    if (existing && existing.id) {
+      // Ensure transcript file exists for older sessions (best-effort).
+      const trPath = this.transcriptPath(sessionId);
+      if (!fs.existsSync(trPath)) {
+        await fsp.writeFile(trPath, "", { encoding: "utf-8", flag: "a" });
+      }
+      return coerceMeta(existing, sessionId);
+    }
 
     const meta = seed ?? coerceMeta({ id: sessionId }, sessionId);
     await atomicWrite(metaFile, JSON.stringify(meta, null, 2));
-    // Ensure events file exists
-    const evPath = this.eventsPath(sessionId);
-    if (!fs.existsSync(evPath)) {
-      await fsp.writeFile(evPath, "", { encoding: "utf-8", flag: "a" });
+
+    // Keep a global index for faster listing/lookup.
+    await this.appendSessionsIndex({ v: 1, id: crypto.randomUUID(), ts: meta.updatedAt, type: "upsert", meta });
+
+    // Ensure transcript file exists
+    const trPath = this.transcriptPath(sessionId);
+    if (!fs.existsSync(trPath)) {
+      await fsp.writeFile(trPath, "", { encoding: "utf-8", flag: "a" });
     }
     return meta;
   }
@@ -141,141 +164,39 @@ export class SessionStore {
     return metas.slice(0, Math.max(1, Math.min(2000, limit)));
   }
 
-  async readSession(sessionId: string, opts?: { includeTools?: boolean }): Promise<SessionDetail | null> {
+  /**
+   * Read the canonical transcript for a session.
+   *
+   * This returns the raw transcript records (msg/reset) as stored on disk.
+   * UI can project these records as needed; the gateway uses them to rebuild
+   * OpenAI-compatible context.
+   */
+  async readTranscript(sessionId: string): Promise<{ meta: SessionMetaV1; transcript: TranscriptRecordV1[] } | null> {
     await this.init();
 
     const sid = safeId(sessionId);
     if (!sid) return null;
 
     const meta = await readJsonFile<SessionMetaV1>(this.metaPath(sid));
-    if (!meta) {
-      // session may not exist yet
-      return null;
-    }
+    if (!meta) return null;
 
-    const events = await this.readEvents(sid);
-    const includeTools = Boolean(opts?.includeTools);
-
-    const messages: StoredMessage[] = [];
-    let lastMsg: StoredMessage | null = null;
-
-    for (const ev of events) {
-      if (!ev || (ev as any).v !== 1) continue;
-
-      if (ev.type === "reset") {
-        // Future-proofing: if we ever stop truncating the file on reset,
-        // treat reset as a hard boundary in the projection.
-        messages.length = 0;
-        lastMsg = null;
-        continue;
-      }
-
-      if (ev.type === "message" && ev.message) {
-        const msg = ev.message;
-        // Defensive: ensure blocks exist.
-        (msg as any).blocks = Array.isArray((msg as any).blocks) ? (msg as any).blocks : [];
-        messages.push(msg);
-        lastMsg = msg;
-        continue;
-      }
-
-      if (!includeTools) continue;
-
-      if (ev.type === "tool_call" && (ev as any).call) {
-        const call = (ev as any).call as any;
-        const name = typeof call?.name === "string" ? call.name : "tool";
-        const argsRaw = typeof call?.argsRaw === "string" ? call.argsRaw : "";
-        const callId = typeof call?.callId === "string" ? call.callId : "";
-
-        const block = {
-          type: "tool" as const,
-          name,
-          status: "calling" as const,
-          payload: { callId, raw: argsRaw }
-        };
-
-        if (lastMsg && lastMsg.role === "assistant") {
-          lastMsg.blocks.push(block as any);
-        } else {
-          const toolMsg: StoredMessage = {
-            id: crypto.randomUUID(),
-            role: "tool",
-            createdAt: ev.ts,
-            blocks: [block as any]
-          };
-          messages.push(toolMsg);
-          lastMsg = toolMsg;
-        }
-        continue;
-      }
-
-      if (ev.type === "tool_result" && (ev as any).result) {
-        const result = (ev as any).result as any;
-        const name = typeof result?.name === "string" ? result.name : "tool";
-        const callId = typeof result?.callId === "string" ? result.callId : "";
-        const ok = Boolean(result?.ok);
-        const output = result?.output;
-
-        const block = {
-          type: "tool" as const,
-          name,
-          status: ok ? ("ok" as const) : ("error" as const),
-          payload: { callId, ok, output }
-        };
-
-        if (lastMsg && lastMsg.role === "assistant") {
-          lastMsg.blocks.push(block as any);
-        } else {
-          const toolMsg: StoredMessage = {
-            id: crypto.randomUUID(),
-            role: "tool",
-            createdAt: ev.ts,
-            blocks: [block as any]
-          };
-          messages.push(toolMsg);
-          lastMsg = toolMsg;
-        }
-        continue;
-      }
-    }
-
-    // Keep a chronological view for the UI.
-    // Do a stable sort for deterministic ordering even if timestamps collide.
-    const stable = messages.map((m, i) => ({ m, i }));
-    stable.sort((a, b) => (a.m.createdAt - b.m.createdAt) || (a.i - b.i));
-
-    return { meta: coerceMeta(meta as any, sid), messages: stable.map((x) => x.m) };
-  }
-
-  async appendEvent(sessionId: string, ev: SessionEventV1, opts?: { touchMeta?: boolean }): Promise<void> {
-    await this.ensureSession(sessionId);
-
-    const line = JSON.stringify(ev);
-    await fsp.appendFile(this.eventsPath(sessionId), line + "\n", "utf-8");
-
-    // In many hot paths (chat streaming + tool loops), callers may choose to
-    // batch meta updates to avoid excessive atomic rewrites of meta.json.
-    if (opts?.touchMeta === false) return;
-
-    // Update meta.updatedAt (best-effort).
-    const metaFile = this.metaPath(sessionId);
-    const meta = await readJsonFile<SessionMetaV1>(metaFile);
-    if (meta) {
-      meta.updatedAt = Math.max(meta.updatedAt ?? 0, ev.ts);
-      await atomicWrite(metaFile, JSON.stringify(coerceMeta(meta as any, sessionId), null, 2));
-    }
+    const transcript = await this.readTranscriptRecords(sid);
+    return { meta: coerceMeta(meta as any, sid), transcript };
   }
 
   async updateMeta(sessionId: string, patch: Partial<SessionMetaV1>): Promise<SessionMetaV1> {
     const current = await this.ensureSession(sessionId);
     const next: SessionMetaV1 = coerceMeta({ ...current, ...patch }, sessionId);
     await atomicWrite(this.metaPath(sessionId), JSON.stringify(next, null, 2));
+
+    // Best-effort: append to global sessions index.
+    await this.appendSessionsIndex({ v: 1, id: crypto.randomUUID(), ts: next.updatedAt, type: "upsert", meta: next });
     return next;
   }
 
   async resetSession(sessionId: string): Promise<SessionMetaV1> {
-    const meta = await this.ensureSession(sessionId);
-    await atomicWrite(this.eventsPath(sessionId), "");
+    await this.ensureSession(sessionId);
+    await atomicWrite(this.transcriptPath(sessionId), "");
     const now = Date.now();
     const next = await this.updateMeta(sessionId, {
       title: "New session",
@@ -283,9 +204,8 @@ export class SessionStore {
       updatedAt: now
     });
 
-    // Write an explicit reset event (helps debugging and future replays).
-    const resetEv: SessionEventV1 = { v: 1, id: crypto.randomUUID(), ts: now, type: "reset" };
-    await fsp.appendFile(this.eventsPath(sessionId), JSON.stringify(resetEv) + "\n", "utf-8");
+    const resetTr: TranscriptRecordV1 = { v: 1, id: crypto.randomUUID(), ts: now, type: "reset" };
+    await fsp.appendFile(this.transcriptPath(sessionId), JSON.stringify(resetTr) + "\n", "utf-8");
 
     // Best-effort: clear artifacts for this session (/.eclia/artifacts/<sessionId>/...).
     // Note: we intentionally do NOT clear /.eclia/debug (request captures) here.
@@ -311,6 +231,9 @@ export class SessionStore {
     // Best-effort: clear artifacts first.
     await this.clearSessionArtifacts(sid);
 
+    // Best-effort: append delete marker to global sessions index.
+    await this.appendSessionsIndex({ v: 1, id: crypto.randomUUID(), ts: Date.now(), type: "delete", sessionId: sid });
+
     const dir = this.dirFor(sid);
 
     // Extra guard to ensure we never delete outside the sessions root.
@@ -321,6 +244,42 @@ export class SessionStore {
     }
 
     await fsp.rm(absTarget, { recursive: true, force: true });
+  }
+
+  async appendTranscript(sessionId: string, msg: OpenAICompatMessage, ts?: number): Promise<void> {
+    await this.ensureSession(sessionId);
+    const rec: TranscriptRecordV1 = {
+      v: 1,
+      id: crypto.randomUUID(),
+      ts: typeof ts === "number" && Number.isFinite(ts) ? ts : Date.now(),
+      type: "msg",
+      msg
+    };
+    await fsp.appendFile(this.transcriptPath(sessionId), JSON.stringify(rec) + "\n", "utf-8");
+  }
+
+  async appendTurn(sessionId: string, turn: TranscriptTurnV1, ts?: number): Promise<void> {
+    await this.ensureSession(sessionId);
+    const rec: TranscriptRecordV1 = {
+      v: 1,
+      id: crypto.randomUUID(),
+      ts: typeof ts === "number" && Number.isFinite(ts) ? ts : Date.now(),
+      type: "turn",
+      turn: {
+        tokenLimit: typeof (turn as any)?.tokenLimit === "number" ? (turn as any).tokenLimit : 0,
+        usedTokens: typeof (turn as any)?.usedTokens === "number" ? (turn as any).usedTokens : 0
+      }
+    };
+    await fsp.appendFile(this.transcriptPath(sessionId), JSON.stringify(rec) + "\n", "utf-8");
+  }
+
+  private async appendSessionsIndex(ev: SessionsIndexEventV1): Promise<void> {
+    try {
+      await this.init();
+      await fsp.appendFile(this.sessionsIndexPath(), JSON.stringify(ev) + "\n", "utf-8");
+    } catch {
+      // Best-effort: index is non-critical.
+    }
   }
 
   private async clearSessionArtifacts(sessionId: string): Promise<void> {
@@ -340,19 +299,19 @@ export class SessionStore {
     }
   }
 
-  private async readEvents(sessionId: string): Promise<SessionEventV1[]> {
-    const evPath = this.eventsPath(sessionId);
+  private async readTranscriptRecords(sessionId: string): Promise<TranscriptRecordV1[]> {
+    const trPath = this.transcriptPath(sessionId);
 
     // Stream line-by-line for resilience (large sessions won't blow memory).
     let stream: fs.ReadStream;
     try {
-      stream = fs.createReadStream(evPath, { encoding: "utf-8" });
+      stream = fs.createReadStream(trPath, { encoding: "utf-8" });
     } catch {
       return [];
     }
 
     const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
-    const out: SessionEventV1[] = [];
+    const out: TranscriptRecordV1[] = [];
 
     try {
       for await (const line of rl) {
@@ -360,9 +319,11 @@ export class SessionStore {
         if (!s) continue;
 
         try {
-          const parsed = JSON.parse(s) as SessionEventV1;
-          // Minimal shape check
-          if (parsed && (parsed as any).v === 1 && typeof (parsed as any).type === "string") out.push(parsed);
+          const parsed = JSON.parse(s) as TranscriptRecordV1;
+          if (!parsed || (parsed as any).v !== 1) continue;
+          const t = (parsed as any).type;
+          if (t !== "msg" && t !== "reset" && t !== "turn") continue;
+          out.push(parsed);
         } catch {
           // If a line is truncated/corrupted (crash while writing), ignore it.
           continue;

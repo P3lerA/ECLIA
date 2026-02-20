@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
-import type { StoredMessage } from "./sessionTypes.js";
+
+import type { OpenAICompatMessage } from "./transcriptTypes.js";
 
 /**
  * Conservative token estimator.
@@ -7,12 +8,6 @@ import type { StoredMessage } from "./sessionTypes.js";
  * Why estimate:
  * - Different vendors use different tokenizers.
  * - We only need truncation to avoid blowing up context; exact counts are not required.
- *
- * Approach:
- * - Use UTF-8 byte length as a language-agnostic proxy.
- * - Use a conservative bytes/token ratio to truncate earlier rather than later.
- *
- * NOTE: This is an estimator; upstream may still reject if its real limit is smaller.
  */
 export function estimateTokens(text: string): number {
   const s = typeof text === "string" ? text : "";
@@ -22,55 +17,8 @@ export function estimateTokens(text: string): number {
   return Math.ceil(bytes / 3.25);
 }
 
-export function messageToVisibleText(msg: StoredMessage): string {
-  // Join "visible" blocks only. Thought blocks are excluded by default.
-  const parts: string[] = [];
-  for (const b of msg.blocks ?? []) {
-    if (!b || typeof (b as any).type !== "string") continue;
-    if ((b as any).type === "thought") continue;
-
-    if ((b as any).type === "text") {
-      const t = typeof (b as any).text === "string" ? (b as any).text : "";
-      if (t) parts.push(t);
-      continue;
-    }
-
-    if ((b as any).type === "code") {
-      const code = typeof (b as any).code === "string" ? (b as any).code : "";
-      const lang = typeof (b as any).language === "string" ? (b as any).language : "code";
-      if (code) parts.push(`\n\n\`\`\`${lang}\n${code}\n\`\`\`\n\n`);
-      continue;
-    }
-
-    if ((b as any).type === "tool") {
-      const name = typeof (b as any).name === "string" ? (b as any).name : "tool";
-      const status = typeof (b as any).status === "string" ? (b as any).status : "ok";
-      const payload = (b as any).payload ?? {};
-      // IMPORTANT: Avoid serializing tool blocks using a bracketed tag like "[tool:...]".
-      // Some models may imitate that format and emit fake tool calls as plain text.
-      // Use a neutral, informational format instead.
-      parts.push(`\n\nTool ${name} (${status}): ${safeJson(payload)}\n\n`);
-      continue;
-    }
-  }
-
-  // Fallback to raw if blocks were empty (but never crash).
-  if (parts.length === 0 && typeof msg.raw === "string") return msg.raw;
-  return parts.join("");
-}
-
-function safeJson(v: unknown): string {
-  try {
-    return JSON.stringify(v);
-  } catch {
-    return String(v);
-  }
-}
-
-export type OpenAICompatMessage = { role: "system" | "user" | "assistant" | "tool"; content: string };
-
 export function buildTruncatedContext(
-  history: StoredMessage[],
+  history: OpenAICompatMessage[],
   tokenLimit: number
 ): { messages: OpenAICompatMessage[]; usedTokens: number; dropped: number } {
   const limit = clampInt(tokenLimit, 256, 1_000_000);
@@ -79,49 +27,108 @@ export function buildTruncatedContext(
   let systemMsg: OpenAICompatMessage | null = null;
   for (let i = history.length - 1; i >= 0; i--) {
     if (history[i]?.role === "system") {
-      systemMsg = { role: "system", content: messageToVisibleText(history[i]) };
+      systemMsg = history[i];
       break;
     }
   }
 
-  const items: Array<{ role: OpenAICompatMessage["role"]; content: string; tokens: number }> = [];
+  const nonSystem = history.filter((m) => m && m.role !== "system");
 
-  for (const m of history) {
-    if (!m || typeof m.role !== "string") continue;
-    if (m.role === "system") continue; // handled separately
+  // Turn-based truncation:
+  // keep whole user-turns atomically to avoid broken tool-call chains and
+  // partial reasoning blocks. A "turn" starts at a user message and includes
+  // all subsequent assistant/tool messages until the next user message.
+  const groups = groupTurns(nonSystem);
 
-    const role =
-      m.role === "user" || m.role === "assistant" || m.role === "tool" ? (m.role as any) : "user";
-    const content = messageToVisibleText(m);
-    const tokens = estimateTokens(content) + 4; // small per-message overhead
-    items.push({ role, content, tokens });
-  }
+  const selected: typeof groups = [];
+  let used = systemMsg ? estimateTokens(messageForEstimate(systemMsg)) + 8 : 0;
 
-  // Select from the end until token budget is satisfied.
-  const selected: typeof items = [];
-  let used = systemMsg ? estimateTokens(systemMsg.content) + 8 : 0;
-
-  for (let i = items.length - 1; i >= 0; i--) {
-    const it = items[i];
+  for (let i = groups.length - 1; i >= 0; i--) {
+    const g = groups[i];
     if (selected.length === 0) {
-      // Always keep the last message.
-      selected.push(it);
-      used += it.tokens;
+      // Always keep the last group (which includes the last message).
+      selected.push(g);
+      used += g.tokens;
       continue;
     }
-    if (used + it.tokens > limit) continue;
-    selected.push(it);
-    used += it.tokens;
+    if (used + g.tokens > limit) continue;
+    selected.push(g);
+    used += g.tokens;
   }
 
   selected.reverse();
 
   const out: OpenAICompatMessage[] = [];
   if (systemMsg) out.push(systemMsg);
-  for (const it of selected) out.push({ role: it.role, content: it.content });
+  for (const g of selected) out.push(...g.msgs);
 
-  const dropped = items.length - selected.length;
+  const keptCount = selected.reduce((n, g) => n + g.msgs.length, 0);
+  const dropped = nonSystem.length - keptCount;
   return { messages: out, usedTokens: used, dropped };
+}
+
+function groupTurns(messages: OpenAICompatMessage[]): Array<{ msgs: OpenAICompatMessage[]; tokens: number }> {
+  const groups: Array<{ msgs: OpenAICompatMessage[]; tokens: number }> = [];
+
+  let cur: OpenAICompatMessage[] = [];
+  let curTokens = 0;
+
+  const flush = () => {
+    if (cur.length === 0) return;
+    groups.push({ msgs: cur, tokens: curTokens });
+    cur = [];
+    curTokens = 0;
+  };
+
+  for (const m of messages) {
+    if (!m) continue;
+
+    // A new user message starts a new turn.
+    if (m.role === "user") {
+      flush();
+    }
+
+    cur.push(m);
+    curTokens += estimateTokens(messageForEstimate(m)) + 4;
+  }
+
+  flush();
+  return groups;
+}
+
+function messageForEstimate(msg: OpenAICompatMessage): string {
+  const role = typeof (msg as any)?.role === "string" ? (msg as any).role : "";
+  const content = contentToText((msg as any)?.content);
+
+  if (role === "assistant") {
+    const toolCalls = Array.isArray((msg as any).tool_calls) ? (msg as any).tool_calls : undefined;
+    if (toolCalls && toolCalls.length) return `${content}\n${safeJson(toolCalls)}`;
+  }
+
+  if (role === "tool") {
+    const tci = typeof (msg as any).tool_call_id === "string" ? (msg as any).tool_call_id : "";
+    return tci ? `${tci}\n${content}` : content;
+  }
+
+  return content;
+}
+
+function contentToText(v: any): string {
+  if (typeof v === "string") return v;
+  if (v === null || v === undefined) return "";
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
+}
+
+function safeJson(v: unknown): string {
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
 }
 
 function clampInt(v: unknown, min: number, max: number): number {
