@@ -99,7 +99,7 @@ function matchesAllowlist(commandName: string, allowlist: ExecAllowlistRule[]): 
 }
 
 export function checkExecNeedsApproval(
-  execArgs: { cmd?: string; command?: string } | any,
+  execArgs: { command?: string } | any,
   mode: ToolAccessMode,
   allowlist: ExecAllowlistRule[]
 ): {
@@ -111,18 +111,10 @@ export function checkExecNeedsApproval(
     return { requireApproval: false, reason: "mode_full" };
   }
 
-  const cmd = typeof execArgs?.cmd === "string" ? execArgs.cmd : "";
   const command = typeof execArgs?.command === "string" ? execArgs.command : "";
 
   // Missing command: don't ask for approval; it will error anyway.
-  if (!cmd && !command) return { requireApproval: false, reason: "missing_command" };
-
-  if (cmd) {
-    const name = basenameSafe(cmd);
-    const matched = matchesAllowlist(name, allowlist);
-    if (matched) return { requireApproval: false, reason: "allowlisted", matchedAllowlist: matched };
-    return { requireApproval: true, reason: "not_allowlisted" };
-  }
+  if (!command) return { requireApproval: false, reason: "missing_command" };
 
   // Shell string form
   const parsed = firstTokenFromShell(command);

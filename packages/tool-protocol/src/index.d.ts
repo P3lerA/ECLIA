@@ -5,8 +5,6 @@ export const ECLIA_URI_SCHEME: "eclia";
 export const ECLIA_ARTIFACT_URI_HOST: "artifact";
 
 export type ExecToolArgs = {
-  cmd?: string;
-  args?: string[];
   command?: string;
   cwd?: string;
   timeoutMs?: number;
@@ -16,8 +14,6 @@ export type ExecToolArgs = {
 };
 
 export type NormalizedExecToolArgs = {
-  cmd?: string;
-  args: string[];
   command?: string;
   cwd?: string;
   timeoutMs: number;

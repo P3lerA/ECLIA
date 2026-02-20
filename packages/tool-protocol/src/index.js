@@ -32,12 +32,6 @@ function clampInt(v, fallback, min, max) {
   return i;
 }
 
-function toStringArray(v) {
-  if (!Array.isArray(v)) return [];
-  // Accept numbers etc. and stringify; tooling is best-effort.
-  return v.map((x) => String(x));
-}
-
 function normalizeEnv(extra) {
   if (!isRecord(extra)) return {};
   const out = {};
@@ -50,18 +44,15 @@ function normalizeEnv(extra) {
 /**
  * Best-effort exec args normalization.
  *
- * IMPORTANT: this is intentionally permissive so the model can succeed even when
- * it sends slightly-wrong shapes (numbers in args, etc.).
+ * The exec tool intentionally accepts a single entry point: `command`.
+ *
+ * IMPORTANT: this is intentionally permissive about types (numbers, etc.) so the
+ * model can succeed even when it sends slightly-wrong shapes.
  */
 export function parseExecArgs(raw) {
   const obj = isRecord(raw) ? raw : {};
-  const cmd = typeof obj.cmd === "string" && obj.cmd.trim() ? obj.cmd.trim() : undefined;
-  const command = typeof obj.command === "string" && obj.command.trim() ? obj.command.trim() : undefined;
-
   return {
-    cmd,
-    args: toStringArray(obj.args),
-    command,
+    command: typeof obj.command === "string" && obj.command.trim() ? obj.command.trim() : undefined,
     cwd: typeof obj.cwd === "string" && obj.cwd.trim() ? obj.cwd.trim() : undefined,
     timeoutMs: clampInt(obj.timeoutMs, 60_000, 1_000, 60 * 60_000),
     maxStdoutBytes: clampInt(obj.maxStdoutBytes, 200_000, 1_000, 20_000_000),

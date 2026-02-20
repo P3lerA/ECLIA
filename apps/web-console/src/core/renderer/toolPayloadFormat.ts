@@ -71,7 +71,7 @@ export function tryFormatToolPayload(block: ToolBlock, payload: any): FormattedT
     // The payload shape differs between:
     // - live SSE blocks: payload === output
     // - persisted blocks: payload === { callId, ok, output }
-    const isExecTool = block.name === "exec" || block.name === "execution";
+    const isExecTool = block.name === "exec";
     if (isExecTool && (block.status === "ok" || block.status === "error")) {
       const out = isRecord(payload) && isRecord(payload.output) ? payload.output : payload;
       if (!isRecord(out)) return null;

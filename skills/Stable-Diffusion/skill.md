@@ -16,5 +16,5 @@ Default output directory is:
 
 Examples:
 ``` bash
-./sd_t2i.sh --template ntrMIXIllustriousXL_v40.json --prompt "mecha, neon rain"
-./sd_t2i.sh --host http://192.168.1.156:7860 --template model.json --prompt "portrait, cinematic" --upscale
+$ECLIA_SKILLS_DIR/Stable-Diffusion/sd-t2i.sh --host http://127.0.0.1:7860 --template $ECLIA_SKILLS_DIR/Stable-Diffusion/templates/ntrMIXIllustriousXL_v40.json --prompt "portrait, cinematic"
+```

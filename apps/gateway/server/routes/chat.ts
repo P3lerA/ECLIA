@@ -6,11 +6,12 @@ import {
   loadEcliaConfig
 } from "@eclia/config";
 
+import { parseExecArgs } from "@eclia/tool-protocol";
+
 import { SessionStore } from "../sessionStore.js";
 import type { SessionMetaV1 } from "../sessionTypes.js";
 import type { OpenAICompatMessage, TranscriptRecordV1 } from "../transcriptTypes.js";
 import { ToolApprovalHub } from "../tools/approvalHub.js";
-import { parseExecArgs } from "../tools/execTool.js";
 import { checkExecNeedsApproval, loadExecAllowlist, type ToolAccessMode } from "../tools/policy.js";
 import { checkSendNeedsApproval, parseSendArgs, prepareSendAttachments } from "../tools/sendTool.js";
 import {
@@ -20,7 +21,7 @@ import {
   type ToolSafetyCheck,
   type ToolApprovalWaiter
 } from "../tools/approvalFlow.js";
-import { EXEC_TOOL_NAME, EXECUTION_TOOL_NAME, SEND_TOOL_NAME } from "../tools/toolSchemas.js";
+import { EXEC_TOOL_NAME, SEND_TOOL_NAME } from "../tools/toolSchemas.js";
 import { McpStdioClient } from "../mcp/stdioClient.js";
 import { sseHeaders, initSse, send, startSseKeepAlive } from "../sse.js";
 import { withSessionLock } from "../sessionLock.js";
@@ -470,7 +471,7 @@ export async function handleChat(
         const parseAssistantOutput = Boolean((config as any)?.debug?.parse_assistant_output);
         const parsedWarningByCall = new Map<string, string>();
         if (parseAssistantOutput && toolCallsMap.size === 0) {
-          const allowed = new Set<string>([EXEC_TOOL_NAME, EXECUTION_TOOL_NAME, SEND_TOOL_NAME]);
+          const allowed = new Set<string>([EXEC_TOOL_NAME, SEND_TOOL_NAME]);
           // Also allow any tool names that are actually exposed to the model for this request.
           for (const t of toolsForModel as any[]) {
             const n = typeof t?.function?.name === "string" ? t.function.name : typeof t?.name === "string" ? t.name : "";
@@ -554,7 +555,7 @@ export async function handleChat(
 
           let approvalInfo: any = null;
 
-          if (call.name === EXEC_TOOL_NAME || call.name === EXECUTION_TOOL_NAME) {
+          if (call.name === EXEC_TOOL_NAME) {
             const execArgs = parseExecArgs(parsed);
             parsedExecArgsByCall.set(call.callId, execArgs);
 
@@ -605,7 +606,7 @@ export async function handleChat(
           let ok = false;
           let output: any = null;
 
-          if (name === EXEC_TOOL_NAME || name === EXECUTION_TOOL_NAME) {
+          if (name === EXEC_TOOL_NAME) {
             if (parseError) {
               ok = false;
               output = {
@@ -689,7 +690,7 @@ export async function handleChat(
                   output = {
                     type: "exec_result",
                     ok: false,
-                    error: approvalOutcomeToError(decision, { actionLabel: "execution" }),
+                    error: approvalOutcomeToError(decision, { actionLabel: "exec" }),
                     policy: { mode: toolAccessMode, ...check, approvalId: waiter?.approvalId },
                     args: execArgs ?? parsed
                   };

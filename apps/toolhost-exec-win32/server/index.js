@@ -68,11 +68,7 @@ function expandExecArgsSkillsDir(args, skillsDirAbs) {
   if (!args || typeof args !== "object" || !skillsDirAbs) return args;
 
   if (typeof args.cwd === "string") args.cwd = expandEcliaSkillsDirPlaceholders(args.cwd, skillsDirAbs);
-  if (typeof args.cmd === "string") args.cmd = expandEcliaSkillsDirPlaceholders(args.cmd, skillsDirAbs);
   if (typeof args.command === "string") args.command = expandEcliaSkillsDirPlaceholders(args.command, skillsDirAbs);
-  if (Array.isArray(args.args)) {
-    args.args = args.args.map((a) => (typeof a === "string" ? expandEcliaSkillsDirPlaceholders(a, skillsDirAbs) : a));
-  }
 
   return args;
 }
@@ -324,61 +320,15 @@ async function runExecTool(rawArgs, signal) {
   const maxErr = args.maxStderrBytes ?? 200_000;
 
   // Keep the original request for transparency/debugging.
-  const requested = { cmd: args.cmd, args: args.args ?? [], command: args.command };
+  const requested = { command: args.command };
 
-  // Decide what we actually execute.
-  let usedShell = false;
-  let commandStr = args.command;
-
-  let effectiveFile = null;
-  let effectiveArgs = [];
-
-  if (commandStr) {
-    usedShell = true;
-  } else if (args.cmd) {
-    effectiveFile = args.cmd;
-    effectiveArgs = args.args ?? [];
-
-    // Some models send a whole command line in `cmd` (e.g. "ls -la").
-    // If `args` is empty and `cmd` contains whitespace, treat it as a shell command,
-    // unless it points to an existing executable path (which may contain spaces).
-    if (!effectiveArgs.length && /\s/.test(effectiveFile)) {
-      const candidatePath = path.isAbsolute(effectiveFile) ? effectiveFile : path.resolve(cwd, effectiveFile);
-      if (!fs.existsSync(candidatePath)) {
-        usedShell = true;
-        commandStr = effectiveFile;
-      }
-    }
-  }
-
-  if (usedShell) {
-    if (!commandStr) {
-      return {
-        type: "exec_result",
-        ok: false,
-        error: { code: "missing_command", message: "Provide 'cmd' (preferred) or 'command'." },
-        cwd,
-        stdout: "",
-        stderr: "",
-        exitCode: null,
-        signal: undefined,
-        truncated: { stdout: false, stderr: false },
-        durationMs: nowMs() - t0,
-        timedOut: false,
-        aborted: false
-      };
-    }
-
-    const sh = defaultShell();
-    effectiveFile = sh.file;
-    effectiveArgs = [...sh.argsPrefix, commandStr];
-  }
-
-  if (!effectiveFile) {
+  // Exec tool accepts a single entry point: a shell command string.
+  const commandStr = args.command;
+  if (!commandStr) {
     return {
       type: "exec_result",
       ok: false,
-      error: { code: "missing_command", message: "Provide 'cmd' (preferred) or 'command'." },
+      error: { code: "missing_command", message: "Provide 'command' (shell command string)." },
       cwd,
       stdout: "",
       stderr: "",
@@ -390,6 +340,11 @@ async function runExecTool(rawArgs, signal) {
       aborted: false
     };
   }
+
+  const sh = defaultShell();
+  const usedShell = true;
+  const effectiveFile = sh.file;
+  const effectiveArgs = [...sh.argsPrefix, commandStr];
 
   // npm/pnpm inject npm_config_* variables when running scripts. Some environments
   // (especially when using nvm in a Git-Bash-like shell) emit warnings when
@@ -573,22 +528,14 @@ async function runExecTool(rawArgs, signal) {
 const EXEC_TOOL_DEF = {
   name: "exec",
   title: "Execute Command",
-  description: "Execute a command on this machine (Windows). Prefer cmd+args. Skills live under %ECLIA_SKILLS_DIR%/<name> (or $env:ECLIA_SKILLS_DIR in PowerShell). For large/binary outputs, write files to %ECLIA_ARTIFACT_DIR% (or $env:ECLIA_ARTIFACT_DIR in PowerShell). Avoid printing huge base64 blobs; decode to a file instead. Files created there will be returned as artifacts. Each artifact includes: path (repo-relative), uri (eclia://artifact/...), and ref (<eclia://artifact/...>) for copy/paste referencing. Returns stdout/stderr/exitCode.",
+  description: "Execute a command on this machine (Windows). Provide a shell command string in 'command'. Skills live under %ECLIA_SKILLS_DIR%/<name> (or $env:ECLIA_SKILLS_DIR in PowerShell). For large/binary outputs, write files to %ECLIA_ARTIFACT_DIR% (or $env:ECLIA_ARTIFACT_DIR in PowerShell). Avoid printing huge base64 blobs; decode to a file instead. Files created there will be returned as artifacts. Each artifact includes: path (repo-relative), uri (eclia://artifact/...), and ref (<eclia://artifact/...>) for copy/paste referencing. Returns stdout/stderr/exitCode.",
   inputSchema: {
     type: "object",
     properties: {
-      cmd: {
-        type: "string",
-        description: "Executable to run (preferred over 'command'). Example: 'git'"
-      },
-      args: {
-        type: "array",
-        items: { type: "string" },
-        description: "Arguments array. Example: ['status', '-sb']"
-      },
       command: {
         type: "string",
-        description: "Shell command string. Example: 'ls -la | sed -n 1,50p'"
+        description:
+          "Shell command string (pipes/redirection). Example: 'dir | findstr \\".js\\"'."
       },
       cwd: {
         type: "string",
@@ -612,6 +559,7 @@ const EXEC_TOOL_DEF = {
         description: "Extra environment variables to set for the command."
       }
     },
+    required: ["command"],
     additionalProperties: false
   }
 };

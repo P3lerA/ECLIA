@@ -6,7 +6,7 @@ import { loadEcliaConfig } from "@eclia/config";
 
 import { SessionStore } from "./sessionStore.js";
 import { ToolApprovalHub } from "./tools/approvalHub.js";
-import { EXEC_TOOL_NAME, EXECUTION_TOOL_NAME, SEND_TOOL_NAME } from "./tools/toolSchemas.js";
+import { EXEC_TOOL_NAME, SEND_TOOL_NAME } from "./tools/toolSchemas.js";
 import { SEND_TOOL_SCHEMA } from "./tools/sendTool.js";
 import { McpStdioClient, type McpToolDef } from "./mcp/stdioClient.js";
 import { json } from "./httpUtils.js";
@@ -73,15 +73,7 @@ async function main() {
         name: EXEC_TOOL_NAME,
         description:
           execTool.description ||
-          "Execute a command on the local machine. Prefer 'cmd'+'args' for safety. Returns stdout/stderr/exitCode.",
-        parameters
-      }
-    },
-    {
-      type: "function",
-      function: {
-        name: EXECUTION_TOOL_NAME,
-        description: execTool.description || "Alias of 'exec'. Execute a command on the local machine.",
+          "Execute a shell command on the local machine. Provide a command string in 'command'. Returns stdout/stderr/exitCode.",
         parameters
       }
     },
@@ -100,7 +92,7 @@ async function main() {
   const toolhost = {
     mcp: mcpExec,
     toolsForModel,
-    nameToMcpTool: (name: string) => (name === EXECUTION_TOOL_NAME ? EXEC_TOOL_NAME : name)
+    nameToMcpTool: (name: string) => name
   };
 
   // Session store lives under <repo>/.eclia by default.
