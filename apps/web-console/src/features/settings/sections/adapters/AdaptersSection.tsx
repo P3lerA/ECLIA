@@ -1,0 +1,135 @@
+import React from "react";
+import type { SettingsDraft } from "../../settingsTypes";
+import { Collapsible } from "../../../common/Collapsible";
+
+export type AdaptersSectionProps = {
+  draft: SettingsDraft;
+  setDraft: React.Dispatch<React.SetStateAction<SettingsDraft>>;
+
+  cfgLoading: boolean;
+  cfgBaseAvailable: boolean;
+
+  discordAppIdConfigured: boolean;
+  discordTokenConfigured: boolean;
+
+  dirtyDevDiscord: boolean;
+  discordValid: boolean;
+};
+
+export function AdaptersSection(props: AdaptersSectionProps) {
+  const {
+    draft,
+    setDraft,
+    cfgLoading,
+    cfgBaseAvailable,
+    discordAppIdConfigured,
+    discordTokenConfigured,
+    dirtyDevDiscord,
+    discordValid
+  } = props;
+
+  const devDisabled = cfgLoading || !cfgBaseAvailable;
+
+  return (
+    <>
+      <div className="card">
+        <div className="card-title">Discord</div>
+
+        <div className="row">
+          <div className="row-left">
+            <div className="row-main">Discord adapter</div>
+            <div className="row-sub muted">Enables the Discord bot adapter.</div>
+          </div>
+
+          <input
+            type="checkbox"
+            checked={draft.adapterDiscordEnabled}
+            onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordEnabled: e.target.checked }))}
+            aria-label="Enable Discord adapter"
+            disabled={devDisabled}
+          />
+        </div>
+
+        <div className="grid2">
+          <label className="field">
+            <div className="field-label">Application ID (client id)</div>
+            <input
+              className="select"
+              value={draft.adapterDiscordAppId}
+              onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordAppId: e.target.value }))}
+              placeholder={discordAppIdConfigured ? "configured" : "not set"}
+              spellCheck={false}
+              disabled={devDisabled}
+            />
+            <div className="field-sub muted">
+              Required for registering slash commands. Find it in the Discord Developer Portal (Application/Client ID).
+            </div>
+          </label>
+
+          <label className="field">
+            <div className="field-label">Bot token (local)</div>
+            <input
+              className="select"
+              type="password"
+              value={draft.adapterDiscordBotToken}
+              onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordBotToken: e.target.value }))}
+              placeholder={discordTokenConfigured ? "configured (leave blank to keep)" : "not set"}
+              spellCheck={false}
+              disabled={devDisabled}
+            />
+            <div className="field-sub muted">
+              Stored in <code>eclia.config.local.toml</code>. Token is never shown after saving.
+            </div>
+          </label>
+        </div>
+
+        <div className="grid2">
+          <label className="field" style={{ gridColumn: "1 / -1" }}>
+            <div className="field-label">Guild IDs (optional)</div>
+            <textarea
+              className="select"
+              rows={3}
+              value={draft.adapterDiscordGuildIds}
+              onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordGuildIds: e.target.value }))}
+              placeholder={"123456789012345678\n987654321098765432"}
+              spellCheck={false}
+              disabled={devDisabled}
+            />
+            <div className="field-sub muted">
+              If set, slash commands will be registered as <strong>guild</strong> commands for faster iteration. Leave blank for global registration.
+            </div>
+          </label>
+        </div>
+
+        {dirtyDevDiscord && !discordValid ? (
+          <div className="devNoteText muted">Discord adapter enabled but missing bot token or Application ID.</div>
+        ) : null}
+      </div>
+
+      <Collapsible title="Advanced" variant="section">
+        <div className="row">
+          <div className="row-left">
+            <div className="row-main">Discord verbose default</div>
+            <div className="row-sub muted">
+              When enabled, <code>/eclia</code> behaves as if <code>verbose=true</code> was set by default (equivalent to setting{" "}
+              <code>ECLIA_DISCORD_DEFAULT_STREAM_MODE=full</code>). Saved to <code>eclia.config.local.toml</code>. Restart required.
+            </div>
+          </div>
+
+          <input
+            type="checkbox"
+            checked={draft.adapterDiscordDefaultStreamMode === "full"}
+            onChange={(e) =>
+              setDraft((d) => ({
+                ...d,
+                adapterDiscordDefaultStreamMode: e.target.checked ? "full" : "final"
+              }))
+            }
+            aria-label="Discord verbose default"
+            disabled={devDisabled}
+          />
+        </div>
+      </Collapsible>
+    </>
+  );
+}

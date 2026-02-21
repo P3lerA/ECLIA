@@ -2,6 +2,17 @@
 html, body, #root {
   height: 100%;
 }
+
+/*
+  Avoid layout shift when the vertical scrollbar appears/disappears.
+  (Notably noticeable when switching Settings sections.)
+*/
+html{
+  scrollbar-gutter: stable;
+}
+@supports not (scrollbar-gutter: stable){
+  html{ overflow-y: scroll; }
+}
 body{
   margin:0;
   font-family: var(--sans);
@@ -506,6 +517,16 @@ button, input, select, textarea{
   border-radius: 12px;
   border: 1px solid var(--line);
   display: block;
+}
+
+/* Send tool: keep image previews compact (so a single tool bubble doesn't dominate the timeline). */
+.block-tool[data-tool="send"][data-status="ok"] .artifact-img{
+  max-width: 100%;
+  /* min() keeps it responsive on narrow screens. */
+  max-width: min(100%, 520px);
+  max-height: 320px;
+  margin-left: auto;
+  margin-right: auto;
 }
 .block-code{ margin-top: 8px; }
 .block-code-head{

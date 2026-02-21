@@ -301,7 +301,7 @@ export async function handleChat(
         content: typeof (config.inference as any)?.system_instruction === "string" ? String((config.inference as any).system_instruction) : ""
       },
 
-      // Skills (enabled by user in TOML; only inject enabled names + one-line summaries).
+      // Optional: skills system blurb (from skills/_system.md). No code-generated boilerplate.
       buildSkillsInstructionPart(rootDir, config.skills.enabled)
     ]);
 

@@ -207,7 +207,7 @@ function ToolBlockView({ block }: { block: ToolBlock }) {
   };
 
   return (
-    <div className="block-tool">
+    <div className="block-tool" data-tool={block.name} data-status={block.status}>
       <div className="block-tool-head">
         <ToolNameIcon name={block.name} /> <span className="k">{block.name}</span> <span className="muted">· {block.status}</span>
       </div>
