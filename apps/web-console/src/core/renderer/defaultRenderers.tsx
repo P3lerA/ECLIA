@@ -389,7 +389,7 @@ function ThoughtBlockView({ block }: { block: ThoughtBlock }) {
   if (plainOutput) {
     return (
       <div className="block-thought">
-        <div className="muted">thought</div>
+        <div className="muted">Thought</div>
         <pre className="code-lite">{`<think>\n${block.text}\n</think>`}</pre>
       </div>
     );
@@ -398,7 +398,7 @@ function ThoughtBlockView({ block }: { block: ThoughtBlock }) {
   // Default: hidden/collapsed (dev-friendly).
   return (
     <details className="block-thought">
-      <summary className="muted">thought</summary>
+      <summary className="muted">Thought</summary>
       <pre className="code-lite">{block.text}</pre>
     </details>
   );

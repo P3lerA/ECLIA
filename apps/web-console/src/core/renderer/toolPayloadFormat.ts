@@ -62,6 +62,32 @@ export function tryFormatToolPayload(block: ToolBlock, payload: any): FormattedT
 
       const parseError = isRecord(payload) && typeof payload.parseError === "string" ? payload.parseError : undefined;
 
+      // Tool-specific: exec calls are almost always of the form { command: "..." }.
+      // For readability, show just the command string instead of JSON.
+      if (block.name === "exec") {
+        const parsed = isRecord(payload) ? (payload as any).parsed : null;
+        const cmdFromParsed = isRecord(parsed) && typeof (parsed as any).command === "string" ? String((parsed as any).command) : "";
+        const cmdFromPayload = isRecord(payload) && typeof (payload as any).command === "string" ? String((payload as any).command) : "";
+
+        // Some live SSE tool_call events only carry the parsed args object; persistence carries `raw`.
+        const cmd = cmdFromPayload || cmdFromParsed;
+        if (cmd) {
+          return { kind: "tool_call_raw", raw: cmd, parseError };
+        }
+
+        // Fallback: best-effort parse raw JSON if present.
+        if (raw) {
+          try {
+            const o = JSON.parse(raw);
+            if (isRecord(o) && typeof (o as any).command === "string") {
+              return { kind: "tool_call_raw", raw: String((o as any).command), parseError };
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+
       // If we can't find a clean "raw" string, let the caller fall back to JSON.
       if (!raw) return null;
       return { kind: "tool_call_raw", raw, parseError };

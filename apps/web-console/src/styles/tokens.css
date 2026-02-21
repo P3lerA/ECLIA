@@ -21,8 +21,15 @@
 
   --dot: rgba(17,24,39,.25);
 
-  --accent: linear-gradient(90deg,#ff3b3b 0%,#ffb02e 28%,#ffee63 46%,#86ff66 70%,#2fe6d6 100%);
-  --accent-soft: linear-gradient(90deg,rgba(255,59,59,.18),rgba(255,176,46,.14),rgba(255,238,99,.12),rgba(134,255,102,.12),rgba(47,230,214,.14));
+  /* ECLIA logo accent (day). Keep in sync with assets/eclia-logo-day.html */
+  --accent: linear-gradient(90deg,#ff004c 0%,#ff7a00 28%,#ffe600 46%,#40ff2b 70%,#00e5ff 100%);
+  --accent-soft: linear-gradient(90deg,rgba(255,0,76,.18),rgba(255,122,0,.14),rgba(255,230,0,.12),rgba(64,255,43,.12),rgba(0,229,255,.14));
+
+  /*
+    Small UI accents (e.g. the ASSISTANT dot) should use a softer, "post-mask" palette.
+    These are pre-mixed (opaque) colors so we don't need extra overlays/masks.
+  */
+  --accent-dot: linear-gradient(90deg,#fc709b 0%,#fcb471 28%,#fcef71 46%,#93fd89 70%,#70eefe 100%);
 
   /* Brand depth tokens (used by the HTML logo text) */
   --brand-base:#0a0a0b;
@@ -59,6 +66,13 @@
   --overlay: rgba(0,0,0,.50);
 
   --dot: rgba(255,255,255,.22);
+
+  /* ECLIA logo accent (night). Keep in sync with assets/eclia-logo-night.html */
+  --accent: linear-gradient(90deg,#ff2f2f 0%,#ffab1a 28%,#fff066 46%,#7dff5a 70%,#22ead9 100%);
+  --accent-soft: linear-gradient(90deg,rgba(255,47,47,.18),rgba(255,171,26,.14),rgba(255,240,102,.12),rgba(125,255,90,.12),rgba(34,234,217,.14));
+
+  /* Softer (pre-mixed) accent gradient for tiny UI elements. */
+  --accent-dot: linear-gradient(90deg,#db2b2c 0%,#db941a 28%,#dbcf5a 46%,#6ddc50 70%,#1fcabc 100%);
 
   --brand-base:#f5f6f8;
   --brand-under: rgba(0,0,0,0.60);

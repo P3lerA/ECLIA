@@ -351,7 +351,7 @@ button, input, select, textarea{
   border-radius: 999px;
   background: var(--dot);
 }
-.dot.accent{ background: linear-gradient(90deg,#ff4d4d,#50e6d6); }
+.dot.accent{ background: var(--accent-dot); }
 
 .block-text{
   margin: 0;
@@ -472,6 +472,47 @@ button, input, select, textarea{
   color: var(--muted);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* Thought blocks (internal reasoning): hidden/collapsed by default. */
+.block-thought{
+  margin-top: 8px;
+}
+
+/* Avoid double-spacing between the role header and the first rendered block. */
+.bubble > .role + .block-thought,
+.bubble > .role + .block-tool,
+.bubble > .role + .block-code{
+  margin-top: 0;
+}
+
+.block-thought > summary{
+  /* Plain text affordance (no pill). */
+  list-style: none; /* Remove the native disclosure marker (triangle). */
+  cursor: pointer;
+  user-select: none;
+
+  display: inline;
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.block-thought > summary::-webkit-details-marker{
+  display: none;
+}
+.block-thought > summary::marker{
+  content: "";
+}
+.block-thought > summary::after{
+  content: " >";
+  opacity: .85;
+}
+.block-thought > summary:hover{
+  color: var(--text);
+}
+.block-thought[open] > summary{
+  color: var(--text);
 }
 
 .block-tool-artifacts{
