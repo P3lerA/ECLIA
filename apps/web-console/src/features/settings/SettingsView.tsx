@@ -1332,23 +1332,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                 />
               </div>
 
-              <div className="row stack-gap">
-                <div className="row-left">
-                  <div className="row-main">Capture Upstream Requests</div>
-                  <div className="row-sub muted">
-                    Save the full upstream request body to <code>.eclia/debug/&lt;sessionId&gt;/</code> for debugging.
-                  </div>
-                </div>
-
-                <input
-                  type="checkbox"
-                  checked={draft.debugCaptureUpstreamRequests}
-                  onChange={(e) => setDraft((d) => ({ ...d, debugCaptureUpstreamRequests: e.target.checked }))}
-                  aria-label="Capture upstream requests"
-                  disabled={cfgLoading || !cfgBase}
-                />
-              </div>
-
               {cfgError ? <div className="devNoteText muted">{cfgError}</div> : null}
 
               {dirtyDevHostPort && !hostPortValid ? (
@@ -1359,6 +1342,23 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             </div>
 
               <Collapsible title="Advanced" variant="section">
+                <div className="row stack-gap">
+                  <div className="row-left">
+                    <div className="row-main">Capture Upstream Requests</div>
+                    <div className="row-sub muted">
+                      Save the full upstream request body to <code>.eclia/debug/&lt;sessionId&gt;/</code> for debugging.
+                    </div>
+                  </div>
+
+                  <input
+                    type="checkbox"
+                    checked={draft.debugCaptureUpstreamRequests}
+                    onChange={(e) => setDraft((d) => ({ ...d, debugCaptureUpstreamRequests: e.target.checked }))}
+                    aria-label="Capture upstream requests"
+                    disabled={cfgLoading || !cfgBase}
+                  />
+                </div>
+
                 <div className="row stack-gap">
                   <div className="row-left">
                     <div className="row-main">Parse Assistant Output</div>

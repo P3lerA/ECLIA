@@ -7,6 +7,48 @@ import { apiArtifactUrl } from "../api/artifacts";
 import { useAppState } from "../../state/AppState";
 import { tryFormatToolPayload } from "./toolPayloadFormat";
 
+function ToolNameIcon({ name }: { name: string }) {
+  if (name === "exec") return <TerminalIcon />;
+  if (name === "send") return <EnterIcon />;
+  return null;
+}
+
+function iconProps() {
+  // Keep icons tiny and styleable via currentColor.
+  return {
+    className: "tool-icon",
+    width: 14,
+    height: 14,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+    focusable: false
+  };
+}
+
+function TerminalIcon() {
+  return (
+    <svg {...iconProps()}>
+      <polyline points="4 17 10 11 4 5" />
+      <line x1="12" y1="19" x2="20" y2="19" />
+    </svg>
+  );
+}
+
+function EnterIcon() {
+  // Resembles a return/enter arrow.
+  return (
+    <svg {...iconProps()}>
+      <polyline points="9 10 4 15 9 20" />
+      <path d="M20 4v7a4 4 0 0 1-4 4H4" />
+    </svg>
+  );
+}
+
 export function registerDefaultBlockRenderers(registry: BlockRendererRegistry) {
   registry.register("text", (b: TextBlock) => <TextBlockView block={b} />);
 
@@ -136,6 +178,10 @@ function ToolBlockView({ block }: { block: ToolBlock }) {
 
   const artifacts = extractArtifacts(payload);
   const isSendTool = block.name === "send";
+  const isExecTool = block.name === "exec";
+
+  // UX: successful send results don't need to dump the raw payload in rich mode.
+  // Keep the raw payload available via "Display Plain Output".
   const hidePayloadInRichView = isSendTool && block.status === "ok";
 
   const [busy, setBusy] = React.useState(false);
@@ -162,7 +208,7 @@ function ToolBlockView({ block }: { block: ToolBlock }) {
   return (
     <div className="block-tool">
       <div className="block-tool-head">
-        <strong>Tool</strong> <span className="k">{block.name}</span> <span className="muted">· {block.status}</span>
+        <strong>Tool</strong> <ToolNameIcon name={block.name} /> <span className="k">{block.name}</span> <span className="muted">· {block.status}</span>
       </div>
 
       {approvalRequired ? (
@@ -196,6 +242,7 @@ function ToolBlockView({ block }: { block: ToolBlock }) {
             const label = p.split("/").pop() || p;
             const bytes = typeof a?.bytes === "number" ? a.bytes : undefined;
             const isImage = kind === "image" || mime.startsWith("image/");
+            const showInlinePreview = isImage && !isExecTool;
 
             return (
               <div key={i} className="artifact-item">
@@ -208,7 +255,7 @@ function ToolBlockView({ block }: { block: ToolBlock }) {
                   {!isSendTool ? <span className="muted">· {p}</span> : null}
                 </div>
 
-                {isImage ? <img className="artifact-img" src={url} alt={label} loading="lazy" /> : null}
+                {showInlinePreview ? <img className="artifact-img" src={url} alt={label} loading="lazy" /> : null}
               </div>
             );
           })}

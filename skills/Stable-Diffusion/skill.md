@@ -7,7 +7,7 @@ Usage:
 - --prompt "<text>" (required): the user prompt for this run.
 - --template /path/to/<model.json> (required): model-specific defaults (steps/cfg/sampler/size/model/hires params), saved under /Skills/Stable-Diffusion/templates. **It needs an absolute path or relative path.**
 - --upscale (optional): enable Hires Fix (disabled by default).
-- --host <url:port> (optional): Forge base URL (default http://127.0.0.1:7860), include the port.
+- --host <url:port> (optional): Forge base URL (default http://127.0.0.1:7860), **INCLUDE THE PORT**.
 - --out <path> / --out-dir <dir> (optional): output path or directory.
 
 Default output directory is:
