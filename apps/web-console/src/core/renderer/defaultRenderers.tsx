@@ -22,7 +22,8 @@ function iconProps() {
     viewBox: "0 0 24 24",
     fill: "none",
     stroke: "currentColor",
-    strokeWidth: 2,
+    // Slightly thicker strokes so the icon reads as the tool block "title".
+    strokeWidth: 2.5,
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
     "aria-hidden": true,
@@ -208,7 +209,7 @@ function ToolBlockView({ block }: { block: ToolBlock }) {
   return (
     <div className="block-tool">
       <div className="block-tool-head">
-        <strong>Tool</strong> <ToolNameIcon name={block.name} /> <span className="k">{block.name}</span> <span className="muted">· {block.status}</span>
+        <ToolNameIcon name={block.name} /> <span className="k">{block.name}</span> <span className="muted">· {block.status}</span>
       </div>
 
       {approvalRequired ? (

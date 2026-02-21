@@ -451,7 +451,8 @@ button, input, select, textarea{
 .block-tool-head .tool-icon{
   display: inline-block;
   vertical-align: -2px;
-  color: var(--muted);
+  /* Treat the tool icon as the "title" of the tool block. */
+  color: var(--text);
 }
 .code-lite{
   margin: 8px 0 0 0;
