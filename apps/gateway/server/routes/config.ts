@@ -114,6 +114,20 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
     if (body.console) patch.console = body.console;
     if (body.api) patch.api = body.api;
 
+    // Dev hardening: only allow binding the console to localhost or all interfaces.
+    // (Other hostnames/IPs will be supported later when we have a proper edge proxy story.)
+    if (typeof patch.console?.host === "string") {
+      const host = patch.console.host.trim();
+      if (host !== "127.0.0.1" && host !== "0.0.0.0") {
+        return json(res, 400, {
+          ok: false,
+          error: "bad_request",
+          hint: "console.host must be either '127.0.0.1' (local only) or '0.0.0.0' (listen on all interfaces)."
+        });
+      }
+      patch.console.host = host;
+    }
+
     const debugPatch: any = {};
     if (body.debug && Object.prototype.hasOwnProperty.call(body.debug, "capture_upstream_requests")) {
       debugPatch.capture_upstream_requests = Boolean((body.debug as any).capture_upstream_requests);

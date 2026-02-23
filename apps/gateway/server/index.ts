@@ -1,6 +1,7 @@
 import http from "node:http";
 import path from "node:path";
 import * as fs from "node:fs";
+import crypto from "node:crypto";
 
 import { loadEcliaConfig } from "@eclia/config";
 
@@ -97,6 +98,22 @@ async function main() {
 
   // Session store lives under <repo>/.eclia by default.
   const dataDir = path.join(rootDir, ".eclia");
+
+  // ---------------------------------------------------------------------------
+  // Gateway internal auth token
+  //
+  // Dev-time hardening: require an internal bearer token for all API routes
+  // (except /api/health). The token is stored on disk under <repo>/.eclia/
+  // with restrictive permissions.
+  // ---------------------------------------------------------------------------
+  const tokenPath = path.join(dataDir, "gateway.token");
+  const tokenInfo = ensureGatewayToken(tokenPath);
+  if (tokenInfo.created) {
+    console.log(`[gateway] generated auth token (stored at ${tokenPath}):`);
+    console.log(tokenInfo.token);
+  }
+  const gatewayToken = tokenInfo.token;
+
   const store = new SessionStore(dataDir);
   await store.init();
 
@@ -106,21 +123,28 @@ async function main() {
   const server = http.createServer(async (req, res) => {
     const url = req.url ?? "/";
 
-    // Basic CORS for direct access (Vite proxy usually makes this unnecessary).
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
-    if (req.method === "OPTIONS") {
-      res.writeHead(204);
-      res.end();
-      return;
-    }
-
     const u = new URL(url, "http://localhost");
     const pathname = u.pathname;
 
     if (pathname === "/api/health" && req.method === "GET") return json(res, 200, { ok: true });
+
+    // Internal auth: all API routes require a bearer token.
+    if (pathname.startsWith("/api/")) {
+      const auth = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
+      const tokenFromQuery = pathname === "/api/artifacts" ? (u.searchParams.get("token") ?? "") : "";
+      const ok = isValidBearer(auth, gatewayToken) || (tokenFromQuery && tokenFromQuery === gatewayToken);
+
+      if (!ok) {
+        res.setHeader("WWW-Authenticate", 'Bearer realm="eclia"');
+        return json(res, 401, {
+          ok: false,
+          error: "unauthorized",
+          hint:
+            "Missing or invalid gateway token. Configure the Web Console with the token printed by the gateway, " +
+            "or send: Authorization: Bearer <token>."
+        });
+      }
+    }
 
     if (pathname === "/api/config") return await handleConfig(req, res);
 
@@ -150,6 +174,62 @@ async function main() {
     console.log(`[gateway] GET/PUT http://localhost:${port}/api/config`);
     console.log(`[gateway] GET/POST http://localhost:${port}/api/sessions`);
   });
+}
+
+function ensureGatewayToken(tokenPath: string): { token: string; created: boolean } {
+  try {
+    const existing = fs.readFileSync(tokenPath, "utf-8").trim();
+    if (existing) {
+      // Best-effort hardening: ensure owner-only perms on POSIX.
+      try {
+        fs.chmodSync(tokenPath, 0o600);
+      } catch {
+        // ignore
+      }
+      return { token: existing, created: false };
+    }
+  } catch {
+    // fallthrough
+  }
+
+  const dir = path.dirname(tokenPath);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch {
+    // best-effort; subsequent write will surface the error
+  }
+
+  const token = crypto.randomBytes(32).toString("hex");
+
+  try {
+    // Create with restrictive perms; mode only applies on creation.
+    fs.writeFileSync(tokenPath, token + "\n", { encoding: "utf-8", flag: "wx", mode: 0o600 });
+    return { token, created: true };
+  } catch (e: any) {
+    // Race: if another process created it, read it.
+    if (String(e?.code ?? "") === "EEXIST") {
+      const existing = fs.readFileSync(tokenPath, "utf-8").trim();
+      if (existing) {
+        try {
+          fs.chmodSync(tokenPath, 0o600);
+        } catch {
+          // ignore
+        }
+        return { token: existing, created: false };
+      }
+    }
+    throw e;
+  }
+}
+
+function isValidBearer(authHeader: string, expectedToken: string): boolean {
+  const raw = (authHeader ?? "").trim();
+  if (!raw) return false;
+  const m = raw.match(/^Bearer\s+(.+)$/i);
+  if (!m) return false;
+  const got = (m[1] ?? "").trim();
+  if (!got) return false;
+  return got === expectedToken;
 }
 
 main().catch((e) => {

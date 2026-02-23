@@ -1,6 +1,7 @@
 import React from "react";
 import type { SettingsDraft } from "../../settingsTypes";
 import { Collapsible } from "../../../common/Collapsible";
+import { Modal } from "../../../common/Modal";
 
 export type GeneralSectionProps = {
   draft: SettingsDraft;
@@ -19,6 +20,21 @@ export function GeneralSection(props: GeneralSectionProps) {
   const { draft, setDraft, cfgLoading, cfgBaseAvailable, cfgError, cfgSaved, dirtyDevHostPort, hostPortValid } = props;
 
   const devDisabled = cfgLoading || !cfgBaseAvailable;
+  const [exposeWarnOpen, setExposeWarnOpen] = React.useState(false);
+
+  const consoleHostValue = draft.consoleHost.trim() === "0.0.0.0" ? "0.0.0.0" : "127.0.0.1";
+
+  const onHostChange = (nextHost: string) => {
+    if (devDisabled) return;
+
+    const next = nextHost.trim();
+    if (next === "0.0.0.0" && consoleHostValue !== "0.0.0.0") {
+      setExposeWarnOpen(true);
+      return;
+    }
+
+    setDraft((d) => ({ ...d, consoleHost: next }));
+  };
 
   return (
     <>
@@ -28,14 +44,15 @@ export function GeneralSection(props: GeneralSectionProps) {
         <div className="grid2">
           <label className="field">
             <div className="field-label">Console host</div>
-            <input
+            <select
               className="select"
-              value={draft.consoleHost}
-              onChange={(e) => setDraft((d) => ({ ...d, consoleHost: e.target.value }))}
-              placeholder="127.0.0.1 or 0.0.0.0"
-              spellCheck={false}
+              value={consoleHostValue}
+              onChange={(e) => onHostChange(e.target.value)}
               disabled={devDisabled}
-            />
+            >
+              <option value="127.0.0.1">127.0.0.1 (local only)</option>
+              <option value="0.0.0.0">0.0.0.0 (all interfaces)</option>
+            </select>
           </label>
 
           <label className="field">
@@ -90,6 +107,32 @@ export function GeneralSection(props: GeneralSectionProps) {
 
         {cfgSaved ? <div className="devNoteText muted">{cfgSaved}</div> : null}
       </div>
+
+      {exposeWarnOpen ? (
+        <Modal open={exposeWarnOpen} onClose={() => setExposeWarnOpen(false)} ariaLabel="Expose Web Console warning">
+          <div className="card-title">Expose Web Console to the network?</div>
+          <div className="modal-body muted">
+            Setting <code>console.host</code> to <code>0.0.0.0</code> makes the Web Console listen on all network
+            interfaces. Anyone who can reach your machine on the configured port can attempt to access it.
+          </div>
+
+          <div className="modal-actions">
+            <button className="btn subtle" type="button" onClick={() => setExposeWarnOpen(false)}>
+              Cancel
+            </button>
+            <button
+              className="btn"
+              type="button"
+              onClick={() => {
+                setDraft((d) => ({ ...d, consoleHost: "0.0.0.0" }));
+                setExposeWarnOpen(false);
+              }}
+            >
+              I know what I&apos;m doing!
+            </button>
+          </div>
+        </Modal>
+      ) : null}
 
       <Collapsible title="Advanced" variant="section">
         <div className="row stack-gap">

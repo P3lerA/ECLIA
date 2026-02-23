@@ -1,3 +1,5 @@
+import { apiFetch } from "./apiFetch";
+
 export type ToolApprovalDecision = "approve" | "deny";
 
 export type ToolApprovalResponse =
@@ -22,7 +24,7 @@ export async function apiApproveTool(args: {
   if (!approvalId) throw new Error("missing approvalId");
   if (decision !== "approve" && decision !== "deny") throw new Error("invalid decision");
 
-  const r = await fetch("/api/tool-approvals", {
+  const r = await apiFetch("/api/tool-approvals", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ approvalId, decision, sessionId })

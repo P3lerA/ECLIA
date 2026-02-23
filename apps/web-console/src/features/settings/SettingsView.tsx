@@ -23,6 +23,8 @@ import { InferenceSection } from "./sections/inference/InferenceSection";
 import { useInferenceController } from "./sections/inference/useInferenceController";
 import { SkillsSection } from "./sections/skills/SkillsSection";
 
+const ALLOWED_CONSOLE_HOSTS = new Set(["127.0.0.1", "0.0.0.0"]);
+
 /**
  * Settings uses an explicit "Save" to commit changes.
  * While dirty, leaving the page is blocked to avoid accidental loss.
@@ -237,7 +239,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
   const [saving, setSaving] = React.useState(false);
 
-  const hostPortValid = draft.consoleHost.trim().length > 0 && isValidPort(draft.consolePort);
+  const hostPortValid = ALLOWED_CONSOLE_HOSTS.has(draft.consoleHost.trim()) && isValidPort(draft.consolePort);
   const codexHomeValid = !draft.codexHomeOverrideEnabled || draft.codexHomeOverridePath.trim().length > 0;
   const openaiValid =
     draft.inferenceProfiles.length > 0 &&

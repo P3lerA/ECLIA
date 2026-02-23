@@ -1,6 +1,7 @@
 import type { ChatTransport } from "./ChatTransport";
 import type { ChatEvent, ChatEventHandlers, ChatRequest } from "../types";
 import { parseSSE } from "./sseParser";
+import { apiFetch } from "../api/apiFetch";
 
 /**
  * Reads `text/event-stream` (SSE) via fetch() and parses events.
@@ -23,7 +24,7 @@ export class SSEFetchTransport implements ChatTransport {
     const onAbort = () => this.ac?.abort();
     signal?.addEventListener("abort", onAbort, { once: true });
 
-    const resp = await fetch(this.opts.endpoint, {
+    const resp = await apiFetch(this.opts.endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

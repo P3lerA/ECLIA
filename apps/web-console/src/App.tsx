@@ -10,6 +10,9 @@ import { BackgroundRoot } from "./features/background/BackgroundRoot";
 import { applyTheme, subscribeSystemThemeChange, writeStoredThemeMode } from "./theme/theme";
 import { writeStoredPrefs } from "./persist/prefs";
 import { apiGetSession, apiListSessions, toUiSession } from "./core/api/sessions";
+import { apiFetch } from "./core/api/apiFetch";
+import { AUTH_REQUIRED_EVENT } from "./core/api/gatewayAuth";
+import { GatewayTokenView } from "./features/auth/GatewayTokenView";
 
 function safeDecodeSegment(seg: string): string | null {
   try {
@@ -75,9 +78,46 @@ function AppInner() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const [authRequired, setAuthRequired] = React.useState(false);
+  const [authEpoch, setAuthEpoch] = React.useState(0);
+  const authCheckedRef = React.useRef(false);
+
   const containerWide = location.pathname.startsWith("/settings");
 
   const sessionsRef = React.useRef(state.sessions);
+
+  // Startup auth probe: if the gateway requires a token, route to /connect.
+  React.useEffect(() => {
+    if (authCheckedRef.current) return;
+    authCheckedRef.current = true;
+
+    (async () => {
+      try {
+        const r = await apiFetch("/api/config", { method: "GET" });
+        if (r.status === 401) {
+          setAuthRequired(true);
+          if (location.pathname !== "/connect") navigate("/connect", { replace: true });
+        }
+      } catch {
+        // Gateway offline: ignore.
+      }
+    })();
+  }, [location.pathname, navigate]);
+
+  // Any API call that receives 401 will broadcast AUTH_REQUIRED_EVENT.
+  React.useEffect(() => {
+    const onAuth = () => {
+      setAuthRequired(true);
+      if (location.pathname !== "/connect") navigate("/connect", { replace: true });
+    };
+    window.addEventListener(AUTH_REQUIRED_EVENT, onAuth);
+    return () => window.removeEventListener(AUTH_REQUIRED_EVENT, onAuth);
+  }, [location.pathname, navigate]);
+
+  const onAuthed = React.useCallback(() => {
+    setAuthRequired(false);
+    setAuthEpoch((v) => v + 1);
+  }, []);
   React.useEffect(() => {
     sessionsRef.current = state.sessions;
   }, [state.sessions]);
@@ -138,6 +178,7 @@ function AppInner() {
 
   // Bootstrap sessions from the gateway (disk-backed).
   React.useEffect(() => {
+    if (authRequired) return;
     if (!state.settings.sessionSyncEnabled) return;
     let cancelled = false;
 
@@ -191,11 +232,12 @@ function AppInner() {
     return () => {
       cancelled = true;
     };
-  }, [dispatch, state.settings.sessionSyncEnabled]);
+  }, [dispatch, state.settings.sessionSyncEnabled, authEpoch, authRequired]);
 
   // Load messages for the session in the URL on-demand.
   // (Navigation is router-driven; state should not "pull" the app into a session.)
   React.useEffect(() => {
+    if (authRequired) return;
     if (!state.settings.sessionSyncEnabled) return;
     let cancelled = false;
     const sid = urlSessionId;
@@ -217,7 +259,7 @@ function AppInner() {
     return () => {
       cancelled = true;
     };
-  }, [urlSessionId, dispatch, state.settings.sessionSyncEnabled]);
+  }, [urlSessionId, dispatch, state.settings.sessionSyncEnabled, authEpoch, authRequired]);
 
   const [menuOpen, setMenuOpen] = React.useState(false);
 
@@ -227,6 +269,8 @@ function AppInner() {
 
       <div className={containerWide ? "container container-wide" : "container"}>
         <Routes>
+          <Route path="/connect" element={<GatewayTokenView onAuthed={onAuthed} />} />
+
           <Route path="/settings" element={<SettingsView onBack={() => navigate("/")} />} />
 
           <Route path="/plugins" element={<PluginsView onBack={() => navigate("/")} />} />
@@ -245,6 +289,7 @@ function AppInner() {
       </div>
 
       <MenuSheet open={menuOpen} onClose={() => setMenuOpen(false)} />
+
     </div>
   );
 }

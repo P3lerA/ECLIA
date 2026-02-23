@@ -7,6 +7,8 @@
   --text:#0b0b0c;
   --muted:#6b7280;
 
+  --danger:#b91c1c;
+
   --line:rgba(17,24,39,.10);
   --line-2:rgba(17,24,39,.06);
 
@@ -54,6 +56,8 @@
   --surface-2:#151a22;
   --text:#f3f4f6;
   --muted:#a6abb6;
+
+  --danger:#ef4444;
 
   --line:rgba(255,255,255,.12);
   --line-2:rgba(255,255,255,.08);

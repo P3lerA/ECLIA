@@ -6,7 +6,8 @@ import { normalizeDiscordStreamMode, normalizeGuildIds, sameStringArray } from "
  * This mirrors the previous in-SettingsView parsing logic.
  */
 export function devConfigToCfgBase(config: DevConfig): CfgBase {
-  const host = config.console?.host ?? "127.0.0.1";
+  const rawHost = String(config.console?.host ?? "127.0.0.1").trim();
+  const host = rawHost === "0.0.0.0" ? "0.0.0.0" : "127.0.0.1";
   const port = config.console?.port ?? 5173;
   const codexHome = String((config as any).codex_home ?? "").trim();
   const debugCaptureUpstreamRequests = Boolean((config as any)?.debug?.capture_upstream_requests ?? false);

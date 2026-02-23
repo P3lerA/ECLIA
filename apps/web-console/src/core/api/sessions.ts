@@ -1,4 +1,5 @@
 import type { Message, Session } from "../types";
+import { apiFetch } from "./apiFetch";
 
 export type SessionMeta = {
   id: string;
@@ -33,7 +34,7 @@ export type DeleteSessionResponse =
 
 export async function apiListSessions(limit = 200): Promise<SessionMeta[]> {
   const url = `/api/sessions?limit=${encodeURIComponent(String(limit))}`;
-  const r = await fetch(url, { method: "GET" });
+  const r = await apiFetch(url, { method: "GET" });
   const j = (await r.json()) as ListSessionsResponse;
   if (!j.ok) throw new Error(j.hint ?? j.error);
   return j.sessions;
@@ -53,7 +54,7 @@ export async function apiCreateSession(
     if (typeof arg.id === "string" && arg.id.trim()) payload.id = arg.id;
   }
 
-  const r = await fetch("/api/sessions", {
+  const r = await apiFetch("/api/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
@@ -64,7 +65,7 @@ export async function apiCreateSession(
 }
 
 export async function apiGetSession(sessionId: string): Promise<{ session: SessionMeta; messages: Message[] }> {
-  const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: "GET" });
+  const r = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: "GET" });
   const j = (await r.json()) as GetSessionResponse;
   if (!j.ok) throw new Error(j.hint ?? j.error);
   return { session: j.session, messages: transcriptToMessages(j.transcript) };
@@ -234,7 +235,7 @@ function cryptoId(): string {
 }
 
 export async function apiResetSession(sessionId: string): Promise<SessionMeta> {
-  const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/reset`, {
+  const r = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/reset`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}"
@@ -245,7 +246,7 @@ export async function apiResetSession(sessionId: string): Promise<SessionMeta> {
 }
 
 export async function apiDeleteSession(sessionId: string): Promise<void> {
-  const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+  const r = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
   const j = (await r.json()) as DeleteSessionResponse;
   if (!j.ok) throw new Error(j.hint ?? j.error);
 }

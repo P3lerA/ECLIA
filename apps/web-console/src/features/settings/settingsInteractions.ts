@@ -1,4 +1,5 @@
 import type { CodexOAuthProfile, CodexOAuthStatus, ConfigResponse } from "./settingsTypes";
+import { apiFetch } from "../../core/api/apiFetch";
 
 async function readJsonOrNull(r: Response): Promise<any | null> {
   try {
@@ -20,13 +21,13 @@ function errFrom(j: any): string | null {
 
 /** GET /api/config (dev config service). */
 export async function fetchDevConfig(): Promise<ConfigResponse> {
-  const r = await fetch("/api/config", { method: "GET" });
+  const r = await apiFetch("/api/config", { method: "GET" });
   return (await r.json()) as ConfigResponse;
 }
 
 /** PUT /api/config (dev config service). */
 export async function saveDevConfig(body: any): Promise<ConfigResponse> {
-  const r = await fetch("/api/config", {
+  const r = await apiFetch("/api/config", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
@@ -36,7 +37,7 @@ export async function saveDevConfig(body: any): Promise<ConfigResponse> {
 
 /** POST /api/native/pick-folder. Returns null when the user cancels. */
 export async function pickNativeFolder(): Promise<string | null> {
-  const r = await fetch("/api/native/pick-folder", { method: "POST" });
+  const r = await apiFetch("/api/native/pick-folder", { method: "POST" });
   const j = await readJsonOrNull(r);
 
   if (!r.ok) {
@@ -61,7 +62,7 @@ export async function pickNativeFolder(): Promise<string | null> {
 
 /** GET /api/codex/oauth/status. */
 export async function fetchCodexStatus(): Promise<CodexOAuthStatus> {
-  const r = await fetch("/api/codex/oauth/status", { method: "GET" });
+  const r = await apiFetch("/api/codex/oauth/status", { method: "GET" });
   const j = await readJsonOrNull(r);
 
   if (!r.ok) {
@@ -86,7 +87,7 @@ export async function fetchCodexStatus(): Promise<CodexOAuthStatus> {
 
 /** POST /api/codex/oauth/start. Returns an auth URL string (empty when missing/unparseable). */
 export async function startCodexOAuthLogin(profile: CodexOAuthProfile): Promise<string> {
-  const r = await fetch("/api/codex/oauth/start", {
+  const r = await apiFetch("/api/codex/oauth/start", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ profile: { id: profile.id, name: profile.name, model: profile.model } })
@@ -107,7 +108,7 @@ export async function startCodexOAuthLogin(profile: CodexOAuthProfile): Promise<
 
 /** POST /api/codex/oauth/clear. */
 export async function clearCodexOAuth(): Promise<void> {
-  const r = await fetch("/api/codex/oauth/clear", { method: "POST" });
+  const r = await apiFetch("/api/codex/oauth/clear", { method: "POST" });
   const j = await readJsonOrNull(r);
 
   if (!r.ok) {

@@ -738,6 +738,39 @@ textarea:focus{
   overflow-y: auto;
 }
 
+/* Modal (portal) */
+.modal-backdrop{
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 18px;
+  z-index: 80;
+}
+.modal-card{
+  width: min(560px, 100%);
+}
+.modal-body{
+  font-size: 12.5px;
+  line-height: 18px;
+}
+.modal-actions{
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.form-error{
+  color: var(--danger);
+  font-size: 12.5px;
+  text-align: center;
+  max-width: 680px;
+}
+
 
 /* Menu internal navigation: main ↔ all sessions
    The MenuSheet keeps both views mounted for smooth transitions.

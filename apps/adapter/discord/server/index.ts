@@ -1,6 +1,7 @@
 import http from "node:http";
 import crypto from "node:crypto";
 import path from "node:path";
+import * as fs from "node:fs";
 
 import { loadEcliaConfig } from "@eclia/config";
 import { isEcliaRef, uriFromRef, tryParseArtifactUriToRepoRelPath } from "@eclia/tool-protocol";
@@ -125,10 +126,38 @@ function guessGatewayUrl(): string {
   return `http://127.0.0.1:${config.api.port}`;
 }
 
+let cachedGatewayToken: string | null = null;
+
+function readGatewayToken(): string {
+  // Optional override (useful when the gateway isn't on the same machine).
+  const explicit = env("ECLIA_GATEWAY_TOKEN");
+  if (explicit) return explicit;
+
+  try {
+    const { rootDir } = loadEcliaConfig(process.cwd());
+    const tokenPath = path.join(rootDir, ".eclia", "gateway.token");
+    return fs.readFileSync(tokenPath, "utf-8").trim();
+  } catch {
+    return "";
+  }
+}
+
+function getGatewayToken(): string {
+  if (cachedGatewayToken && cachedGatewayToken.trim()) return cachedGatewayToken;
+  const t = readGatewayToken();
+  if (t) cachedGatewayToken = t;
+  return t;
+}
+
+function withGatewayAuth(headers: Record<string, string>): Record<string, string> {
+  const t = getGatewayToken();
+  return t ? { ...headers, Authorization: `Bearer ${t}` } : headers;
+}
+
 async function ensureGatewaySession(gatewayUrl: string, sessionId: string, origin: DiscordOrigin) {
   const r = await fetch(`${gatewayUrl}/api/sessions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: withGatewayAuth({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       id: sessionId,
       title: `Discord ${origin.threadId ? "thread" : "channel"} ${origin.threadId ?? origin.channelId}`,
@@ -143,7 +172,7 @@ async function ensureGatewaySession(gatewayUrl: string, sessionId: string, origi
 async function resetGatewaySession(gatewayUrl: string, sessionId: string) {
   const r = await fetch(`${gatewayUrl}/api/sessions/${encodeURIComponent(sessionId)}/reset`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" }
+    headers: withGatewayAuth({ "Content-Type": "application/json" })
   });
   const j = (await r.json().catch(() => null)) as any;
   if (!j?.ok) throw new Error(`failed_to_reset_session: ${j?.error ?? r.status}`);
@@ -216,7 +245,7 @@ async function runGatewayChat(args: {
   try {
     resp = await fetch(`${args.gatewayUrl}/api/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: withGatewayAuth({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         sessionId: args.sessionId,
         userText: args.userText,
@@ -408,7 +437,7 @@ function extractRefToRepoRelPath(pointer: string): { relPath: string; name: stri
 async function fetchArtifactBytes(gatewayUrl: string, relPath: string): Promise<Buffer> {
   const u = new URL(`${gatewayUrl}/api/artifacts`);
   u.searchParams.set("path", relPath);
-  const r = await fetch(u);
+  const r = await fetch(u, { headers: withGatewayAuth({}) });
   if (!r.ok) throw new Error(`artifact_fetch_failed (${r.status})`);
   const ab = await r.arrayBuffer();
   return Buffer.from(ab);
@@ -444,6 +473,12 @@ async function main() {
   }
 
   const gatewayUrl = guessGatewayUrl();
+  if (!getGatewayToken()) {
+    console.warn(
+      "[adapter-discord] warning: gateway token not found. Start the gateway once (it creates .eclia/gateway.token), " +
+        "or set ECLIA_GATEWAY_TOKEN. Gateway requests will fail with 401 until a token is configured."
+    );
+  }
   const streamEdits = boolEnv("ECLIA_DISCORD_STREAM");
   const streamMode: "full" | "final" = streamEdits ? "full" : "final";
 
