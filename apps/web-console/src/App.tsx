@@ -79,6 +79,7 @@ function AppInner() {
   const location = useLocation();
 
   const [authRequired, setAuthRequired] = React.useState(false);
+  const [authReady, setAuthReady] = React.useState(false);
   const [authEpoch, setAuthEpoch] = React.useState(0);
   const authCheckedRef = React.useRef(false);
 
@@ -96,7 +97,25 @@ function AppInner() {
         const r = await apiFetch("/api/config", { method: "GET" });
         if (r.status === 401) {
           setAuthRequired(true);
+          setAuthReady(false);
           if (location.pathname !== "/connect") navigate("/connect", { replace: true });
+          return;
+        }
+
+        // Establish/refresh the scoped artifacts session cookie for this browser.
+        // This keeps artifact URLs clean (no gateway token in query params) while
+        // preserving bearer-token auth for programmatic clients.
+        if (r.ok) {
+          const s = await apiFetch("/api/auth/artifacts-session", { method: "POST" });
+          if (s.status === 401) {
+            setAuthRequired(true);
+            setAuthReady(false);
+            if (location.pathname !== "/connect") navigate("/connect", { replace: true });
+            return;
+          }
+          // Even if the artifacts session endpoint returns a non-200 (unexpected),
+          // we still consider the UI "authed" as long as /api/config is accessible.
+          setAuthReady(true);
         }
       } catch {
         // Gateway offline: ignore.
@@ -108,6 +127,7 @@ function AppInner() {
   React.useEffect(() => {
     const onAuth = () => {
       setAuthRequired(true);
+      setAuthReady(false);
       if (location.pathname !== "/connect") navigate("/connect", { replace: true });
     };
     window.addEventListener(AUTH_REQUIRED_EVENT, onAuth);
@@ -116,6 +136,7 @@ function AppInner() {
 
   const onAuthed = React.useCallback(() => {
     setAuthRequired(false);
+    setAuthReady(true);
     setAuthEpoch((v) => v + 1);
   }, []);
   React.useEffect(() => {
@@ -178,7 +199,7 @@ function AppInner() {
 
   // Bootstrap sessions from the gateway (disk-backed).
   React.useEffect(() => {
-    if (authRequired) return;
+    if (authRequired || !authReady) return;
     if (!state.settings.sessionSyncEnabled) return;
     let cancelled = false;
 
@@ -232,12 +253,12 @@ function AppInner() {
     return () => {
       cancelled = true;
     };
-  }, [dispatch, state.settings.sessionSyncEnabled, authEpoch, authRequired]);
+  }, [dispatch, state.settings.sessionSyncEnabled, authEpoch, authRequired, authReady]);
 
   // Load messages for the session in the URL on-demand.
   // (Navigation is router-driven; state should not "pull" the app into a session.)
   React.useEffect(() => {
-    if (authRequired) return;
+    if (authRequired || !authReady) return;
     if (!state.settings.sessionSyncEnabled) return;
     let cancelled = false;
     const sid = urlSessionId;
@@ -259,7 +280,7 @@ function AppInner() {
     return () => {
       cancelled = true;
     };
-  }, [urlSessionId, dispatch, state.settings.sessionSyncEnabled, authEpoch, authRequired]);
+  }, [urlSessionId, dispatch, state.settings.sessionSyncEnabled, authEpoch, authRequired, authReady]);
 
   const [menuOpen, setMenuOpen] = React.useState(false);
 

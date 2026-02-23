@@ -20,6 +20,14 @@ import { handlePickFolder } from "./routes/nativeDialog.js";
 import { handleSessions } from "./routes/sessions.js";
 import { handleToolApprovals } from "./routes/toolApprovals.js";
 
+const ARTIFACT_SESSION_COOKIE = "ECLIA_ARTIFACT_SESSION";
+// Local-only hardening: artifact session cookie is a browser convenience to
+// allow <img src> / <a href> loads without embedding the gateway token in URLs.
+// This cookie is scoped to /api/artifacts and is never used to authorize other
+// API routes.
+const ARTIFACT_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const artifactSessions = new Map<string, number>(); // sessionId -> expiresAt
+
 async function main() {
   const { config, rootDir } = loadEcliaConfig(process.cwd());
   const port = config.api.port;
@@ -129,10 +137,20 @@ async function main() {
     if (pathname === "/api/health" && req.method === "GET") return json(res, 200, { ok: true });
 
     // Internal auth: all API routes require a bearer token.
+    // Exception: /api/artifacts can also be accessed with a scoped, HttpOnly
+    // browser cookie session (only used for artifacts).
     if (pathname.startsWith("/api/")) {
       const auth = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
-      const tokenFromQuery = pathname === "/api/artifacts" ? (u.searchParams.get("token") ?? "") : "";
-      const ok = isValidBearer(auth, gatewayToken) || (tokenFromQuery && tokenFromQuery === gatewayToken);
+
+      let ok = false;
+      if (pathname === "/api/artifacts") {
+        const cookieHeader = typeof req.headers.cookie === "string" ? req.headers.cookie : "";
+        const cookies = parseCookieHeader(cookieHeader);
+        const sid = (cookies[ARTIFACT_SESSION_COOKIE] ?? "").trim();
+        ok = isValidBearer(auth, gatewayToken) || isValidArtifactSession(sid);
+      } else {
+        ok = isValidBearer(auth, gatewayToken);
+      }
 
       if (!ok) {
         res.setHeader("WWW-Authenticate", 'Bearer realm="eclia"');
@@ -144,6 +162,32 @@ async function main() {
             "or send: Authorization: Bearer <token>."
         });
       }
+    }
+
+    // Exchange the internal bearer token for a browser-scoped artifacts session.
+    // This keeps the gateway token out of <img src> URLs while preserving the
+    // existing token-based API auth for programmatic clients.
+    if (pathname === "/api/auth/artifacts-session" && req.method === "POST") {
+      const cookieHeader = typeof req.headers.cookie === "string" ? req.headers.cookie : "";
+      const cookies = parseCookieHeader(cookieHeader);
+      const existing = (cookies[ARTIFACT_SESSION_COOKIE] ?? "").trim();
+
+      const { id, created, expiresAt } = createOrRefreshArtifactSession(existing);
+
+      const secure = isHttpsRequest(req);
+      const maxAgeSeconds = Math.floor(ARTIFACT_SESSION_TTL_MS / 1000);
+      res.setHeader(
+        "Set-Cookie",
+        serializeCookie(ARTIFACT_SESSION_COOKIE, id, {
+          httpOnly: true,
+          sameSite: "Strict",
+          path: "/api/artifacts",
+          maxAge: maxAgeSeconds,
+          secure
+        })
+      );
+      res.setHeader("Cache-Control", "no-store");
+      return json(res, 200, { ok: true, created, expiresAt });
     }
 
     if (pathname === "/api/config") return await handleConfig(req, res);
@@ -230,6 +274,84 @@ function isValidBearer(authHeader: string, expectedToken: string): boolean {
   const got = (m[1] ?? "").trim();
   if (!got) return false;
   return got === expectedToken;
+}
+
+function parseCookieHeader(header: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const raw = (header ?? "").trim();
+  if (!raw) return out;
+  const parts = raw.split(";");
+  for (const p of parts) {
+    const idx = p.indexOf("=");
+    if (idx <= 0) continue;
+    const k = p.slice(0, idx).trim();
+    const v = p.slice(idx + 1).trim();
+    if (!k) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+function isValidArtifactSession(sessionId: string): boolean {
+  const sid = (sessionId ?? "").trim();
+  if (!sid) return false;
+  const exp = artifactSessions.get(sid);
+  if (!exp) return false;
+  const now = Date.now();
+  if (exp <= now) {
+    artifactSessions.delete(sid);
+    return false;
+  }
+  return true;
+}
+
+function createOrRefreshArtifactSession(existingId: string): { id: string; created: boolean; expiresAt: number } {
+  const now = Date.now();
+
+  // Opportunistic pruning (keep memory bounded).
+  if (artifactSessions.size > 1024) {
+    for (const [id, exp] of artifactSessions) {
+      if (exp <= now) artifactSessions.delete(id);
+    }
+  }
+
+  const existing = (existingId ?? "").trim();
+  if (existing && isValidArtifactSession(existing)) {
+    const expiresAt = now + ARTIFACT_SESSION_TTL_MS;
+    artifactSessions.set(existing, expiresAt);
+    return { id: existing, created: false, expiresAt };
+  }
+
+  const id = crypto.randomBytes(32).toString("hex");
+  const expiresAt = now + ARTIFACT_SESSION_TTL_MS;
+  artifactSessions.set(id, expiresAt);
+  return { id, created: true, expiresAt };
+}
+
+function isHttpsRequest(req: http.IncomingMessage): boolean {
+  // Direct TLS server
+  if ((req.socket as any)?.encrypted) return true;
+
+  // Reverse proxies typically set this.
+  const xf = req.headers["x-forwarded-proto"];
+  const proto = typeof xf === "string" ? xf : Array.isArray(xf) ? xf[0] : "";
+  if (proto) return proto.split(",")[0].trim().toLowerCase() === "https";
+  return false;
+}
+
+function serializeCookie(
+  name: string,
+  value: string,
+  opts: { httpOnly?: boolean; secure?: boolean; sameSite?: "Strict" | "Lax" | "None"; path?: string; maxAge?: number }
+): string {
+  // Minimal, standards-friendly serialization.
+  let s = `${name}=${value}`;
+  if (opts.maxAge && Number.isFinite(opts.maxAge)) s += `; Max-Age=${Math.max(0, Math.trunc(opts.maxAge))}`;
+  if (opts.path) s += `; Path=${opts.path}`;
+  if (opts.httpOnly) s += `; HttpOnly`;
+  if (opts.secure) s += `; Secure`;
+  if (opts.sameSite) s += `; SameSite=${opts.sameSite}`;
+  return s;
 }
 
 main().catch((e) => {

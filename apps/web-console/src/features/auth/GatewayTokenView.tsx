@@ -1,6 +1,6 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { getGatewayToken, setGatewayToken } from "../../core/api/gatewayAuth";
+import { setGatewayToken } from "../../core/api/gatewayAuth";
 
 export function GatewayTokenView(props: { onAuthed: () => void }) {
   const { onAuthed } = props;
@@ -25,9 +25,13 @@ export function GatewayTokenView(props: { onAuthed: () => void }) {
     setErr(null);
 
     try {
-      const resp = await fetch("/api/config", {
-        method: "GET",
-        headers: { Authorization: `Bearer ${t}` }
+      // Validate the token and establish a scoped artifacts session cookie.
+      // The cookie allows <img src> / <a href> artifact loads without embedding
+      // the gateway token in URLs.
+      const resp = await fetch("/api/auth/artifacts-session", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${t}` },
+        credentials: "same-origin"
       });
 
       if (resp.status === 401) {
