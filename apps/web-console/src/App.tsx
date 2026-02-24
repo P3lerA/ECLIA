@@ -183,7 +183,8 @@ function AppInner() {
       model: state.model,
       contextLimitEnabled: state.settings.contextLimitEnabled,
       contextTokenLimit: state.settings.contextTokenLimit,
-      execAccessMode: state.settings.execAccessMode
+      toolAccessMode: state.settings.toolAccessMode,
+      enabledTools: state.settings.enabledTools
     });
   }, [
     state.settings.textureDisabled,
@@ -192,7 +193,8 @@ function AppInner() {
     state.settings.displayWorkProcess,
     state.settings.contextLimitEnabled,
     state.settings.contextTokenLimit,
-    state.settings.execAccessMode,
+    state.settings.toolAccessMode,
+    state.settings.enabledTools,
     state.transport,
     state.model
   ]);

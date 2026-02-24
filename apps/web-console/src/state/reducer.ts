@@ -1,5 +1,6 @@
 import type { Block, InspectorTabId, LogItem, Message, Session } from "../core/types";
 import type { TransportId } from "../core/transport/TransportRegistry";
+import { normalizeEnabledToolNames, type ToolName } from "../core/tools/ToolRegistry";
 import type { ThemeMode } from "../theme/theme";
 
 export type AppSettings = {
@@ -26,7 +27,13 @@ export type AppSettings = {
    * - full: allow the gateway to execute automatically.
    * - safe: only auto-run allowlisted commands, otherwise require approval.
    */
-  execAccessMode: "full" | "safe";
+  toolAccessMode: "full" | "safe";
+
+  /**
+   * Enabled tools exposed to the model.
+   * Stored as an ordered list of known tool names.
+   */
+  enabledTools: ToolName[];
 
   /**
    * Whether the UI should keep sessions/messages in sync with the local gateway.
@@ -86,7 +93,8 @@ export type Action =
   | { type: "settings/sessionSyncEnabled"; enabled: boolean }
   | { type: "settings/contextLimitEnabled"; enabled: boolean }
   | { type: "settings/contextTokenLimit"; value: number }
-  | { type: "settings/execAccessMode"; mode: "full" | "safe" }
+  | { type: "settings/toolAccessMode"; mode: "full" | "safe" }
+  | { type: "settings/enabledTools"; enabledTools: ToolName[] }
   | { type: "settings/displayPlainOutput"; enabled: boolean }
   | { type: "settings/displayWorkProcess"; enabled: boolean }
   | { type: "gpu/available"; available: boolean }
@@ -187,9 +195,32 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, settings: { ...state.settings, contextTokenLimit: v } };
     }
 
-    case "settings/execAccessMode":
-      if (state.settings.execAccessMode === action.mode) return state;
-      return { ...state, settings: { ...state.settings, execAccessMode: action.mode } };
+    case "settings/toolAccessMode":
+      if (state.settings.toolAccessMode === action.mode) return state;
+      return { ...state, settings: { ...state.settings, toolAccessMode: action.mode } };
+
+    case "settings/enabledTools": {
+      const normalized = normalizeEnabledToolNames(action.enabledTools);
+
+      // Preserve registry order if the caller passed a Set-like list.
+      // Note: normalizeEnabledToolNames() already enforces registry order.
+      const next = normalized;
+
+      const prev = state.settings.enabledTools;
+      if (prev.length === next.length) {
+        let same = true;
+        for (let i = 0; i < prev.length; i++) {
+          if (prev[i] !== next[i]) {
+            same = false;
+            break;
+          }
+        }
+        if (same) return state;
+      }
+
+      // Guard: never allow unknown tool names in state.
+      return { ...state, settings: { ...state.settings, enabledTools: next } };
+    }
 
     case "settings/displayPlainOutput":
       if (state.settings.displayPlainOutput === action.enabled) return state;

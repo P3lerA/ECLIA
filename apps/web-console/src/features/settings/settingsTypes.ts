@@ -1,4 +1,5 @@
 import type { TransportId } from "../../core/transport/TransportRegistry";
+import type { ToolName } from "../../core/tools/ToolRegistry";
 
 export type CodexOAuthProfile = {
   id: string;
@@ -20,6 +21,7 @@ export type SettingsDraft = {
   textureDisabled: boolean;
   sessionSyncEnabled: boolean;
   displayPlainOutput: boolean;
+  enabledTools: ToolName[];
   debugCaptureUpstreamRequests: boolean;
   debugParseAssistantOutput: boolean;
   transport: TransportId;

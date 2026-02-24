@@ -37,10 +37,10 @@ export function ChatComposer({ onOpenMenu }: { onOpenMenu: () => void }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
 
-  const accessMode = state.settings.execAccessMode;
+  const accessMode = state.settings.toolAccessMode;
   const toggleAccessMode = React.useCallback(() => {
     dispatch({
-      type: "settings/execAccessMode",
+      type: "settings/toolAccessMode",
       mode: accessMode === "full" ? "safe" : "full"
     });
   }, [accessMode, dispatch]);
@@ -75,8 +75,8 @@ export function ChatComposer({ onOpenMenu }: { onOpenMenu: () => void }) {
           <button
             className="chatbar-btn"
             onClick={toggleAccessMode}
-            aria-label="Exec access mode"
-            title={`Exec access: ${accessMode === "full" ? "full" : "safe"}`}
+            aria-label="Tool access mode"
+            title={`Tool access: ${accessMode === "full" ? "full" : "safe"}`}
           >
             {accessMode === "full" ? (
               <ExecFullAccessIcon className="execModeIcon" />

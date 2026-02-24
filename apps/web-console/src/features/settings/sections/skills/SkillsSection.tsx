@@ -18,13 +18,6 @@ export function SkillsSection(props: SkillsSectionProps) {
 
   return (
     <>
-      <div className="card">
-        <div className="card-title">Skills</div>
-
-        <div className="devNoteText muted">
-          Skills are stored under <code>skills/&lt;name&gt;/skill.md</code>. Skill names are strict: the config name, the registered name, and the directory name must match exactly.
-        </div>
-
         {!cfgBaseAvailable ? (
           <div className="devNoteText muted">Config service unavailable. Start the backend (pnpm dev:all) to edit skills.</div>
         ) : skillsAvailable.length === 0 ? (
@@ -64,11 +57,6 @@ export function SkillsSection(props: SkillsSectionProps) {
             })}
           </div>
         )}
-
-        <div className="devNoteText muted">
-          Tip: to customize the short "skill system" blurb injected into the model's system instruction, create <code>skills/_system.md</code> (kept short; not required).
-        </div>
-      </div>
     </>
   );
 }

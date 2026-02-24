@@ -170,7 +170,8 @@ export function useSendMessage() {
             sessionId,
             model: state.model,
             userText: trimmed,
-            toolAccessMode: state.settings.execAccessMode,
+            toolAccessMode: state.settings.toolAccessMode,
+            enabledTools: state.settings.enabledTools,
             contextTokenLimit: effectiveContextBudget
           },
           { onEvent },
@@ -210,7 +211,8 @@ export function useSendMessage() {
       state.settings.sessionSyncEnabled,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
-      state.settings.execAccessMode,
+      state.settings.toolAccessMode,
+      state.settings.enabledTools,
       location.pathname,
       navigate,
       dispatch

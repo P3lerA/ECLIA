@@ -1,6 +1,7 @@
 import type { AppState } from "./reducer";
 import { readStoredThemeMode } from "../theme/theme";
 import { readStoredPrefs } from "../persist/prefs";
+import { defaultEnabledToolNames, normalizeEnabledToolNames } from "../core/tools/ToolRegistry";
 
 function makeId(): string {
   const c: any = globalThis.crypto;
@@ -41,7 +42,9 @@ export function makeInitialState(): AppState {
       sessionSyncEnabled: typeof prefs.sessionSyncEnabled === "boolean" ? prefs.sessionSyncEnabled : true,
       contextLimitEnabled: typeof prefs.contextLimitEnabled === "boolean" ? prefs.contextLimitEnabled : true,
       contextTokenLimit: typeof prefs.contextTokenLimit === "number" ? prefs.contextTokenLimit : 20000,
-      execAccessMode: prefs.execAccessMode === "safe" ? "safe" : "full",
+      toolAccessMode: prefs.toolAccessMode === "safe" ? "safe" : "full",
+      enabledTools:
+        prefs.enabledTools === undefined ? defaultEnabledToolNames() : normalizeEnabledToolNames(prefs.enabledTools),
       displayPlainOutput: Boolean(prefs.displayPlainOutput ?? false),
       displayWorkProcess: Boolean(prefs.displayWorkProcess ?? false)
     },

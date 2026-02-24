@@ -1142,6 +1142,65 @@ textarea:focus{
   line-height: 1.4;
 }
 
+/* Settings: single-block disclosure row (used by Tools + Provider profiles) */
+.settingDisclosure{
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.settingDisclosure:last-child{ margin-bottom: 0; }
+
+.settingDisclosureHeader{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 10px;
+}
+
+.settingDisclosureSummary{
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.settingDisclosureSummary:disabled{ cursor: default; opacity: .7; }
+.settingDisclosureSummary:focus-visible{
+  outline: 2px solid var(--line);
+  outline-offset: 2px;
+  border-radius: 10px;
+}
+
+.settingDisclosureTitle{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.settingDisclosureRight{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.settingDisclosureBody{
+  padding: 12px;
+  border-top: none;
+}
+
 .stack-gap{ margin-top: 10px; }
 
 .profileItem{ margin-bottom: 10px; }

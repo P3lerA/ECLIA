@@ -54,6 +54,12 @@ type ChatReqBody = {
   toolAccessMode?: ToolAccessMode;
 
   /**
+   * Enabled tools exposed to the model for this request.
+   * If omitted, all tools are enabled.
+   */
+  enabledTools?: string[];
+
+  /**
    * Stream mode for SSE responses.
    * - full: stream deltas + tool events (web console).
    * - final: only send the final assistant output (adapters like discord).
@@ -286,6 +292,26 @@ export async function handleChat(
   const streamMode: "full" | "final" = body.streamMode === "final" ? "final" : "full";
   const requestedOrigin = extractRequestedOrigin(body);
 
+  const enabledToolsRaw = Array.isArray(body.enabledTools) ? body.enabledTools : null;
+  const enabledTools = enabledToolsRaw
+    ? enabledToolsRaw
+        .map((x) => (typeof x === "string" ? x.trim() : ""))
+        .filter((x) => x && x.trim())
+    : null;
+  const enabledToolSet = enabledTools ? new Set(enabledTools) : null;
+
+  const toolsForModelEffective = enabledToolSet
+    ? (toolsForModel as any[]).filter((t) => {
+        const n =
+          typeof (t as any)?.function?.name === "string"
+            ? String((t as any).function.name)
+            : typeof (t as any)?.name === "string"
+              ? String((t as any).name)
+              : "";
+        return n && enabledToolSet.has(n);
+      })
+    : toolsForModel;
+
   return await withSessionLock(sessionId, async () => {
     // If the client disconnected while waiting in the per-session queue, don't do work.
     if ((req as any).aborted || (req.socket as any)?.destroyed || res.writableEnded) return;
@@ -426,7 +452,7 @@ export async function handleChat(
     send(res, "meta", { sessionId, model: routeModel, usedTokens });
 
     console.log(
-      `[gateway] POST /api/chat  session=${sessionId} model=${backend.upstreamModel} ctx≈${usedTokens} tools=on mode=${toolAccessMode}`
+      `[gateway] POST /api/chat  session=${sessionId} model=${backend.upstreamModel} ctx≈${usedTokens} tools=${toolsForModelEffective.length ? "on" : "off"} mode=${toolAccessMode}`
     );
 
     const execAllowlist = loadExecAllowlist(raw);
@@ -458,7 +484,7 @@ export async function handleChat(
           headers,
           messages: upstreamMessages,
           signal: upstreamAbort.signal,
-          tools: toolsForModel,
+          tools: toolsForModelEffective,
           onDelta: (text) => {
             if (streamMode === "full") send(res, "delta", { text });
           },
@@ -471,9 +497,9 @@ export async function handleChat(
         const parseAssistantOutput = Boolean((config as any)?.debug?.parse_assistant_output);
         const parsedWarningByCall = new Map<string, string>();
         if (parseAssistantOutput && toolCallsMap.size === 0) {
-          const allowed = new Set<string>([EXEC_TOOL_NAME, SEND_TOOL_NAME]);
-          // Also allow any tool names that are actually exposed to the model for this request.
-          for (const t of toolsForModel as any[]) {
+          const allowed = new Set<string>();
+          // Allow only tools that are actually exposed to the model for this request.
+          for (const t of toolsForModelEffective as any[]) {
             const n = typeof t?.function?.name === "string" ? t.function.name : typeof t?.name === "string" ? t.name : "";
             if (n) allowed.add(n);
           }
@@ -555,7 +581,9 @@ export async function handleChat(
 
           let approvalInfo: any = null;
 
-          if (call.name === EXEC_TOOL_NAME) {
+          const toolEnabled = !enabledToolSet || enabledToolSet.has(call.name);
+
+          if (toolEnabled && call.name === EXEC_TOOL_NAME) {
             const execArgs = parseExecArgs(parsed);
             parsedExecArgsByCall.set(call.callId, execArgs);
 
@@ -565,7 +593,7 @@ export async function handleChat(
             const plan = planToolApproval({ approvals, sessionId, check, timeoutMs: 5 * 60_000 });
             if (plan.waiter) approvalWaiters.set(call.callId, plan.waiter);
             approvalInfo = plan.approval;
-          } else if (call.name === SEND_TOOL_NAME) {
+          } else if (toolEnabled && call.name === SEND_TOOL_NAME) {
             const sendArgs = parseSendArgs(parsed);
             parsedSendArgsByCall.set(call.callId, sendArgs);
 
@@ -606,7 +634,13 @@ export async function handleChat(
           let ok = false;
           let output: any = null;
 
-          if (name === EXEC_TOOL_NAME) {
+          if (enabledToolSet && !enabledToolSet.has(name)) {
+            ok = false;
+            output = {
+              ok: false,
+              error: { code: "tool_disabled", message: `Tool is disabled by client settings: ${name}` }
+            };
+          } else if (name === EXEC_TOOL_NAME) {
             if (parseError) {
               ok = false;
               output = {

@@ -140,13 +140,18 @@ export async function streamOpenAICompatTurn(args: {
 }): Promise<UpstreamTurnResult> {
   let upstream: Response;
 
-  const requestBody = {
+  const requestBody: any = {
     model: args.model,
     stream: true,
-    tool_choice: "auto",
-    tools: args.tools,
     messages: args.messages
   };
+
+  // Only include the tools payload when we actually have tools to expose.
+  // Some upstream providers reject { tool_choice: "auto", tools: [] }.
+  if (Array.isArray(args.tools) && args.tools.length) {
+    requestBody.tool_choice = "auto";
+    requestBody.tools = args.tools;
+  }
 
   if (args.debug) {
     dumpUpstreamRequestBody({

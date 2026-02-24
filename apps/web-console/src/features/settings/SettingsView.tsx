@@ -22,6 +22,7 @@ import { GeneralSection } from "./sections/general/GeneralSection";
 import { InferenceSection } from "./sections/inference/InferenceSection";
 import { useInferenceController } from "./sections/inference/useInferenceController";
 import { SkillsSection } from "./sections/skills/SkillsSection";
+import { ToolsSection } from "./sections/tools/ToolsSection";
 
 const ALLOWED_CONSOLE_HOSTS = new Set(["127.0.0.1", "0.0.0.0"]);
 
@@ -80,6 +81,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         textureDisabled: state.settings.textureDisabled,
         sessionSyncEnabled: state.settings.sessionSyncEnabled,
         displayPlainOutput: Boolean(state.settings.displayPlainOutput ?? false),
+        enabledTools: [...state.settings.enabledTools],
         debugCaptureUpstreamRequests: cfgBase ? cfgBase.debugCaptureUpstreamRequests : prev?.debugCaptureUpstreamRequests ?? false,
         debugParseAssistantOutput: cfgBase ? cfgBase.debugParseAssistantOutput : prev?.debugParseAssistantOutput ?? false,
         transport: state.transport,
@@ -125,6 +127,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       state.settings.textureDisabled,
       state.settings.sessionSyncEnabled,
       state.settings.displayPlainOutput,
+      state.settings.enabledTools,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
       state.transport,
@@ -141,6 +144,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         d.textureDisabled !== state.settings.textureDisabled ||
         d.sessionSyncEnabled !== state.settings.sessionSyncEnabled ||
         d.displayPlainOutput !== Boolean(state.settings.displayPlainOutput ?? false) ||
+        !sameStringArray(d.enabledTools, state.settings.enabledTools) ||
         d.transport !== state.transport ||
         d.model !== effectiveStateModel ||
         d.contextLimitEnabled !== state.settings.contextLimitEnabled ||
@@ -182,6 +186,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       state.settings.textureDisabled,
       state.settings.sessionSyncEnabled,
       state.settings.displayPlainOutput,
+      state.settings.enabledTools,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
       state.transport,
@@ -197,6 +202,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       state.settings.textureDisabled,
       state.settings.sessionSyncEnabled,
       state.settings.displayPlainOutput,
+      state.settings.enabledTools,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
       state.transport,
@@ -335,6 +341,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       if (draft.displayPlainOutput !== Boolean(state.settings.displayPlainOutput ?? false)) {
         dispatch({ type: "settings/displayPlainOutput", enabled: draft.displayPlainOutput });
       }
+
+      if (!sameStringArray(draft.enabledTools, state.settings.enabledTools)) {
+        dispatch({ type: "settings/enabledTools", enabledTools: draft.enabledTools });
+      }
       if (draft.transport !== state.transport) {
         dispatch({ type: "transport/set", transport: draft.transport });
       }
@@ -372,11 +382,12 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const webgl2Text =
     state.gpu.available === null ? "WebGL2: checking…" : state.gpu.available ? "WebGL2: available" : "WebGL2: unavailable";
 
-  type SettingsSectionId = "general" | "appearance" | "inference" | "adapters" | "skills";
+  type SettingsSectionId = "general" | "appearance" | "tools" | "inference" | "adapters" | "skills";
 
   const sections: Array<{ id: SettingsSectionId; label: string }> = [
     { id: "general", label: "General" },
     { id: "appearance", label: "Appearance" },
+    { id: "tools", label: "Tools" },
     { id: "inference", label: "Inference" },
     { id: "adapters", label: "Adapters" },
     { id: "skills", label: "Skills" }
@@ -462,6 +473,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
             {activeSection === "appearance" ? (
               <AppearanceSection draft={draft} setDraft={setDraft} webgl2Text={webgl2Text} />
+            ) : null}
+
+            {activeSection === "tools" ? (
+              <ToolsSection draft={draft} setDraft={setDraft} />
             ) : null}
 
             {activeSection === "inference" ? (

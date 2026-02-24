@@ -1,6 +1,7 @@
 import React from "react";
 import type { TransportId } from "../../../../core/transport/TransportRegistry";
 import { Collapsible } from "../../../common/Collapsible";
+import { SettingDisclosure } from "../../components/SettingDisclosure";
 import type { CodexOAuthProfile, CodexOAuthStatus, SettingsDraft } from "../../settingsTypes";
 import { codexProfileRoute, openaiProfileRoute } from "../../settingsUtils";
 
@@ -182,100 +183,83 @@ export function InferenceSection(props: InferenceSectionProps) {
           const profileValid = p.name.trim().length > 0 && p.baseUrl.trim().length > 0 && p.modelId.trim().length > 0;
 
           return (
-            <div key={p.id} className="profileItem">
-              <button
-                type="button"
-                className="row profileRow"
-                onClick={() => setExpandedOpenAICompatProfileId((cur) => (cur === p.id ? null : p.id))}
-                aria-expanded={isExpanded}
-              >
-                <div className="row-left">
-                  <div className="row-main profileRowTitle">
-                    <span className="disclosureIcon" aria-hidden="true">
-                      {isExpanded ? "▾" : "▸"}
-                    </span>
-                    {p.name.trim() || "Untitled"}
+            <SettingDisclosure
+              key={p.id}
+              title={p.name.trim() || "Untitled"}
+              open={isExpanded}
+              onOpenChange={(next) => setExpandedOpenAICompatProfileId(next ? p.id : null)}
+              right={isActivated ? <span className="activatedPill">Activated</span> : null}
+              ariaLabel={`Provider profile: ${p.name.trim() || "Untitled"}`}
+            >
+              <div className="grid2">
+                <label className="field">
+                  <div className="field-label">Name</div>
+                  <input
+                    className="select"
+                    value={p.name}
+                    onChange={(e) => patchOpenAICompatProfile(p.id, { name: e.target.value })}
+                    placeholder="Minimax"
+                    spellCheck={false}
+                    disabled={devDisabled}
+                  />
+                </label>
+
+                <label className="field">
+                  <div className="field-label">API key (local)</div>
+                  <input
+                    className="select"
+                    type="password"
+                    value={p.apiKey}
+                    onChange={(e) => patchOpenAICompatProfile(p.id, { apiKey: e.target.value })}
+                    placeholder={apiKeyConfigured ? "configured (leave blank to keep)" : "not set"}
+                    spellCheck={false}
+                    disabled={devDisabled}
+                  />
+                  <div className="field-sub muted">
+                    {apiKeyConfigured
+                      ? "A key is already configured (not shown). Enter a new one to replace it."
+                      : "No key detected. Set it here or in eclia.config.local.toml."}
                   </div>
-                </div>
+                </label>
 
-                <div className="row-right">{isActivated ? <span className="activatedPill">Activated</span> : null}</div>
-              </button>
+                <label className="field">
+                  <div className="field-label">Base URL</div>
+                  <input
+                    className="select"
+                    value={p.baseUrl}
+                    onChange={(e) => patchOpenAICompatProfile(p.id, { baseUrl: e.target.value })}
+                    placeholder="https://api.openai.com/v1"
+                    spellCheck={false}
+                    disabled={devDisabled}
+                  />
+                </label>
 
-              {isExpanded ? (
-                <div className="profileDetails">
-                  <div className="grid2">
-                    <label className="field">
-                      <div className="field-label">Name</div>
-                      <input
-                        className="select"
-                        value={p.name}
-                        onChange={(e) => patchOpenAICompatProfile(p.id, { name: e.target.value })}
-                        placeholder="Minimax"
-                        spellCheck={false}
-                        disabled={devDisabled}
-                      />
-                    </label>
+                <label className="field">
+                  <div className="field-label">Model</div>
+                  <input
+                    className="select"
+                    value={p.modelId}
+                    onChange={(e) => patchOpenAICompatProfile(p.id, { modelId: e.target.value })}
+                    placeholder="gpt-4o-mini"
+                    spellCheck={false}
+                    disabled={devDisabled}
+                  />
+                </label>
+              </div>
 
-                    <label className="field">
-                      <div className="field-label">API key (local)</div>
-                      <input
-                        className="select"
-                        type="password"
-                        value={p.apiKey}
-                        onChange={(e) => patchOpenAICompatProfile(p.id, { apiKey: e.target.value })}
-                        placeholder={apiKeyConfigured ? "configured (leave blank to keep)" : "not set"}
-                        spellCheck={false}
-                        disabled={devDisabled}
-                      />
-                      <div className="field-sub muted">
-                        {apiKeyConfigured
-                          ? "A key is already configured (not shown). Enter a new one to replace it."
-                          : "No key detected. Set it here or in eclia.config.local.toml."}
-                      </div>
-                    </label>
-                  </div>
+              <div className="profileActions">
+                <button
+                  type="button"
+                  className="btn subtle"
+                  onClick={() => deleteOpenAICompatProfile(p.id)}
+                  disabled={devDisabled || draft.inferenceProfiles.length <= 1}
+                >
+                  Delete profile
+                </button>
+              </div>
 
-                  <div className="grid2">
-                    <label className="field">
-                      <div className="field-label">Base URL</div>
-                      <input
-                        className="select"
-                        value={p.baseUrl}
-                        onChange={(e) => patchOpenAICompatProfile(p.id, { baseUrl: e.target.value })}
-                        placeholder="https://api.openai.com/v1"
-                        spellCheck={false}
-                        disabled={devDisabled}
-                      />
-                    </label>
-
-                    <label className="field">
-                      <div className="field-label">Model</div>
-                      <input
-                        className="select"
-                        value={p.modelId}
-                        onChange={(e) => patchOpenAICompatProfile(p.id, { modelId: e.target.value })}
-                        placeholder="gpt-4o-mini"
-                        spellCheck={false}
-                        disabled={devDisabled}
-                      />
-                    </label>
-                  </div>
-
-                  <div className="profileActions">
-                    <button
-                      type="button"
-                      className="btn subtle"
-                      onClick={() => deleteOpenAICompatProfile(p.id)}
-                      disabled={devDisabled || draft.inferenceProfiles.length <= 1}
-                    >
-                      Delete profile
-                    </button>
-                  </div>
-
-                  {dirtyDevInference && !profileValid ? <div className="devNoteText muted">Missing required fields.</div> : null}
-                </div>
-              ) : null}
-            </div>
+              {dirtyDevInference && !profileValid ? <div className="devNoteText muted">Missing required fields.</div> : null}
+            </SettingDisclosure>
           );
         })}
 

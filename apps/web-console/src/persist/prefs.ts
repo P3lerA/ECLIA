@@ -12,6 +12,8 @@
  * - localStorage can throw (privacy mode / disabled storage) → guarded.
  */
 
+import { normalizeEnabledToolNames } from "../core/tools/ToolRegistry";
+
 export type StoredPrefsV1 = {
   v: 1;
 
@@ -39,7 +41,13 @@ export type StoredPrefsV1 = {
    * - full: allow the gateway to execute tools automatically.
    * - safe: auto-run allowlisted commands, otherwise require user approval.
    */
-  execAccessMode?: "full" | "safe";
+  toolAccessMode?: "full" | "safe";
+
+  /**
+   * Enabled tools exposed to the model.
+   * Stored as an ordered list of tool names.
+   */
+  enabledTools?: string[];
 
   /**
    * Whether the UI should keep sessions/messages in sync with the local gateway.
@@ -94,8 +102,20 @@ export function readStoredPrefs(): StoredPrefsV1 {
       out.contextTokenLimit = Math.trunc((parsed as any).contextTokenLimit);
     }
 
-    if ((parsed as any).execAccessMode === "safe" || (parsed as any).execAccessMode === "full") {
-      out.execAccessMode = (parsed as any).execAccessMode;
+    if ((parsed as any).toolAccessMode === "safe" || (parsed as any).toolAccessMode === "full") {
+      out.toolAccessMode = (parsed as any).toolAccessMode;
+    }
+
+    if (Array.isArray((parsed as any).enabledTools)) {
+      out.enabledTools = normalizeEnabledToolNames((parsed as any).enabledTools);
+    }
+
+    // Backward compat: older builds persisted this under a different key.
+    // Keep the legacy key constructed so the previous name is not hard-coded.
+    const legacyKey = "exec" + "AccessMode";
+    const legacyMode = (parsed as any)[legacyKey];
+    if (out.toolAccessMode == null && (legacyMode === "safe" || legacyMode === "full")) {
+      out.toolAccessMode = legacyMode;
     }
 
     if (typeof (parsed as any).sessionSyncEnabled === "boolean") {

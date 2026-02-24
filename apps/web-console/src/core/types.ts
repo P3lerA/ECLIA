@@ -111,6 +111,12 @@ export type ChatRequest = {
   toolAccessMode?: "full" | "safe";
 
   /**
+   * Runtime preference: enabled tools exposed to the model for this request.
+   * If omitted, the gateway assumes all tools are enabled.
+   */
+  enabledTools?: string[];
+
+  /**
    * Runtime preference: approximate context budget.
    * Default is 20k tokens (estimator-based).
    */
