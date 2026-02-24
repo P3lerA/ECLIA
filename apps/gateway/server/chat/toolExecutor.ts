@@ -293,20 +293,29 @@ export async function runToolCalls(args: {
 
         const invokeSend = async (): Promise<{ ok: boolean; result: any }> => {
           // Destination resolution:
-          // - Default is "origin" (request source).
-          // - Fallback to persisted session origin.
+          // - Default is {kind:'origin'} (request source).
+          // - {kind:'discord'} always resolves to an existing discord origin (requested/patch/stored),
+          //   and does not allow model-specified ids.
           const effectiveOrigin = (args.requestedOrigin ?? args.patchedOrigin ?? args.storedOrigin ?? { kind: "web" }) as any;
 
-          let destination: any = sendArgs.destination;
-          if (!destination || destination.kind === "origin") destination = effectiveOrigin;
+          const requestedDestinationKind = sendArgs.destination?.kind ?? "origin";
 
-          // If the model specified {kind:"discord"} without ids, inherit from origin when possible.
-          if (destination && destination.kind === "discord") {
-            if (!destination.channelId && effectiveOrigin?.kind === "discord") {
-              destination = { ...effectiveOrigin, ...destination };
-              if (!destination.channelId) destination.channelId = effectiveOrigin.channelId;
-              if (!destination.threadId && effectiveOrigin.threadId) destination.threadId = effectiveOrigin.threadId;
-            }
+          let destination: any = undefined;
+          if (requestedDestinationKind === "origin") {
+            destination = effectiveOrigin;
+          } else if (requestedDestinationKind === "web") {
+            destination = { kind: "web" };
+          } else if (requestedDestinationKind === "discord") {
+            const discordOrigin =
+              (args.requestedOrigin as any)?.kind === "discord"
+                ? (args.requestedOrigin as any)
+                : (args.patchedOrigin as any)?.kind === "discord"
+                  ? (args.patchedOrigin as any)
+                  : (args.storedOrigin as any)?.kind === "discord"
+                    ? (args.storedOrigin as any)
+                    : null;
+
+            destination = discordOrigin ?? undefined;
           }
 
           if (!destination || typeof destination !== "object") {
@@ -315,7 +324,13 @@ export async function runToolCalls(args: {
               result: {
                 type: "send_result",
                 ok: false,
-                error: { code: "invalid_destination", message: "Destination is missing or invalid" },
+                error: {
+                  code: "invalid_destination",
+                  message:
+                    requestedDestinationKind === "discord"
+                      ? "discord destination requires an existing discord origin (requested/patch/stored)"
+                      : "Destination is missing or invalid"
+                },
                 args: sendArgs
               }
             };

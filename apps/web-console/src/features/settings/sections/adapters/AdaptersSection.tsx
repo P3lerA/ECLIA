@@ -1,6 +1,7 @@
 import React from "react";
 import type { SettingsDraft } from "../../settingsTypes";
-import { Collapsible } from "../../../common/Collapsible";
+import { SettingsAdvancedSection } from "../../components/SettingsAdvancedSection";
+import { SettingsToggleRow } from "../../components/SettingsToggleRow";
 import { AdapterSettingItem } from "./AdapterSettingItem";
 
 export type AdaptersSectionProps = {
@@ -102,30 +103,28 @@ export function AdaptersSection(props: AdaptersSectionProps) {
         </AdapterSettingItem>
       </div>
 
-      <Collapsible title="Advanced" variant="section">
-        <div className="row stack-gap">
-          <div className="row-left">
-            <div className="row-main">Discord verbose default</div>
-            <div className="row-sub muted">
-              When enabled, <code>/eclia</code> behaves as if <code>verbose=true</code> was set by default (equivalent to setting{" "}
-              <code>ECLIA_DISCORD_DEFAULT_STREAM_MODE=full</code>). Saved to <code>eclia.config.local.toml</code>. Restart required.
-            </div>
-          </div>
-
-          <input
-            type="checkbox"
-            checked={draft.adapterDiscordDefaultStreamMode === "full"}
-            onChange={(e) =>
-              setDraft((d) => ({
-                ...d,
-                adapterDiscordDefaultStreamMode: e.target.checked ? "full" : "final"
-              }))
-            }
-            aria-label="Discord verbose default"
-            disabled={devDisabled}
-          />
-        </div>
-      </Collapsible>
+      <SettingsAdvancedSection>
+        <SettingsToggleRow
+          className="stack-gap"
+          title="Discord verbose default"
+          description={
+            <>
+              When enabled, <code>/eclia</code> behaves as if <code>verbose=true</code> was set by default
+              (equivalent to setting <code>ECLIA_DISCORD_DEFAULT_STREAM_MODE=full</code>). Saved to{" "}
+              <code>eclia.config.local.toml</code>. Restart required.
+            </>
+          }
+          checked={draft.adapterDiscordDefaultStreamMode === "full"}
+          onCheckedChange={(checked) =>
+            setDraft((d) => ({
+              ...d,
+              adapterDiscordDefaultStreamMode: checked ? "full" : "final"
+            }))
+          }
+          ariaLabel="Discord verbose default"
+          disabled={devDisabled}
+        />
+      </SettingsAdvancedSection>
     </>
   );
 }

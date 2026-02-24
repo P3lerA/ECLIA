@@ -1,10 +1,11 @@
 import { useAppDispatch, useAppState } from "../../state/AppState";
+import { SegmentedSwitch, type SegmentedSwitchOption } from "../common/SegmentedSwitch";
 import type { ThemeMode } from "../../theme/theme";
 
-const OPTIONS: { mode: ThemeMode; label: string }[] = [
-  { mode: "light", label: "Light" },
-  { mode: "system", label: "System" },
-  { mode: "dark", label: "Dark" }
+const OPTIONS: SegmentedSwitchOption<ThemeMode>[] = [
+  { value: "light", label: "Light", title: "Theme: Light" },
+  { value: "system", label: "System", title: "Theme: System" },
+  { value: "dark", label: "Dark", title: "Theme: Dark" }
 ];
 
 /**
@@ -14,22 +15,14 @@ const OPTIONS: { mode: ThemeMode; label: string }[] = [
 export function ThemeModeSwitch({ compact }: { compact?: boolean }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
-  const active = state.themeMode;
 
   return (
-    <div className={"themeSwitch" + (compact ? " compact" : "")} role="group" aria-label="Theme">
-      {OPTIONS.map((o) => (
-        <button
-          key={o.mode}
-          type="button"
-          className={"themeSwitch-btn" + (active === o.mode ? " active" : "")}
-          aria-pressed={active === o.mode}
-          onClick={() => dispatch({ type: "theme/setMode", mode: o.mode })}
-          title={`Theme: ${o.label}`}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
+    <SegmentedSwitch
+      compact={compact}
+      ariaLabel="Theme"
+      options={OPTIONS}
+      value={state.themeMode}
+      onChange={(mode) => dispatch({ type: "theme/setMode", mode })}
+    />
   );
 }

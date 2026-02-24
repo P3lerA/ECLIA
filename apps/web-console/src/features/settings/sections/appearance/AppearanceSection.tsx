@@ -1,5 +1,6 @@
 import React from "react";
 import type { SettingsDraft } from "../../settingsTypes";
+import { SettingsToggleRow } from "../../components/SettingsToggleRow";
 
 export type AppearanceSectionProps = {
   draft: SettingsDraft;
@@ -14,19 +15,13 @@ export function AppearanceSection(props: AppearanceSectionProps) {
     <div>
       <div className="card-title">Appearance</div>
 
-      <div className="row">
-        <div className="row-left">
-          <div className="row-main">Disable background texture</div>
-          <div className="row-sub muted">{webgl2Text}</div>
-        </div>
-
-        <input
-          type="checkbox"
-          checked={draft.textureDisabled}
-          onChange={(e) => setDraft((d) => ({ ...d, textureDisabled: e.target.checked }))}
-          aria-label="Disable background texture"
-        />
-      </div>
+      <SettingsToggleRow
+        title="Disable background texture"
+        description={webgl2Text}
+        checked={draft.textureDisabled}
+        onCheckedChange={(checked) => setDraft((d) => ({ ...d, textureDisabled: checked }))}
+        ariaLabel="Disable background texture"
+      />
     </div>
   );
 }

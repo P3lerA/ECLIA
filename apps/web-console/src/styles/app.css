@@ -214,6 +214,11 @@ button, input, select, textarea{
   border-radius: 999px;
   box-shadow: var(--shadow-soft);
 }
+.promptbar-actions{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 .prompt-input{
   flex: 1;
   border: none;
@@ -637,12 +642,12 @@ textarea:focus{
 /* Chat composer: keep input + actions inside one framed bar (like Landing). */
 .chatbar{
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 10px;
   padding: 10px 12px;
   border: 1px solid var(--line);
   background: var(--surface);
-  border-radius: 18px;
+  border-radius: 999px;
   box-shadow: var(--shadow-soft);
 }
 .chatbar:focus-within{
@@ -652,20 +657,27 @@ textarea:focus{
 .chatbar-input{
   flex: 1;
   resize: none;
+  box-sizing: border-box;
+  height: 44px;
   min-height: 44px;
-  max-height: 140px;
+  max-height: 44px;
   border: none;
   outline: none;
   background: transparent;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 20px;
   padding: 12px 8px;
+  overflow-y: auto;
+}
+.chatbar-input:focus{
+  border: none;
+  box-shadow: none;
 }
 .chatbar-actions{
   display: flex;
   gap: 8px;
-  align-items: flex-end;
-  padding-bottom: 2px;
+  align-items: center;
+  padding-bottom: 0;
 }
 .chatbar-btn{
   width: 44px;
@@ -1219,21 +1231,6 @@ textarea:focus{
 }
 
 .stack-gap{ margin-top: 10px; }
-
-.profileItem{ margin-bottom: 10px; }
-.profileItem:last-child{ margin-bottom: 0; }
-
-.profileRow{
-  width: 100%;
-  text-align: left;
-  cursor: pointer;
-  margin-bottom: 0;
-  align-items: center;
-}
-
-.profileRow:disabled{ cursor: default; }
-
-.profileRowTitle{ display: flex; align-items: center; gap: 6px; }
 .disclosureIcon{
   width: 14px;
   display: inline-flex;
@@ -1256,9 +1253,15 @@ textarea:focus{
   cursor: pointer;
   user-select: none;
   display: flex;
+  width: 100%;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   padding: 10px 12px;
   border-radius: 14px;
 }
@@ -1276,7 +1279,8 @@ textarea:focus{
   font-size: 14px;
   line-height: 1;
 }
-.collapsible[open] .collapsibleTitle::before{ content: "▾"; }
+.collapsible[open] .collapsibleTitle::before,
+.collapsible[data-open="true"] .collapsibleTitle::before{ content: "▾"; }
 .collapsibleRight{ display: inline-flex; align-items: center; gap: 8px; }
 .collapsibleBody{
   padding: 10px 12px 12px;
@@ -1310,30 +1314,24 @@ textarea:focus{
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12.5px;
-  font-weight: 650;
+  font-size: 11.5px;
+  font-weight: 620;
   line-height: 1;
-  padding: 8px 12px;
+  padding: 6px 9px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--surface);
   color: var(--muted);
   white-space: nowrap;
 }
-
-.profileDetails{
-  margin-top: 8px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--surface);
+.activatedPillPlaceholder{
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .profileActions{ display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .profileActionsRow{ justify-content: space-between; align-items: center; }
 .profileActionsLeft{ display: flex; gap: 8px; align-items: center; }
-
-.profileFooter{ display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .grid2{
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1487,6 +1485,10 @@ textarea:focus{
   border-radius: 999px;
   padding: 3px;
   box-shadow: 0 1px 0 rgba(0,0,0,0.02);
+  transition:
+    border-color var(--motion-2) var(--ease-standard),
+    box-shadow var(--motion-2) var(--ease-standard),
+    background-color var(--motion-2) var(--ease-standard);
 }
 .themeSwitch.compact{
   transform: translateY(1px);
@@ -1499,10 +1501,18 @@ textarea:focus{
   padding: 7px 10px;
   border-radius: 999px;
   cursor: pointer;
+  transition:
+    transform var(--motion-1) var(--ease-standard),
+    background-color var(--motion-2) var(--ease-standard),
+    color var(--motion-2) var(--ease-standard),
+    box-shadow var(--motion-2) var(--ease-standard);
 }
 .themeSwitch-btn:hover{
   background: var(--surface-hover);
   color: var(--text);
+}
+.themeSwitch-btn:active{
+  transform: scale(.98);
 }
 .themeSwitch-btn.active{
   background: var(--surface-2);

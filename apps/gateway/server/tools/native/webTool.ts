@@ -1,10 +1,10 @@
 /**
- * Web tool (gateway-native): unified interface for web search/extract/crawl.
+ * Web tool (gateway-native): unified interface for web search/extract.
  *
  * Phase 1 implementation: Tavily only.
  *
  * Design goal:
- * - Keep the model-facing schema stable (mode: search|extract|crawl)
+ * - Keep the model-facing schema stable (mode: search|extract)
  * - Normalize provider-specific responses into a compact, model-friendly payload
  */
 
@@ -23,15 +23,15 @@ export const WEB_TOOL_SCHEMA: any = {
     },
     mode: {
       type: "string",
-      enum: ["search", "extract", "crawl"],
+      enum: ["search", "extract"],
       default: "search",
       description:
-        "Operation mode. search: return per-URL summaries + links. extract: fetch and return page content for given URL(s). crawl: traverse a site and return extracted content for discovered pages."
+        "Operation mode. search: return per-URL summaries + links. extract: fetch and return page content for given URL(s)."
     },
 
     // Shared-ish fields
     query: { type: "string", description: "Search query (mode=search)." },
-    url: { type: "string", description: "Single URL (mode=extract/crawl)." },
+    url: { type: "string", description: "Single URL (mode=extract)." },
     urls: { type: "array", items: { type: "string" }, description: "List of URLs (mode=extract)." },
 
     // Search options (Tavily compatible)
@@ -48,13 +48,9 @@ export const WEB_TOOL_SCHEMA: any = {
     },
     start_date: { type: "string", description: "Start date YYYY-MM-DD." },
     end_date: { type: "string", description: "End date YYYY-MM-DD." },
-    // Extract/Crawl options (Tavily compatible)
+    // Extract options (Tavily compatible)
     extract_depth: { type: "string", enum: ["basic", "advanced"], description: "Extraction depth." },
     format: { type: "string", enum: ["markdown", "text"], description: "Extraction format." },
-    instructions: { type: "string", description: "Natural language crawl instructions." },
-    max_depth: { type: "integer", minimum: 1, maximum: 5, description: "Crawl max depth." },
-    max_breadth: { type: "integer", minimum: 1, maximum: 500, description: "Crawl max breadth." },
-    limit: { type: "integer", minimum: 1, description: "Crawl page limit." },
     timeout: { type: "number", description: "Provider timeout." },
     // Output shaping (gateway-side)
     max_chars_per_content: {
@@ -72,12 +68,13 @@ export const WEB_TOOL_SCHEMA: any = {
   }
 };
 
-export type WebToolMode = "search" | "extract" | "crawl";
+export type WebToolMode = "search" | "extract";
 export type WebProviderId = "tavily";
 
 export type NormalizedWebToolArgs = {
   provider: WebProviderId;
   mode: WebToolMode;
+  unsupported_mode?: string;
 
   // Search
   query?: string;
@@ -92,11 +89,7 @@ export type NormalizedWebToolArgs = {
   urls?: string[];
   extract_depth?: "basic" | "advanced";
   format?: "markdown" | "text";
-  instructions?: string;
-  max_depth?: number;
-  max_breadth?: number;
-  limit?: number;
-  timeout?: number;
+          timeout?: number;
 
   // Output shaping
   max_chars_per_content?: number;
@@ -107,15 +100,6 @@ function coerceNonEmptyString(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-function coerceBoolean(v: unknown): boolean | undefined {
-  if (v === true || v === false) return v;
-  if (typeof v === "string") {
-    const s = v.trim().toLowerCase();
-    if (s === "true" || s === "1" || s === "yes") return true;
-    if (s === "false" || s === "0" || s === "no") return false;
-  }
-  return undefined;
-}
 
 function coerceInt(v: unknown): number | undefined {
   if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
@@ -162,7 +146,9 @@ export function parseWebArgs(raw: unknown): NormalizedWebToolArgs {
   const obj = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as any) : {};
 
   const provider = (coerceEnum(obj.provider, ["tavily"] as const) ?? "tavily") as WebProviderId;
-  const mode = (coerceEnum(obj.mode, ["search", "extract", "crawl"] as const) ?? "search") as WebToolMode;
+  const modeRaw = coerceNonEmptyString(obj.mode);
+  const mode = (coerceEnum(modeRaw, ["search", "extract"] as const) ?? "search") as WebToolMode;
+  const unsupported_mode = modeRaw && modeRaw != mode ? modeRaw : undefined;
 
   const urlsFromSingle = coerceNonEmptyString(obj.url);
   const urlsList = coerceStringArray(obj.urls);
@@ -171,6 +157,8 @@ export function parseWebArgs(raw: unknown): NormalizedWebToolArgs {
   return {
     provider,
     mode,
+
+    unsupported_mode,
 
     query: coerceNonEmptyString(obj.query) || coerceNonEmptyString(obj.q) || undefined,
     max_results: clampInt(obj.max_results ?? obj.maxResults, 1, 20),
@@ -182,10 +170,6 @@ export function parseWebArgs(raw: unknown): NormalizedWebToolArgs {
     urls,
     extract_depth: coerceEnum(obj.extract_depth ?? obj.extractDepth, ["basic", "advanced"] as const),
     format: coerceEnum(obj.format, ["markdown", "text"] as const),
-    instructions: coerceNonEmptyString(obj.instructions) || undefined,
-    max_depth: clampInt(obj.max_depth ?? obj.maxDepth, 1, 5),
-    max_breadth: clampInt(obj.max_breadth ?? obj.maxBreadth, 1, 500),
-    limit: coerceInt(obj.limit),
     timeout: coerceNumber(obj.timeout),
     max_chars_per_content: clampInt(obj.max_chars_per_content ?? obj.maxCharsPerContent, 500, 200_000),
     max_total_chars: clampInt(obj.max_total_chars ?? obj.maxTotalChars, 1_000, 500_000)
@@ -195,12 +179,15 @@ export function parseWebArgs(raw: unknown): NormalizedWebToolArgs {
 /**
  * Safe-mode policy for web access:
  * - search: allowed without approval (summary-only)
- * - extract/crawl: require approval (fetches full content)
+ * - extract: require approval (fetches full content)
  */
 export function checkWebNeedsApproval(parsed: NormalizedWebToolArgs, mode: ToolAccessMode): ToolSafetyCheck {
+  // If the caller requested an unsupported mode,
+  // fail fast without prompting for approval since no network access will occur.
+  if (parsed.unsupported_mode) return { requireApproval: false, reason: "unsupported_mode" };
   if (mode !== "safe") return { requireApproval: false, reason: "full_mode" };
   if (parsed.mode === "search") return { requireApproval: false, reason: "safe_search" };
-  return { requireApproval: true, reason: `safe_${parsed.mode}` };
+  return { requireApproval: true, reason: "safe_extract" };
 }
 
 type TavilyAuth = { apiKey: string; projectId?: string };
@@ -287,7 +274,7 @@ function distributeTruncation(args: {
 }
 
 async function tavilyPostJson(args: {
-  endpoint: "/search" | "/extract" | "/crawl";
+  endpoint: "/search" | "/extract";
   body: any;
   auth: TavilyAuth;
   timeoutMs: number;
@@ -375,10 +362,24 @@ export async function invokeWebTool(args: {
         }
       }
     };
-  }
-
-  const maxCharsPerContent = args.parsed.max_chars_per_content ?? 20_000;
+  }  const maxCharsPerContent = args.parsed.max_chars_per_content ?? 20_000;
   const maxTotalChars = args.parsed.max_total_chars ?? 120_000;
+
+  if (args.parsed.unsupported_mode) {
+    return {
+      ok: false,
+      result: {
+        type: "web_result",
+        ok: false,
+        provider: "tavily",
+        mode: args.parsed.unsupported_mode,
+        error: {
+          code: "unsupported_mode",
+          message: `Unsupported web mode: ${args.parsed.unsupported_mode}. Supported modes: search, extract.`
+        }
+      }
+    };
+  }
 
   if (args.parsed.mode === "search") {
     const query = coerceNonEmptyString(args.parsed.query);
@@ -524,80 +525,15 @@ export async function invokeWebTool(args: {
     };
   }
 
-  // crawl
-  {
-    const url = coerceNonEmptyString(args.parsed.url);
-    if (!url) {
-      return {
-        ok: false,
-        result: {
-          type: "web_result",
-          ok: false,
-          provider: "tavily",
-          mode: "crawl",
-          error: { code: "missing_url", message: "mode=crawl requires 'url'" }
-        }
-      };
+
+  return {
+    ok: false,
+    result: {
+      type: "web_result",
+      ok: false,
+      provider: "tavily",
+      mode: args.parsed.mode,
+      error: { code: "unsupported_mode", message: `Unsupported web mode: ${String(args.parsed.mode)}` }
     }
-
-    const body: any = {
-      url,
-      extract_depth: args.parsed.extract_depth ?? "basic",
-      format: args.parsed.format ?? "markdown"
-    };
-
-    if (args.parsed.instructions) body.instructions = args.parsed.instructions;
-    if (typeof args.parsed.max_depth === "number") body.max_depth = args.parsed.max_depth;
-    if (typeof args.parsed.max_breadth === "number") body.max_breadth = args.parsed.max_breadth;
-    if (typeof args.parsed.limit === "number") body.limit = args.parsed.limit;
-    // NOTE: Not model-configurable. We force site-local crawl by default.
-    body.allow_external = false;
-    if (typeof args.parsed.timeout === "number") body.timeout = args.parsed.timeout;
-
-    const timeoutMs = Math.max(10_000, Math.min(160_000, Math.round((args.parsed.timeout ?? 150) * 1_000)));
-    const r = await tavilyPostJson({ endpoint: "/crawl", body, auth, timeoutMs });
-    if (!r.ok) {
-      return {
-        ok: false,
-        result: { type: "web_result", ok: false, provider: "tavily", mode: "crawl", error: r.error }
-      };
-    }
-
-    const resultsRaw = Array.isArray(r.json?.results) ? (r.json.results as any[]) : [];
-    const resultsTrimmed = distributeTruncation({
-      results: resultsRaw.map((x) => ({
-        url: typeof x?.url === "string" ? x.url : "",
-        raw_content: typeof x?.raw_content === "string" ? x.raw_content : ""
-      })),
-      maxCharsPerContent,
-      maxTotalChars
-    });
-
-    const merged = resultsTrimmed.map((row) => {
-      const src = resultsRaw.find((x) => typeof x?.url === "string" && x.url === row.url);
-      const title = typeof src?.title === "string" ? src.title : undefined;
-      const images = Array.isArray(src?.images) ? src.images : undefined;
-      const favicon = typeof src?.favicon === "string" ? src.favicon : undefined;
-      return {
-        ...row,
-        ...(title ? { title } : {}),
-        ...(images ? { images } : {}),
-        ...(favicon ? { favicon } : {})
-      };
-    });
-
-    return {
-      ok: true,
-      result: {
-        type: "web_result",
-        ok: true,
-        provider: "tavily",
-        mode: "crawl",
-        base_url: r.json?.base_url,
-        results: merged,
-        response_time: r.json?.response_time,
-        ...(r.json?.request_id ? { request_id: r.json.request_id } : {})
-      }
-    };
-  }
+  };
 }

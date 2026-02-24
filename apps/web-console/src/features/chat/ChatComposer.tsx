@@ -1,4 +1,5 @@
 import React from "react";
+import { PromptBar } from "../common/PromptBar";
 import { useSendMessage } from "./useSendMessage";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 
@@ -111,36 +112,43 @@ export function ChatComposer({ onOpenMenu }: { onOpenMenu: () => void }) {
 
   return (
     <footer className="composer composer-chat">
-      <div className="chatbar" role="group" aria-label="Composer">
-        <textarea
-          className="chatbar-input"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder="Ask ECLIA... /clear(reset) /new(new session)"
-        />
-
-        <div className="chatbar-actions" aria-label="Actions">
-          <button
-            className="chatbar-btn"
-            onClick={toggleAccessMode}
-            aria-label="Tool access mode"
-            title={`Tool access: ${accessMode === "full" ? "full" : "safe"}`}
-          >
-            {accessMode === "full" ? (
-              <ExecFullAccessIcon className="execModeIcon" />
-            ) : (
-              <ExecSafeModeIcon className="execModeIcon" />
-            )}
-          </button>
-          <button className="chatbar-btn" onClick={onOpenMenu} aria-label="Menu">
-            <MenuIcon className="execModeIcon" />
-          </button>
-          <button className="chatbar-btn" onClick={() => void send()} aria-label="Send">
-            <SendUpIcon className="execModeIcon" />
-          </button>
-        </div>
-      </div>
+      <PromptBar
+        className="chatbar"
+        role="group"
+        ariaLabel="Composer"
+        actionsClassName="chatbar-actions"
+        input={
+          <textarea
+            className="chatbar-input"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder="Ask ECLIA anything or type a /command…"
+          />
+        }
+        actions={
+          <>
+            <button
+              className="chatbar-btn"
+              onClick={toggleAccessMode}
+              aria-label="Tool access mode"
+              title={`Tool access: ${accessMode === "full" ? "full" : "safe"}`}
+            >
+              {accessMode === "full" ? (
+                <ExecFullAccessIcon className="execModeIcon" />
+              ) : (
+                <ExecSafeModeIcon className="execModeIcon" />
+              )}
+            </button>
+            <button className="chatbar-btn" onClick={onOpenMenu} aria-label="Menu">
+              <MenuIcon className="execModeIcon" />
+            </button>
+            <button className="chatbar-btn" onClick={() => void send()} aria-label="Send">
+              <SendUpIcon className="execModeIcon" />
+            </button>
+          </>
+        }
+      />
     </footer>
   );
 }

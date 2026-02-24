@@ -535,7 +535,7 @@ const EXEC_TOOL_DEF = {
       command: {
         type: "string",
         description:
-          "Shell command string (pipes/redirection). Example: 'dir | findstr \\".js\\"'."
+          "Shell command string (pipes/redirection). Example: 'dir | findstr \".js\"'."
       },
       cwd: {
         type: "string",

@@ -1,7 +1,8 @@
 import React from "react";
 import type { SettingsDraft } from "../../settingsTypes";
-import { Collapsible } from "../../../common/Collapsible";
 import { Modal } from "../../../common/Modal";
+import { SettingsAdvancedSection } from "../../components/SettingsAdvancedSection";
+import { SettingsToggleRow } from "../../components/SettingsToggleRow";
 
 export type GeneralSectionProps = {
   draft: SettingsDraft;
@@ -69,35 +70,23 @@ export function GeneralSection(props: GeneralSectionProps) {
           </label>
         </div>
 
-        <div className="row stack-gap">
-          <div className="row-left">
-            <div className="row-main">Session Sync</div>
-            <div className="row-sub muted">Best-effort hydration of sessions/messages from the local gateway.</div>
-          </div>
+        <SettingsToggleRow
+          className="stack-gap"
+          title="Session Sync"
+          description="Best-effort hydration of sessions/messages from the local gateway."
+          checked={draft.sessionSyncEnabled}
+          onCheckedChange={(checked) => setDraft((d) => ({ ...d, sessionSyncEnabled: checked }))}
+          ariaLabel="Enable session sync"
+        />
 
-          <input
-            type="checkbox"
-            checked={draft.sessionSyncEnabled}
-            onChange={(e) => setDraft((d) => ({ ...d, sessionSyncEnabled: e.target.checked }))}
-            aria-label="Enable session sync"
-          />
-        </div>
-
-        <div className="row stack-gap">
-          <div className="row-left">
-            <div className="row-main">Display Plain Output</div>
-            <div className="row-sub muted">
-              Show full raw tool payloads (tool_call/tool_result) and show &lt;think&gt; blocks inline.
-            </div>
-          </div>
-
-          <input
-            type="checkbox"
-            checked={draft.displayPlainOutput}
-            onChange={(e) => setDraft((d) => ({ ...d, displayPlainOutput: e.target.checked }))}
-            aria-label="Display plain output"
-          />
-        </div>
+        <SettingsToggleRow
+          className="stack-gap"
+          title="Display Plain Output"
+          description="Show full raw tool payloads (tool_call/tool_result) and show <think> blocks inline."
+          checked={draft.displayPlainOutput}
+          onCheckedChange={(checked) => setDraft((d) => ({ ...d, displayPlainOutput: checked }))}
+          ariaLabel="Display plain output"
+        />
 
         {cfgError ? <div className="devNoteText muted">{cfgError}</div> : null}
 
@@ -134,42 +123,37 @@ export function GeneralSection(props: GeneralSectionProps) {
         </Modal>
       ) : null}
 
-      <Collapsible title="Advanced" variant="section">
-        <div className="row stack-gap">
-          <div className="row-left">
-            <div className="row-main">Capture Upstream Requests</div>
-            <div className="row-sub muted">
+      <SettingsAdvancedSection>
+        <SettingsToggleRow
+          className="stack-gap"
+          title="Capture Upstream Requests"
+          description={
+            <>
               Save the full upstream request body to <code>.eclia/debug/&lt;sessionId&gt;/</code> for debugging.
-            </div>
-          </div>
+            </>
+          }
+          checked={draft.debugCaptureUpstreamRequests}
+          onCheckedChange={(checked) => setDraft((d) => ({ ...d, debugCaptureUpstreamRequests: checked }))}
+          ariaLabel="Capture upstream requests"
+          disabled={devDisabled}
+        />
 
-          <input
-            type="checkbox"
-            checked={draft.debugCaptureUpstreamRequests}
-            onChange={(e) => setDraft((d) => ({ ...d, debugCaptureUpstreamRequests: e.target.checked }))}
-            aria-label="Capture upstream requests"
-            disabled={devDisabled}
-          />
-        </div>
-
-        <div className="row stack-gap">
-          <div className="row-left">
-            <div className="row-main">Parse Assistant Output</div>
-            <div className="row-sub muted">
-              Attempt to recover tool calls from assistant plaintext output when the provider fails to emit structured tool calls.
-              Writes warnings to <code>.eclia/debug/&lt;sessionId&gt;/warnings.ndjson</code> and shows a warning in approval prompts.
-            </div>
-          </div>
-
-          <input
-            type="checkbox"
-            checked={draft.debugParseAssistantOutput}
-            onChange={(e) => setDraft((d) => ({ ...d, debugParseAssistantOutput: e.target.checked }))}
-            aria-label="Parse assistant output"
-            disabled={devDisabled}
-          />
-        </div>
-      </Collapsible>
+        <SettingsToggleRow
+          className="stack-gap"
+          title="Parse Assistant Output"
+          description={
+            <>
+              Attempt to recover tool calls from assistant plaintext output when the provider fails to emit structured
+              tool calls. Writes warnings to <code>.eclia/debug/&lt;sessionId&gt;/warnings.ndjson</code> and shows a
+              warning in approval prompts.
+            </>
+          }
+          checked={draft.debugParseAssistantOutput}
+          onCheckedChange={(checked) => setDraft((d) => ({ ...d, debugParseAssistantOutput: checked }))}
+          ariaLabel="Parse assistant output"
+          disabled={devDisabled}
+        />
+      </SettingsAdvancedSection>
     </>
   );
 }

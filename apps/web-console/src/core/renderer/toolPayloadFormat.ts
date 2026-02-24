@@ -29,7 +29,7 @@ export type FormattedToolPayload =
     }
   | {
       kind: "web_content_results";
-      mode: "extract" | "crawl";
+      mode: "extract";
       results: Array<{ title: string; url: string; content?: string; truncated?: boolean }>;
     }
   | {
@@ -218,7 +218,7 @@ export function tryFormatToolPayload(block: ToolBlock, payload: any, opts?: Tool
         return { kind: "web_search_results", results };
       }
 
-      if (modeRaw === "extract" || modeRaw === "crawl") {
+      if (modeRaw === "extract") {
         const results = resultsRaw
           .map((r) => {
             if (!isRecord(r)) return null;
@@ -232,7 +232,7 @@ export function tryFormatToolPayload(block: ToolBlock, payload: any, opts?: Tool
           })
           .filter(Boolean) as Array<{ title: string; url: string; content?: string; truncated?: boolean }>;
 
-        return { kind: "web_content_results", mode: modeRaw as "extract" | "crawl", results };
+        return { kind: "web_content_results", mode: "extract", results };
       }
 
       return null;

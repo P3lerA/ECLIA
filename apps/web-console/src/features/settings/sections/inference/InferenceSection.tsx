@@ -1,7 +1,8 @@
 import React from "react";
 import type { TransportId } from "../../../../core/transport/TransportRegistry";
-import { Collapsible } from "../../../common/Collapsible";
+import { SettingsAdvancedSection } from "../../components/SettingsAdvancedSection";
 import { SettingDisclosure } from "../../components/SettingDisclosure";
+import { SettingsToggleRow } from "../../components/SettingsToggleRow";
 import type { CodexOAuthProfile, CodexOAuthStatus, SettingsDraft } from "../../settingsTypes";
 import { codexProfileRoute, openaiProfileRoute } from "../../settingsUtils";
 
@@ -188,7 +189,15 @@ export function InferenceSection(props: InferenceSectionProps) {
               title={p.name.trim() || "Untitled"}
               open={isExpanded}
               onOpenChange={(next) => setExpandedOpenAICompatProfileId(next ? p.id : null)}
-              right={isActivated ? <span className="activatedPill">Activated</span> : null}
+              right={
+                isActivated ? (
+                  <span className="activatedPill">Activated</span>
+                ) : (
+                  <span className="activatedPill activatedPillPlaceholder" aria-hidden="true">
+                    Activated
+                  </span>
+                )
+              }
               ariaLabel={`Provider profile: ${p.name.trim() || "Untitled"}`}
             >
               <div className="grid2">
@@ -400,7 +409,7 @@ export function InferenceSection(props: InferenceSectionProps) {
             )}
       </div>
 
-      <Collapsible title="Advanced" variant="section">
+      <SettingsAdvancedSection>
         <label className="field" style={{ marginBottom: 12 }}>
           <div className="field-label">Modify System Instruction</div>
           <textarea
@@ -417,28 +426,25 @@ export function InferenceSection(props: InferenceSectionProps) {
           </div>
         </label>
 
-        <div className="row">
-          <div className="row-left">
-            <div className="row-main">ECLIA_CODEX_HOME override</div>
-            <div className="row-sub muted">
-              Overrides <code>CODEX_HOME</code> for the spawned <code>codex app-server</code>. Leave off to use the default isolated directory.
-            </div>
-          </div>
-
-          <input
-            type="checkbox"
-            checked={draft.codexHomeOverrideEnabled}
-            onChange={(e) =>
-              setDraft((d) => ({
-                ...d,
-                codexHomeOverrideEnabled: e.target.checked,
-                codexHomeOverridePath: e.target.checked ? d.codexHomeOverridePath : ""
-              }))
-            }
-            aria-label="Override ECLIA_CODEX_HOME"
-            disabled={devDisabled}
-          />
-        </div>
+        <SettingsToggleRow
+          title="ECLIA_CODEX_HOME override"
+          description={
+            <>
+              Overrides <code>CODEX_HOME</code> for the spawned <code>codex app-server</code>. Leave off to use the
+              default isolated directory.
+            </>
+          }
+          checked={draft.codexHomeOverrideEnabled}
+          onCheckedChange={(checked) =>
+            setDraft((d) => ({
+              ...d,
+              codexHomeOverrideEnabled: checked,
+              codexHomeOverridePath: checked ? d.codexHomeOverridePath : ""
+            }))
+          }
+          ariaLabel="Override ECLIA_CODEX_HOME"
+          disabled={devDisabled}
+        />
 
         {draft.codexHomeOverrideEnabled ? (
           <label className="field" style={{ marginTop: 10 }}>
@@ -466,7 +472,7 @@ export function InferenceSection(props: InferenceSectionProps) {
         {codexHomePickMsg ? <div className="devNoteText muted">{codexHomePickMsg}</div> : null}
 
         {dirtyDevCodexHome && !codexHomeValid ? <div className="devNoteText muted">Please select or enter a directory path.</div> : null}
-      </Collapsible>
+      </SettingsAdvancedSection>
     </>
   );
 }

@@ -35,15 +35,7 @@ function normalizeStringList(input: unknown): string[] {
 export type SendDestination =
   | { kind: "origin" }
   | { kind: "web" }
-  | {
-      kind: "discord";
-      channelId: string;
-      threadId?: string;
-      guildId?: string;
-      guildName?: string;
-      channelName?: string;
-      threadName?: string;
-    };
+  | { kind: "discord" };
 
 export type NormalizedSendToolArgs = {
   destination?: SendDestination;
@@ -64,19 +56,13 @@ export const SEND_TOOL_SCHEMA: any = {
   properties: {
     destination: {
       description:
-        "Where to send the message. Default is {kind:'origin'} (the request source).",
+        "Where to send the message. Default is {kind:'origin'} (the request source). For {kind:'discord'}, the channel/thread is always derived from the session/request origin (not model-specified).",
       anyOf: [
         {
           type: "object",
-          additionalProperties: true,
+          additionalProperties: false,
           properties: {
-            kind: { type: "string", enum: ["origin", "web", "discord"] },
-            channelId: { type: "string" },
-            threadId: { type: "string" },
-            guildId: { type: "string" },
-            guildName: { type: "string" },
-            channelName: { type: "string" },
-            threadName: { type: "string" }
+            kind: { type: "string", enum: ["origin", "web", "discord"] }
           },
           required: ["kind"]
         },
@@ -86,24 +72,15 @@ export const SEND_TOOL_SCHEMA: any = {
     content: { type: "string", description: "Text/markdown content to send." },
     text: { type: "string", description: "Alias of content." },
 
-    // Artifact refs: allow multiple field names for robustness.
+    // Artifact refs.
     refs: {
       type: "array",
       items: { type: "string" },
       description: "Artifact refs/URIs/paths. Example: <eclia://artifact/.eclia/artifacts/...>"
     },
-    artifact_refs: { type: "array", items: { type: "string" } },
-
-    // Allow passing artifacts from exec_result directly: array of {ref:"<eclia://...>"}.
-    artifacts: {
-      type: "array",
-      items: { anyOf: [{ type: "string" }, { type: "object", additionalProperties: true }] }
-    },
 
     // Local files.
-    paths: { type: "array", items: { type: "string" }, description: "Absolute file paths on the local machine." },
-    files: { type: "array", items: { type: "string" }, description: "Alias of paths." },
-    file_paths: { type: "array", items: { type: "string" }, description: "Alias of paths." }
+    paths: { type: "array", items: { type: "string" }, description: "Absolute file paths on the local machine." }
   }
 };
 
@@ -124,39 +101,9 @@ export function parseSendArgs(raw: unknown): NormalizedSendToolArgs {
 
   const refs: string[] = [];
   for (const r of normalizeStringList((obj as any).refs)) refs.push(r);
-  for (const r of normalizeStringList((obj as any).artifact_refs)) refs.push(r);
-
-  // artifacts can be array of strings or objects like { ref: "<eclia://...>" }
-  if (Array.isArray((obj as any).artifacts)) {
-    for (const a of (obj as any).artifacts) {
-      if (typeof a === "string") {
-        const t = a.trim();
-        if (t) refs.push(t);
-        continue;
-      }
-      if (a && typeof a === "object") {
-        const ref = typeof (a as any).ref === "string" ? String((a as any).ref).trim() : "";
-        if (ref) {
-          refs.push(ref);
-          continue;
-        }
-
-        const uri = typeof (a as any).uri === "string" ? String((a as any).uri).trim() : "";
-        if (uri) {
-          refs.push(uri);
-          continue;
-        }
-
-        const p = typeof (a as any).path === "string" ? String((a as any).path).trim() : "";
-        if (p) refs.push(p);
-      }
-    }
-  }
 
   const paths: string[] = [];
   for (const p of normalizeStringList((obj as any).paths)) paths.push(p);
-  for (const p of normalizeStringList((obj as any).files)) paths.push(p);
-  for (const p of normalizeStringList((obj as any).file_paths)) paths.push(p);
 
   return {
     destination,
@@ -173,10 +120,7 @@ function normalizeDestination(input: unknown): SendDestination | undefined {
   if (typeof input === "string") {
     const k = input.trim();
     if (k === "origin" || k === "web") return { kind: k };
-    if (k === "discord") {
-      // Destination "discord" without ids is not actionable; keep as undefined.
-      return { kind: "discord", channelId: "" };
-    }
+    if (k === "discord" || k === "dc") return { kind: "discord" };
     return undefined;
   }
 
@@ -184,25 +128,7 @@ function normalizeDestination(input: unknown): SendDestination | undefined {
   const kind = typeof input.kind === "string" ? input.kind.trim() : "";
 
   if (kind === "origin" || kind === "web") return { kind };
-
-  if (kind === "discord") {
-    const channelId = typeof input.channelId === "string" ? input.channelId.trim() : "";
-    const threadId = typeof input.threadId === "string" ? input.threadId.trim() : undefined;
-    const guildId = typeof input.guildId === "string" ? input.guildId.trim() : undefined;
-    const guildName = typeof input.guildName === "string" ? input.guildName.trim() : undefined;
-    const channelName = typeof input.channelName === "string" ? input.channelName.trim() : undefined;
-    const threadName = typeof input.threadName === "string" ? input.threadName.trim() : undefined;
-
-    return {
-      kind: "discord",
-      channelId,
-      threadId,
-      guildId,
-      guildName,
-      channelName,
-      threadName
-    };
-  }
+  if (kind === "discord" || kind === "dc") return { kind: "discord" };
 
   return undefined;
 }

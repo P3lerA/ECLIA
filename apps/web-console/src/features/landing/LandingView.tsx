@@ -1,5 +1,6 @@
 import React from "react";
 import { useSendMessage } from "../chat/useSendMessage";
+import { PromptBar } from "../common/PromptBar";
 import { ThemeCycleButton } from "../theme/ThemeCycleButton";
 
 function SendUpIcon() {
@@ -48,19 +49,27 @@ export function LandingView({ onOpenMenu }: { onOpenMenu: () => void }) {
         ECLIA
       </div>
 
-      <div className="promptbar motion-item" style={delay(90)} role="search">
-        <input
-          className="prompt-input"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder="Ask anything or type a /command…"
-          aria-label="Prompt"
-        />
-        <button className="prompt-send" onClick={() => void send()} aria-label="Send">
-          <SendUpIcon />
-        </button>
-      </div>
+      <PromptBar
+        className="promptbar motion-item"
+        style={delay(90)}
+        role="search"
+        ariaLabel="Prompt"
+        input={
+          <input
+            className="prompt-input"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder="Ask ECLIA anything or type a /command…"
+            aria-label="Prompt"
+          />
+        }
+        actions={
+          <button className="prompt-send" onClick={() => void send()} aria-label="Send">
+            <SendUpIcon />
+          </button>
+        }
+      />
 
       <div className="landing-actions motion-item" style={delay(150)}>
         <button className="btn menu" onClick={onOpenMenu}>

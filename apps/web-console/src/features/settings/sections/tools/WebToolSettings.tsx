@@ -133,7 +133,15 @@ export function WebToolSettings(props: WebToolSettingsProps) {
               title={p.name.trim() || "Untitled"}
               open={isExpanded}
               onOpenChange={(next) => setExpandedProfileId(next ? p.id : null)}
-              right={isActivated ? <span className="activatedPill">Activated</span> : null}
+              right={
+                isActivated ? (
+                  <span className="activatedPill">Activated</span>
+                ) : (
+                  <span className="activatedPill activatedPillPlaceholder" aria-hidden="true">
+                    Activated
+                  </span>
+                )
+              }
               ariaLabel={`Web provider profile: ${p.name.trim() || "Untitled"}`}
             >
               <div className="grid2">

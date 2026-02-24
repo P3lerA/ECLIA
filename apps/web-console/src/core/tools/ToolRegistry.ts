@@ -14,7 +14,7 @@ export const TOOL_DEFS = [
   {
     name: "web",
     label: "web",
-    description: "Web search / extract / crawl (provider-backed, e.g. Tavily).",
+    description: "Web search / extract (provider-backed, e.g. Tavily).",
     defaultEnabled: true
   }
 ] as const;

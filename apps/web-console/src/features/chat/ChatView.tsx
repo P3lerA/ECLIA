@@ -2,9 +2,17 @@ import React from "react";
 import { useActiveSession, useAppDispatch, useAppState, useMessages } from "../../state/AppState";
 import { MessageList } from "./MessageList";
 import { ChatComposer } from "./ChatComposer";
+import { SegmentedSwitch, type SegmentedSwitchOption } from "../common/SegmentedSwitch";
 import { ThemeModeSwitch } from "../theme/ThemeModeSwitch";
 
 import type { Message } from "../../core/types";
+
+type StepMode = "final" | "full";
+
+const STEP_OPTIONS: SegmentedSwitchOption<StepMode>[] = [
+  { value: "final", label: "Final", title: "Show final answers only" },
+  { value: "full", label: "Full", title: "Show full work process" }
+];
 
 function collapseMessagesToFinalPerTurn(messages: Message[]): Message[] {
   const out: Message[] = [];
@@ -115,26 +123,13 @@ export function ChatView({
             </div>
 
             <div className="chatview-actions" aria-label="Actions">
-              <div className="themeSwitch compact" role="group" aria-label="Steps">
-                <button
-                  type="button"
-                  className={"themeSwitch-btn" + (!showWork ? " active" : "")}
-                  aria-pressed={!showWork}
-                  onClick={() => dispatch({ type: "settings/displayWorkProcess", enabled: false })}
-                  title="Show final answers only"
-                >
-                  Final
-                </button>
-                <button
-                  type="button"
-                  className={"themeSwitch-btn" + (showWork ? " active" : "")}
-                  aria-pressed={showWork}
-                  onClick={() => dispatch({ type: "settings/displayWorkProcess", enabled: true })}
-                  title="Show full work process"
-                >
-                  Full
-                </button>
-              </div>
+              <SegmentedSwitch
+                compact
+                ariaLabel="Steps"
+                options={STEP_OPTIONS}
+                value={showWork ? "full" : "final"}
+                onChange={(mode) => dispatch({ type: "settings/displayWorkProcess", enabled: mode === "full" })}
+              />
               <ThemeModeSwitch compact />
             </div>
           </div>

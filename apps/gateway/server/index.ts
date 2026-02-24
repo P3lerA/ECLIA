@@ -102,9 +102,9 @@ async function main() {
       function: {
         name: WEB_TOOL_NAME,
         description:
-          "Web tool for search/extract/crawl. " +
+          "Web tool for search/extract. " +
           "Use mode=search to get short per-URL summaries + links. " +
-          "Use mode=extract (one or more URLs) or mode=crawl (site traversal) to fetch and return page content.",
+          "Use mode=extract (one or more URLs) to fetch and return page content.",
         parameters: WEB_TOOL_SCHEMA
       }
     }

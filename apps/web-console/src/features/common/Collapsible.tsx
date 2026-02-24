@@ -1,8 +1,10 @@
 import React from "react";
 
 /**
- * A lightweight, reusable disclosure/collapsible.
- * Uses native <details>/<summary> for accessibility and keyboard support.
+ * Back-compat collapsible component.
+ *
+ * Kept to avoid transient "Cannot find module .../common/Collapsible" errors
+ * while older imports are being removed in watch/IDE sessions.
  */
 export function Collapsible({
   title,
@@ -18,8 +20,8 @@ export function Collapsible({
   variant?: "card" | "section";
 }) {
   const [open, setOpen] = React.useState(Boolean(defaultOpen));
+
   React.useEffect(() => {
-    // Keep the initial state in sync if the caller changes defaultOpen.
     setOpen(Boolean(defaultOpen));
   }, [defaultOpen]);
 

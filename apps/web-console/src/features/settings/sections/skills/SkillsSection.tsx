@@ -1,5 +1,6 @@
 import React from "react";
 import type { SettingsDraft } from "../../settingsTypes";
+import { SettingsToggleRow } from "../../components/SettingsToggleRow";
 
 export type SkillsSectionProps = {
   draft: SettingsDraft;
@@ -30,29 +31,23 @@ export function SkillsSection(props: SkillsSectionProps) {
               const enabled = draft.skillsEnabled.includes(s.name);
 
               return (
-                <div key={s.name} className="row">
-                  <div className="row-left">
-                    <div className="row-main">{s.name}</div>
-                    <div className="row-sub muted">{s.summary || "(no summary)"}</div>
-                  </div>
-
-                  <input
-                    type="checkbox"
-                    checked={enabled}
-                    onChange={(e) => {
-                      const on = e.target.checked;
-                      setDraft((d) => {
-                        const cur = Array.isArray(d.skillsEnabled) ? d.skillsEnabled : [];
-                        const next = new Set(cur);
-                        if (on) next.add(s.name);
-                        else next.delete(s.name);
-                        return { ...d, skillsEnabled: Array.from(next).sort((a, b) => a.localeCompare(b)) };
-                      });
-                    }}
-                    aria-label={`Enable skill ${s.name}`}
-                    disabled={devDisabled}
-                  />
-                </div>
+                <SettingsToggleRow
+                  key={s.name}
+                  title={s.name}
+                  description={s.summary || "(no summary)"}
+                  checked={enabled}
+                  onCheckedChange={(on) => {
+                    setDraft((d) => {
+                      const cur = Array.isArray(d.skillsEnabled) ? d.skillsEnabled : [];
+                      const next = new Set(cur);
+                      if (on) next.add(s.name);
+                      else next.delete(s.name);
+                      return { ...d, skillsEnabled: Array.from(next).sort((a, b) => a.localeCompare(b)) };
+                    });
+                  }}
+                  ariaLabel={`Enable skill ${s.name}`}
+                  disabled={devDisabled}
+                />
               );
             })}
           </div>
