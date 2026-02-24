@@ -6,34 +6,31 @@ import {
   loadEcliaConfig
 } from "@eclia/config";
 
-import { parseExecArgs } from "@eclia/tool-protocol";
-
 import { SessionStore } from "../sessionStore.js";
 import type { SessionMetaV1 } from "../sessionTypes.js";
-import type { OpenAICompatMessage, TranscriptRecordV1 } from "../transcriptTypes.js";
+import type { OpenAICompatMessage } from "../transcriptTypes.js";
 import { ToolApprovalHub } from "../tools/approvalHub.js";
-import { checkExecNeedsApproval, loadExecAllowlist, type ToolAccessMode } from "../tools/policy.js";
-import { checkSendNeedsApproval, parseSendArgs, prepareSendAttachments } from "../tools/sendTool.js";
-import {
-  planToolApproval,
-  waitForToolApproval,
-  approvalOutcomeToError,
-  type ToolSafetyCheck,
-  type ToolApprovalWaiter
-} from "../tools/approvalFlow.js";
-import { EXEC_TOOL_NAME, SEND_TOOL_NAME } from "../tools/toolSchemas.js";
+import { loadExecAllowlist, type ToolAccessMode } from "../tools/policy.js";
 import { McpStdioClient } from "../mcp/stdioClient.js";
 import { sseHeaders, initSse, send, startSseKeepAlive } from "../sse.js";
 import { withSessionLock } from "../sessionLock.js";
 import { resolveUpstreamBackend } from "../upstream/resolve.js";
 import type { ToolCall } from "../upstream/provider.js";
-import { json, readJson, safeInt, safeJsonStringify } from "../httpUtils.js";
-import { sanitizeExecResultForUiAndModel } from "../tools/execResultSanitize.js";
+import { json, readJson, safeInt } from "../httpUtils.js";
 import { composeSystemInstruction } from "../instructions/systemInstruction.js";
 import { buildSkillsInstructionPart } from "../instructions/skillsInstruction.js";
 
 import { appendSessionWarning } from "../debug/warnings.js";
 import { parseAssistantToolCallsFromText } from "../tools/assistantOutputParse.js";
+
+import {
+  deriveTitle,
+  deriveTitleFromOrigin,
+  extractRequestedOrigin,
+  firstUserTextInTranscript,
+  transcriptRecordsToMessages
+} from "../chat/sessionUtils.js";
+import { runToolCalls } from "../chat/toolExecutor.js";
 
 type ChatReqBody = {
   sessionId?: string;
@@ -94,123 +91,6 @@ function isToolCall(v: unknown): v is ToolCall {
     typeof (v as any).argsRaw === "string" &&
     ((v as any).index === undefined || typeof (v as any).index === "number")
   );
-}
-
-function deriveTitle(userText: string): string {
-  const s = userText.replace(/\s+/g, " ").trim();
-  if (!s) return "New session";
-  const max = 64;
-  return s.length > max ? s.slice(0, max).trimEnd() + "…" : s;
-}
-
-function firstUserTextInTranscript(messages: OpenAICompatMessage[]): string | null {
-  for (const m of messages) {
-    if (!m || m.role !== "user") continue;
-    const c = (m as any).content;
-    const t = typeof c === "string" ? c.trim() : "";
-    if (t) return t;
-  }
-  return null;
-}
-
-function deriveTitleFromOrigin(origin: SessionMetaV1["origin"] | undefined): string | null {
-  if (!origin || typeof origin !== "object") return null;
-  const kind = typeof (origin as any).kind === "string" ? (origin as any).kind : "";
-  if (kind !== "discord") return null;
-
-  const guildName = typeof (origin as any).guildName === "string" ? (origin as any).guildName.trim() : "";
-  const channelName = typeof (origin as any).channelName === "string" ? (origin as any).channelName.trim() : "";
-  const threadName = typeof (origin as any).threadName === "string" ? (origin as any).threadName.trim() : "";
-
-  const guildId = typeof (origin as any).guildId === "string" ? (origin as any).guildId.trim() : "";
-  const channelId = typeof (origin as any).channelId === "string" ? (origin as any).channelId.trim() : "";
-  const threadId = typeof (origin as any).threadId === "string" ? (origin as any).threadId.trim() : "";
-
-  const parts: string[] = [];
-  parts.push("Discord");
-
-  if (guildName) parts.push(guildName);
-  else if (guildId) parts.push(`g${guildId}`);
-
-  if (channelName) parts.push(`#${channelName}`);
-  else if (channelId) parts.push(`c${channelId}`);
-
-  if (threadName) parts.push(threadName);
-  else if (threadId) parts.push(`t${threadId}`);
-
-  const s = parts.filter(Boolean).join(" · ").trim();
-  if (!s) return null;
-
-  // Keep titles short-ish for UI lists.
-  return s.length > 96 ? s.slice(0, 96).trimEnd() + "…" : s;
-}
-
-function transcriptRecordsToMessages(records: TranscriptRecordV1[]): OpenAICompatMessage[] {
-  const out: OpenAICompatMessage[] = [];
-  const rows = Array.isArray(records) ? records : [];
-  for (const r of rows) {
-    if (!r || (r as any).v !== 1) continue;
-    if ((r as any).type === "reset") {
-      out.length = 0;
-      continue;
-    }
-    if ((r as any).type === "msg" && (r as any).msg && typeof (r as any).msg.role === "string") {
-      out.push((r as any).msg as OpenAICompatMessage);
-    }
-  }
-  return out;
-}
-
-function guessDiscordAdapterBaseUrl(): string {
-  const explicit = (process.env.ECLIA_DISCORD_ADAPTER_URL ?? "").trim();
-  if (explicit) return explicit;
-  const portRaw = (process.env.ECLIA_DISCORD_ADAPTER_PORT ?? "8790").trim();
-  const port = Number(portRaw);
-  return `http://127.0.0.1:${Number.isFinite(port) && port > 0 ? port : 8790}`;
-}
-
-async function postDiscordAdapterSend(args: {
-  adapterBaseUrl: string;
-  adapterKey?: string;
-  origin: any;
-  content: string;
-  refs: string[];
-}): Promise<{ ok: true } | { ok: false; error: { code: string; message: string } }> {
-  const url = `${args.adapterBaseUrl.replace(/\/$/, "")}/send`;
-
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const key = typeof args.adapterKey === "string" ? args.adapterKey.trim() : "";
-  if (key) headers["x-eclia-adapter-key"] = key;
-
-  const payload = {
-    origin: args.origin,
-    content: args.content,
-    refs: Array.isArray(args.refs) ? args.refs : []
-  };
-
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 30_000);
-  try {
-    const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(payload), signal: ctrl.signal as any });
-    const j = (await r.json().catch(() => null)) as any;
-    if (!r.ok || !j?.ok) {
-      const err = typeof j?.error === "string" ? j.error : `http_${r.status}`;
-      return { ok: false, error: { code: "send_failed", message: `Discord adapter send failed: ${err}` } };
-    }
-    return { ok: true };
-  } catch (e: any) {
-    const msg = String(e?.name === "AbortError" ? "timeout" : e?.message ?? e);
-    return { ok: false, error: { code: "adapter_unreachable", message: `Discord adapter unreachable: ${msg}` } };
-  } finally {
-    clearTimeout(t);
-  }
-}
-
-function extractRequestedOrigin(body: ChatReqBody): SessionMetaV1["origin"] | undefined {
-  const o = body.origin;
-  if (!o || typeof o !== "object" || Array.isArray(o)) return undefined;
-  if (typeof (o as any).kind !== "string") return undefined;
-  return o as any;
 }
 
 async function persistAssistantText(args: {
@@ -559,395 +439,28 @@ export async function handleChat(
         // Append the provider-specific assistant tool-call message to the upstream transcript.
         upstreamMessages.push(backend.provider.buildAssistantToolCallMessage({ assistantText, toolCalls }));
 
-        // Emit tool_call blocks (now we have complete args).
-        const approvalWaiters = new Map<string, ToolApprovalWaiter>();
-        const safetyCheckByCall = new Map<string, ToolSafetyCheck>();
-        const parsedArgsByCall = new Map<string, any>();
-        const parsedExecArgsByCall = new Map<string, ReturnType<typeof parseExecArgs>>();
-        const parsedSendArgsByCall = new Map<string, ReturnType<typeof parseSendArgs>>();
-        const parseErrorByCall = new Map<string, string | undefined>();
-
-        for (const call of toolCalls) {
-          let parsed: any = null;
-          let parseError: string | undefined;
-          try {
-            parsed = call.argsRaw ? JSON.parse(call.argsRaw) : {};
-          } catch (e: any) {
-            parsed = {};
-            parseError = String(e?.message ?? e);
-          }
-          parsedArgsByCall.set(call.callId, parsed);
-          parseErrorByCall.set(call.callId, parseError);
-
-          let approvalInfo: any = null;
-
-          const toolEnabled = !enabledToolSet || enabledToolSet.has(call.name);
-
-          if (toolEnabled && call.name === EXEC_TOOL_NAME) {
-            const execArgs = parseExecArgs(parsed);
-            parsedExecArgsByCall.set(call.callId, execArgs);
-
-            const check = checkExecNeedsApproval(execArgs, toolAccessMode, execAllowlist);
-            safetyCheckByCall.set(call.callId, check);
-
-            const plan = planToolApproval({ approvals, sessionId, check, timeoutMs: 5 * 60_000 });
-            if (plan.waiter) approvalWaiters.set(call.callId, plan.waiter);
-            approvalInfo = plan.approval;
-          } else if (toolEnabled && call.name === SEND_TOOL_NAME) {
-            const sendArgs = parseSendArgs(parsed);
-            parsedSendArgsByCall.set(call.callId, sendArgs);
-
-            const check = checkSendNeedsApproval(sendArgs, toolAccessMode);
-            safetyCheckByCall.set(call.callId, check);
-
-            const plan = planToolApproval({ approvals, sessionId, check, timeoutMs: 5 * 60_000 });
-            if (plan.waiter) approvalWaiters.set(call.callId, plan.waiter);
-            approvalInfo = plan.approval;
-          }
-
-          if (streamMode === "full")
-            send(res, "tool_call", {
-              callId: call.callId,
-              name: call.name,
-              args: {
-                sessionId,
-                raw: call.argsRaw,
-                parsed,
-                parseError,
-                approval: approvalInfo,
-                parseWarning: parsedWarningByCall.get(call.callId)
-              }
-            });
-        }
-
-        // Execute tools sequentially and feed results back into the upstream transcript.
-        const toolMessages: any[] = [];
-        for (const call of toolCalls) {
-          if (clientClosed) break;
-
-          const name = call.name;
-          const parsed = parsedArgsByCall.get(call.callId) ?? {};
-          const parseError = parseErrorByCall.get(call.callId);
-          const execArgs = parsedExecArgsByCall.get(call.callId);
-          const sendArgs = parsedSendArgsByCall.get(call.callId);
-
-          let ok = false;
-          let output: any = null;
-
-          if (enabledToolSet && !enabledToolSet.has(name)) {
-            ok = false;
-            output = {
-              ok: false,
-              error: { code: "tool_disabled", message: `Tool is disabled by client settings: ${name}` }
-            };
-          } else if (name === EXEC_TOOL_NAME) {
-            if (parseError) {
-              ok = false;
-              output = {
-                type: "exec_result",
-                ok: false,
-                error: { code: "bad_arguments_json", message: `Invalid JSON arguments: ${parseError}` },
-                argsRaw: call.argsRaw
-              };
-            } else {
-              const check = safetyCheckByCall.get(call.callId) ?? checkExecNeedsApproval(execArgs ?? {}, toolAccessMode, execAllowlist);
-              const waiter = approvalWaiters.get(call.callId);
-
-              const invokeExec = async (): Promise<{ ok: boolean; result: any }> => {
-                const mcpToolName = nameToMcpTool(name);
-                const callTimeoutMs = Math.max(5_000, Math.min(60 * 60_000, (execArgs?.timeoutMs ?? 60_000) + 15_000));
-
-                let mcpOut: any;
-                try {
-                  const mcpArgs =
-                    parsed && typeof parsed === "object" && !Array.isArray(parsed)
-                      ? { ...(parsed as any), __eclia: { sessionId, callId: call.callId } }
-                      : { __eclia: { sessionId, callId: call.callId } };
-
-                  mcpOut = await mcpExec.callTool(mcpToolName, mcpArgs, { timeoutMs: callTimeoutMs });
-                } catch (e: any) {
-                  const msg = String(e?.message ?? e);
-                  return {
-                    ok: false,
-                    result: {
-                      type: "exec_result",
-                      ok: false,
-                      error: { code: "toolhost_error", message: msg },
-                      args: execArgs ?? parsed
-                    }
-                  };
-                }
-
-                const firstText = Array.isArray(mcpOut?.content)
-                  ? (mcpOut.content.find((c: any) => c && c.type === "text" && typeof c.text === "string") as any)
-                      ?.text
-                  : "";
-
-                // Prefer MCP structuredContent when available (canonical machine-readable payload).
-                // Fall back to parsing the first text block for backward compatibility.
-                let execOut: any = null;
-                if (
-                  mcpOut &&
-                  typeof mcpOut === "object" &&
-                  (mcpOut as any).structuredContent &&
-                  typeof (mcpOut as any).structuredContent === "object"
-                ) {
-                  execOut = (mcpOut as any).structuredContent;
-                } else {
-                  try {
-                    execOut = firstText ? JSON.parse(firstText) : null;
-                  } catch {
-                    execOut = null;
-                  }
-                }
-
-                if (!execOut || typeof execOut !== "object") {
-                  return {
-                    ok: false,
-                    result: {
-                      type: "exec_result",
-                      ok: false,
-                      error: { code: "toolhost_bad_result", message: "Toolhost returned an invalid result" },
-                      raw: firstText || safeJsonStringify(mcpOut)
-                    }
-                  };
-                }
-
-                const nextOk = Boolean(execOut.ok) && !mcpOut?.isError;
-                return { ok: nextOk, result: { ...execOut, ok: nextOk } };
-              };
-
-              if (check.requireApproval) {
-                const decision = await waitForToolApproval(waiter);
-                if (decision.decision !== "approve") {
-                  ok = false;
-                  output = {
-                    type: "exec_result",
-                    ok: false,
-                    error: approvalOutcomeToError(decision, { actionLabel: "exec" }),
-                    policy: { mode: toolAccessMode, ...check, approvalId: waiter?.approvalId },
-                    args: execArgs ?? parsed
-                  };
-                } else {
-                  const r = await invokeExec();
-                  ok = r.ok;
-                  output = {
-                    type: "exec_result",
-                    ...r.result,
-                    ok,
-                    policy: { mode: toolAccessMode, ...check, approvalId: waiter?.approvalId, decision: "approve" }
-                  };
-                }
-              } else {
-                const r = await invokeExec();
-                ok = r.ok;
-                output = {
-                  type: "exec_result",
-                  ...r.result,
-                  ok,
-                  policy: { mode: toolAccessMode, ...check }
-                };
-              }
-            }
-          } else if (name === SEND_TOOL_NAME) {
-            if (parseError) {
-              ok = false;
-              output = {
-                type: "send_result",
-                ok: false,
-                error: { code: "bad_arguments_json", message: `Invalid JSON arguments: ${parseError}` },
-                argsRaw: call.argsRaw
-              };
-            } else {
-              const args = sendArgs ?? parseSendArgs(parsed);
-              const check = safetyCheckByCall.get(call.callId) ?? checkSendNeedsApproval(args, toolAccessMode);
-              const waiter = approvalWaiters.get(call.callId);
-
-              const invokeSend = async (): Promise<{ ok: boolean; result: any }> => {
-                // Destination resolution:
-                // - Default is "origin" (request source).
-                // - Fallback to persisted session origin.
-                const effectiveOrigin = (requestedOrigin ?? metaPatch.origin ?? priorMeta.origin ?? { kind: "web" }) as any;
-
-                let destination: any = args.destination;
-                if (!destination || destination.kind === "origin") destination = effectiveOrigin;
-
-                // If the model specified {kind:"discord"} without ids, inherit from origin when possible.
-                if (destination && destination.kind === "discord") {
-                  if (!destination.channelId && effectiveOrigin?.kind === "discord") {
-                    destination = { ...effectiveOrigin, ...destination };
-                    if (!destination.channelId) destination.channelId = effectiveOrigin.channelId;
-                    if (!destination.threadId && effectiveOrigin.threadId) destination.threadId = effectiveOrigin.threadId;
-                  }
-                }
-
-                if (!destination || typeof destination !== "object") {
-                  return {
-                    ok: false,
-                    result: {
-                      type: "send_result",
-                      ok: false,
-                      error: { code: "invalid_destination", message: "Destination is missing or invalid" },
-                      args
-                    }
-                  };
-                }
-
-                const destKind = typeof destination.kind === "string" ? destination.kind : "";
-                if (destKind !== "web" && destKind !== "discord") {
-                  return {
-                    ok: false,
-                    result: {
-                      type: "send_result",
-                      ok: false,
-                      error: { code: "invalid_destination", message: `Unsupported destination kind: ${String(destKind)}` },
-                      args
-                    }
-                  };
-                }
-
-                const prep = await prepareSendAttachments({
-                  rootDir,
-                  sessionId,
-                  callId: call.callId,
-                  refs: args.refs,
-                  paths: args.paths
-                });
-
-                if (!prep.ok) {
-                  return { ok: false, result: { type: "send_result", ok: false, error: prep.error, args } };
-                }
-
-                // Deliver
-                if (destKind === "discord") {
-                  if (!config.adapters.discord.enabled) {
-                    return {
-                      ok: false,
-                      result: {
-                        type: "send_result",
-                        ok: false,
-                        error: { code: "adapter_disabled", message: "Discord adapter is disabled" },
-                        destination,
-                        args,
-                        artifacts: prep.value.artifacts,
-                        refs: prep.value.refs
-                      }
-                    };
-                  }
-
-                  const channelId = typeof destination.channelId === "string" ? destination.channelId.trim() : "";
-                  if (!channelId) {
-                    return {
-                      ok: false,
-                      result: {
-                        type: "send_result",
-                        ok: false,
-                        error: { code: "invalid_destination", message: "discord destination requires channelId" },
-                        destination,
-                        args
-                      }
-                    };
-                  }
-
-                  const r = await postDiscordAdapterSend({
-                    adapterBaseUrl: guessDiscordAdapterBaseUrl(),
-                    adapterKey: process.env.ECLIA_ADAPTER_KEY,
-                    origin: { ...destination, kind: "discord", channelId },
-                    content: typeof args.content === "string" ? args.content : "",
-                    refs: prep.value.refs
-                  });
-
-                  if (!r.ok) {
-                    return {
-                      ok: false,
-                      result: {
-                        type: "send_result",
-                        ok: false,
-                        error: r.error,
-                        destination,
-                        args,
-                        artifacts: prep.value.artifacts,
-                        refs: prep.value.refs
-                      }
-                    };
-                  }
-                }
-
-                return {
-                  ok: true,
-                  result: {
-                    type: "send_result",
-                    ok: true,
-                    destination,
-                    content: typeof args.content === "string" ? args.content : "",
-                    refs: prep.value.refs,
-                    artifacts: prep.value.artifacts,
-                    copiedFromPaths: prep.value.copiedFromPaths
-                  }
-                };
-              };
-
-              if (check.requireApproval) {
-                const decision = await waitForToolApproval(waiter);
-                if (decision.decision !== "approve") {
-                  ok = false;
-                  output = {
-                    type: "send_result",
-                    ok: false,
-                    error: approvalOutcomeToError(decision, { actionLabel: "send" }),
-                    policy: { mode: toolAccessMode, ...check, approvalId: waiter?.approvalId },
-                    args
-                  };
-                } else {
-                  const r = await invokeSend();
-                  ok = r.ok;
-                  output = {
-                    type: "send_result",
-                    ...r.result,
-                    ok,
-                    policy: { mode: toolAccessMode, ...check, approvalId: waiter?.approvalId, decision: "approve" }
-                  };
-                }
-              } else {
-                const r = await invokeSend();
-                ok = r.ok;
-                output = {
-                  type: "send_result",
-                  ...r.result,
-                  ok,
-                  policy: { mode: toolAccessMode, ...check }
-                };
-              }
-            }
-          } else {
-            ok = false;
-            output = { ok: false, error: { code: "unknown_tool", message: `Unknown tool: ${name}` } };
-          }
-
-          if (output && typeof output === "object" && (output as any).type === "exec_result") {
-            output = await sanitizeExecResultForUiAndModel({ rootDir, sessionId, callId: call.callId, output });
-          }
-
-          // Stream to UI
-          if (streamMode === "full") send(res, "tool_result", { callId: call.callId, name, ok, result: output });
-
-          // Persist
-          const toolTs = Date.now();
-          const toolContent = safeJsonStringify(output);
-
-          await store.appendTranscript(
-            sessionId,
-            {
-              role: "tool",
-              tool_call_id: call.callId,
-              content: toolContent
-            } as any,
-            toolTs
-          );
-
-          // Feed back to model
-          toolMessages.push(backend.provider.buildToolResultMessage({ callId: call.callId, content: toolContent }));
-        }
+        const { toolMessages } = await runToolCalls({
+          store,
+          approvals,
+          sessionId,
+          rootDir,
+          provider: backend.provider,
+          mcpExec,
+          nameToMcpTool,
+          toolCalls,
+          enabledToolSet,
+          toolAccessMode,
+          execAllowlist,
+          requestedOrigin,
+          patchedOrigin: metaPatch.origin,
+          storedOrigin: priorMeta.origin,
+          config,
+          parseWarningByCall: parsedWarningByCall,
+          emit: (event, data) => {
+            if (streamMode === "full") send(res, event, data);
+          },
+          isCancelled: () => clientClosed
+        });
 
         upstreamMessages.push(...toolMessages);
 

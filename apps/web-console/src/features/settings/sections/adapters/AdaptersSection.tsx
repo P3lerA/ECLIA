@@ -1,6 +1,7 @@
 import React from "react";
 import type { SettingsDraft } from "../../settingsTypes";
 import { Collapsible } from "../../../common/Collapsible";
+import { AdapterSettingItem } from "./AdapterSettingItem";
 
 export type AdaptersSectionProps = {
   draft: SettingsDraft;
@@ -32,82 +33,79 @@ export function AdaptersSection(props: AdaptersSectionProps) {
 
   return (
     <>
-      <div className="card">
-        <div className="card-title">Discord</div>
+      <div className="settings-subtitle">Adapters</div>
 
-        <div className="row">
-          <div className="row-left">
-            <div className="row-main">Discord adapter</div>
-            <div className="row-sub muted">Enables the Discord bot adapter.</div>
+      {!cfgBaseAvailable ? (
+        <div className="devNoteText muted">Config service unavailable. Start the backend (pnpm dev:all) to edit adapters.</div>
+      ) : null}
+
+      <div>
+        <AdapterSettingItem
+          label="Discord"
+          summary="Enables the Discord bot adapter."
+          enabled={draft.adapterDiscordEnabled}
+          onEnabledChange={(enabled) => setDraft((d) => ({ ...d, adapterDiscordEnabled: enabled }))}
+          disabled={devDisabled}
+        >
+          <div className="grid2 stack-gap">
+            <label className="field">
+              <div className="field-label">Application ID (client id)</div>
+              <input
+                className="select"
+                value={draft.adapterDiscordAppId}
+                onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordAppId: e.target.value }))}
+                placeholder={discordAppIdConfigured ? "configured" : "not set"}
+                spellCheck={false}
+                disabled={devDisabled}
+              />
+              <div className="field-sub muted">
+                Required for registering slash commands. Find it in the Discord Developer Portal (Application/Client ID).
+              </div>
+            </label>
+
+            <label className="field">
+              <div className="field-label">Bot token (local)</div>
+              <input
+                className="select"
+                type="password"
+                value={draft.adapterDiscordBotToken}
+                onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordBotToken: e.target.value }))}
+                placeholder={discordTokenConfigured ? "configured (leave blank to keep)" : "not set"}
+                spellCheck={false}
+                disabled={devDisabled}
+              />
+              <div className="field-sub muted">
+                Stored in <code>eclia.config.local.toml</code>. Token is never shown after saving.
+              </div>
+            </label>
           </div>
 
-          <input
-            type="checkbox"
-            checked={draft.adapterDiscordEnabled}
-            onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordEnabled: e.target.checked }))}
-            aria-label="Enable Discord adapter"
-            disabled={devDisabled}
-          />
-        </div>
+          <div className="grid2 stack-gap">
+            <label className="field" style={{ gridColumn: "1 / -1" }}>
+              <div className="field-label">Guild IDs (optional)</div>
+              <textarea
+                className="select"
+                rows={3}
+                value={draft.adapterDiscordGuildIds}
+                onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordGuildIds: e.target.value }))}
+                placeholder={"123456789012345678\n987654321098765432"}
+                spellCheck={false}
+                disabled={devDisabled}
+              />
+              <div className="field-sub muted">
+                If set, slash commands will be registered as <strong>guild</strong> commands for faster iteration. Leave blank for global registration.
+              </div>
+            </label>
+          </div>
 
-        <div className="grid2">
-          <label className="field">
-            <div className="field-label">Application ID (client id)</div>
-            <input
-              className="select"
-              value={draft.adapterDiscordAppId}
-              onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordAppId: e.target.value }))}
-              placeholder={discordAppIdConfigured ? "configured" : "not set"}
-              spellCheck={false}
-              disabled={devDisabled}
-            />
-            <div className="field-sub muted">
-              Required for registering slash commands. Find it in the Discord Developer Portal (Application/Client ID).
-            </div>
-          </label>
-
-          <label className="field">
-            <div className="field-label">Bot token (local)</div>
-            <input
-              className="select"
-              type="password"
-              value={draft.adapterDiscordBotToken}
-              onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordBotToken: e.target.value }))}
-              placeholder={discordTokenConfigured ? "configured (leave blank to keep)" : "not set"}
-              spellCheck={false}
-              disabled={devDisabled}
-            />
-            <div className="field-sub muted">
-              Stored in <code>eclia.config.local.toml</code>. Token is never shown after saving.
-            </div>
-          </label>
-        </div>
-
-        <div className="grid2">
-          <label className="field" style={{ gridColumn: "1 / -1" }}>
-            <div className="field-label">Guild IDs (optional)</div>
-            <textarea
-              className="select"
-              rows={3}
-              value={draft.adapterDiscordGuildIds}
-              onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordGuildIds: e.target.value }))}
-              placeholder={"123456789012345678\n987654321098765432"}
-              spellCheck={false}
-              disabled={devDisabled}
-            />
-            <div className="field-sub muted">
-              If set, slash commands will be registered as <strong>guild</strong> commands for faster iteration. Leave blank for global registration.
-            </div>
-          </label>
-        </div>
-
-        {dirtyDevDiscord && !discordValid ? (
-          <div className="devNoteText muted">Discord adapter enabled but missing bot token or Application ID.</div>
-        ) : null}
+          {dirtyDevDiscord && !discordValid ? (
+            <div className="devNoteText muted">Discord adapter enabled but missing bot token or Application ID.</div>
+          ) : null}
+        </AdapterSettingItem>
       </div>
 
       <Collapsible title="Advanced" variant="section">
-        <div className="row">
+        <div className="row stack-gap">
           <div className="row-left">
             <div className="row-main">Discord verbose default</div>
             <div className="row-sub muted">

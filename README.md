@@ -7,7 +7,7 @@
 I <em>remember</em> u.
 </div>
 
-### Install and Launch
+## Install and Launch
 
 ```bash
 #install pnpm and ECLIA
@@ -23,7 +23,10 @@ pnpm dev:all
 
 ## Security
 
-ECLIA requires elevated permissions for certain privacy and security functions. Please be aware that:
+ECLIA requires elevated permissions to perform agent actions. It’s very powerful, but that also makes it a potential target for attackers. So please be awared that:
 
 - The installation of ANY skills and plugins should be treated as arbitrary code execution.
 - Personal informations and tokens are stored under /.eclia and *.local.toml.
+
+## Development
+

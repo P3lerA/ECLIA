@@ -64,7 +64,7 @@ export const SEND_TOOL_SCHEMA: any = {
   properties: {
     destination: {
       description:
-        "Where to send the message. Default is {kind:'origin'} (the request source). In safe mode, manually specifying a destination requires user approval.",
+        "Where to send the message. Default is {kind:'origin'} (the request source).",
       anyOf: [
         {
           type: "object",
