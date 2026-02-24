@@ -400,11 +400,6 @@ export function InferenceSection(props: InferenceSectionProps) {
             )}
       </div>
 
-      <div className="card">
-        <div className="card-title">Ollama</div>
-        <div className="devNoteText muted">no configured profiles.</div>
-      </div>
-
       <Collapsible title="Advanced" variant="section">
         <label className="field" style={{ marginBottom: 12 }}>
           <div className="field-label">Modify System Instruction</div>

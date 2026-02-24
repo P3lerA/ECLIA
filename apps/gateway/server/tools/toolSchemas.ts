@@ -11,3 +11,6 @@ export const EXEC_TOOL_NAME = "exec";
 
 // Gateway-native tool: deliver messages/artifacts back to the request origin (web/discord/etc.).
 export const SEND_TOOL_NAME = "send";
+
+// Gateway-native tool: web search / extract / crawl (provider-backed, e.g. Tavily).
+export const WEB_TOOL_NAME = "web";

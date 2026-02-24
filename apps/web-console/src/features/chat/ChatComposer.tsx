@@ -7,11 +7,16 @@ function ExecFullAccessIcon({ className }: { className?: string }) {
     <svg
       className={className}
       viewBox="0 0 24 24"
-      fill="currentColor"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden="true"
       focusable="false"
     >
-      <path d="M3 5v14l8-7-8-7zm9 0v14l8-7-8-7z" />
+      <path d="M5.5 5.5 11.5 12l-6 6.5" />
+      <path d="M12.5 5.5 18.5 12l-6 6.5" />
     </svg>
   );
 }
@@ -21,11 +26,55 @@ function ExecSafeModeIcon({ className }: { className?: string }) {
     <svg
       className={className}
       viewBox="0 0 24 24"
-      fill="currentColor"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden="true"
       focusable="false"
     >
-      <path d="M3 5h3v14H3zM8 5v14l13-7-13-7z" />
+      <path d="M5 5.5v13" />
+      <path d="M10 5.5 18.5 12 10 18.5" />
+    </svg>
+  );
+}
+
+function MenuIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M5.5 7h13" />
+      <path d="M5.5 12h13" />
+      <path d="M5.5 17h13" />
+    </svg>
+  );
+}
+
+function SendUpIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M12 18V6.5" />
+      <path d="M7 11.5 12 6.5l5 5" />
     </svg>
   );
 }
@@ -68,7 +117,7 @@ export function ChatComposer({ onOpenMenu }: { onOpenMenu: () => void }) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="Type a message…  Enter to send · Shift+Enter for newline · /help /clear(reset) /new(new session)"
+          placeholder="Ask ECLIA... /clear(reset) /new(new session)"
         />
 
         <div className="chatbar-actions" aria-label="Actions">
@@ -85,10 +134,10 @@ export function ChatComposer({ onOpenMenu }: { onOpenMenu: () => void }) {
             )}
           </button>
           <button className="chatbar-btn" onClick={onOpenMenu} aria-label="Menu">
-            ☰
+            <MenuIcon className="execModeIcon" />
           </button>
           <button className="chatbar-btn" onClick={() => void send()} aria-label="Send">
-            ↗
+            <SendUpIcon className="execModeIcon" />
           </button>
         </div>
       </div>

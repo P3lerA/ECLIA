@@ -10,6 +10,12 @@ export const TOOL_DEFS = [
     label: "send",
     description: "Send text and/or artifacts to the request origin (web/discord) or an explicit destination.",
     defaultEnabled: true
+  },
+  {
+    name: "web",
+    label: "web",
+    description: "Web search / extract / crawl (provider-backed, e.g. Tavily).",
+    defaultEnabled: true
   }
 ] as const;
 

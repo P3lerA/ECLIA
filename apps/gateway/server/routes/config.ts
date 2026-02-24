@@ -47,13 +47,73 @@ type ConfigReqBody = {
       default_stream_mode?: string; // non-secret (optional): "full" | "final"
     };
   };
+
+  tools?: {
+    web?: {
+      active_profile?: string;
+      profiles?: Array<{
+        id: string;
+        name?: string;
+        provider?: string;
+        api_key?: string;
+        project_id?: string;
+      }>;
+    };
+  };
 };
 
 export async function handleConfig(req: http.IncomingMessage, res: http.ServerResponse) {
-  const { config, rootDir } = loadEcliaConfig(process.cwd());
+  const { config, raw, rootDir } = loadEcliaConfig(process.cwd());
   const availableSkills = discoverSkills(rootDir);
 
   if (req.method === "GET") {
+    const toolsWeb = ((raw as any)?.tools?.web ?? {}) as any;
+    const toolsWebProfilesRaw = Array.isArray(toolsWeb.profiles) ? (toolsWeb.profiles as any[]) : [];
+    const toolsWebProfiles: any[] = [];
+    const seenWebIds = new Set<string>();
+
+    for (const row of toolsWebProfilesRaw) {
+      const id = String(row?.id ?? "").trim();
+      if (!id || seenWebIds.has(id)) continue;
+      seenWebIds.add(id);
+      const provider = typeof row?.provider === "string" && row.provider.trim() ? row.provider.trim() : "tavily";
+      const name = typeof row?.name === "string" && row.name.trim() ? row.name.trim() : id;
+      const project_id = typeof row?.project_id === "string" ? row.project_id.trim() : "";
+      const api_key_configured = Boolean(typeof row?.api_key === "string" && row.api_key.trim());
+
+      toolsWebProfiles.push({ id, name, provider, project_id, api_key_configured });
+    }
+
+    // Back-compat: if user configured Tavily via legacy config paths, surface that as
+    // a default profile so the UI doesn't look "empty".
+    const legacyTavilyKey =
+      String((raw as any)?.tools?.web?.tavily?.api_key ?? (raw as any)?.tools?.tavily?.api_key ?? (raw as any)?.tavily_api_key ?? "").trim();
+    const legacyTavilyProject = String((raw as any)?.tools?.web?.tavily?.project_id ?? "").trim();
+
+    if (toolsWebProfiles.length === 0) {
+      toolsWebProfiles.push({
+        id: "default",
+        name: "Default",
+        provider: "tavily",
+        project_id: legacyTavilyProject,
+        api_key_configured: Boolean(legacyTavilyKey)
+      });
+    }
+
+    let toolsWebActiveProfile = typeof toolsWeb.active_profile === "string" ? toolsWeb.active_profile.trim() : "";
+    if (!toolsWebProfiles.some((p) => p.id === toolsWebActiveProfile)) {
+      toolsWebActiveProfile = toolsWebProfiles[0]?.id ?? "default";
+    }
+
+    // If a legacy Tavily key is present but profiles are configured without api_key, treat the
+    // active profile as "configured" for UX (the runtime resolver will fall back to legacy paths).
+    if (legacyTavilyKey) {
+      const active = toolsWebProfiles.find((p) => p.id === toolsWebActiveProfile);
+      if (active && active.provider === "tavily" && !active.api_key_configured) {
+        active.api_key_configured = true;
+      }
+    }
+
     // Do NOT return secrets.
     return json(res, 200, {
       ok: true,
@@ -96,6 +156,12 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
             default_stream_mode: config.adapters.discord.default_stream_mode,
             app_id_configured: Boolean(config.adapters.discord.app_id && config.adapters.discord.app_id.trim()),
             bot_token_configured: Boolean(config.adapters.discord.bot_token && config.adapters.discord.bot_token.trim())
+          }
+        },
+        tools: {
+          web: {
+            active_profile: toolsWebActiveProfile,
+            profiles: toolsWebProfiles
           }
         }
       }
@@ -227,6 +293,63 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
       }
 
       patch.adapters = { discord };
+    }
+
+    if (body.tools?.web) {
+      const w = body.tools.web;
+      const web: any = {};
+
+      if (typeof w.active_profile === "string") {
+        const ap = w.active_profile.trim();
+        if (ap) web.active_profile = ap;
+      }
+
+      if (Array.isArray(w.profiles)) {
+        const raw = w.profiles;
+        const out: any[] = [];
+        const seen = new Set<string>();
+
+        for (const row of raw) {
+          const id = String(row?.id ?? "").trim();
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+
+          const provider = typeof row.provider === "string" && row.provider.trim() ? row.provider.trim() : "tavily";
+          if (provider !== "tavily") {
+            return json(res, 400, {
+              ok: false,
+              error: "bad_request",
+              hint: "tools.web.profiles[].provider must be 'tavily' (only provider supported for now)."
+            });
+          }
+
+          const next: any = { id, provider };
+          if (typeof row.name === "string" && row.name.trim()) next.name = row.name.trim();
+          if (typeof row.project_id === "string") next.project_id = row.project_id.trim();
+
+          // api_key: optional; empty means unchanged.
+          if (typeof row.api_key === "string" && row.api_key.trim()) next.api_key = row.api_key.trim();
+
+          out.push(next);
+        }
+
+        if (out.length === 0) {
+          return json(res, 400, { ok: false, error: "bad_request", hint: "tools.web.profiles must contain at least one profile." });
+        }
+
+        // If the client provided an active_profile, ensure it exists in the profile list.
+        if (typeof web.active_profile === "string" && !out.some((p) => p.id === web.active_profile)) {
+          return json(res, 400, {
+            ok: false,
+            error: "bad_request",
+            hint: "tools.web.active_profile must match an entry in tools.web.profiles[].id."
+          });
+        }
+
+        web.profiles = out;
+      }
+
+      (patch as any).tools = { web };
     }
 
     // Optional: if user sends bot_token="", treat as "do not change".

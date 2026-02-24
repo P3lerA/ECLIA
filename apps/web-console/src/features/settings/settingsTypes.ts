@@ -29,6 +29,20 @@ export type SettingsDraft = {
   contextTokenLimit: string;
   contextLimitEnabled: boolean;
 
+  // Web tool: UI-only rendering preference.
+  webResultTruncateChars: string; // keep as string for input UX
+
+  // Web tool: provider profiles (dev-only; written to eclia.config.local.toml).
+  // Secrets are stored in local TOML; keys are never read back.
+  webActiveProfileId: string;
+  webProfiles: Array<{
+    id: string;
+    name: string;
+    provider: string;
+    apiKey: string; // input only; empty = unchanged
+    projectId: string;
+  }>;
+
   // Dev-only (written to eclia.config.local.toml via the local backend).
   consoleHost: string;
   consolePort: string; // keep as string for input UX
@@ -90,6 +104,17 @@ export type CfgBase = {
   discordTokenConfigured: boolean;
   discordGuildIds: string[];
   discordDefaultStreamMode: "full" | "final";
+
+  // Web tool
+  webActiveProfileId: string;
+  webProfiles: Array<{
+    id: string;
+    name: string;
+    provider: string;
+    projectId: string;
+    apiKeyConfigured: boolean;
+  }>;
+
   skillsEnabled: string[];
   skillsAvailable: Array<{ name: string; summary: string }>;
 };
@@ -133,6 +158,19 @@ export type DevConfig = {
       default_stream_mode?: string;
       app_id_configured?: boolean;
       bot_token_configured?: boolean;
+    };
+  };
+
+  tools?: {
+    web?: {
+      active_profile?: string;
+      profiles?: Array<{
+        id: string;
+        name?: string;
+        provider?: string;
+        project_id?: string;
+        api_key_configured?: boolean;
+      }>;
     };
   };
 };

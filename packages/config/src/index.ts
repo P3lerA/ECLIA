@@ -603,6 +603,54 @@ export function writeLocalEcliaConfig(
     (patch.inference.openai_compat as any).profiles = preserved;
   }
 
+  // Special-case: tools.web.profiles is also an array, so deepMerge() replaces wholesale.
+  // Preserve existing secrets (api_key) per profile id unless the patch explicitly sets a new one.
+  {
+    const patchToolsWeb = (patch as any)?.tools?.web;
+    const patchedProfilesRaw = patchToolsWeb?.profiles;
+
+    const currentWebProfilesRaw = (currentLocal as any)?.tools?.web?.profiles;
+    const currentWebProfiles = Array.isArray(currentWebProfilesRaw) ? (currentWebProfilesRaw as any[]) : null;
+
+    const legacyTavilyKey =
+      coerceOptionalString((currentLocal as any)?.tools?.web?.tavily?.api_key) ||
+      coerceOptionalString((currentLocal as any)?.tools?.tavily?.api_key) ||
+      coerceOptionalString((currentLocal as any)?.tavily_api_key);
+
+    const activeId =
+      coerceOptionalString(patchToolsWeb?.active_profile) ||
+      coerceOptionalString((currentLocal as any)?.tools?.web?.active_profile) ||
+      "default";
+
+    if (patchToolsWeb && Array.isArray(patchedProfilesRaw)) {
+      const patched = patchedProfilesRaw as any[];
+      const preserved: any[] = [];
+
+      for (let i = 0; i < patched.length; i++) {
+        const p = patched[i];
+        if (!isRecord(p)) continue;
+
+        const id = coerceProfileId((p as any).id, `profile_${i + 1}`);
+        const existing = currentWebProfiles?.find((x) => isRecord(x) && coerceProfileId((x as any).id, "") === id);
+
+        const next: Record<string, any> = { ...p, id };
+
+        // Preserve api_key when omitted.
+        if (!Object.prototype.hasOwnProperty.call(p, "api_key")) {
+          const existingKey = coerceOptionalString((existing as any)?.api_key);
+          if (existingKey) next.api_key = existingKey;
+          // Legacy fallback: if user is migrating from older Tavily-only schema.
+          if (!existingKey && id === activeId && legacyTavilyKey) next.api_key = legacyTavilyKey;
+        }
+
+        preserved.push(next);
+      }
+
+      patchToolsWeb.profiles = preserved;
+      (patch as any).tools.web = patchToolsWeb;
+    }
+  }
+
   const nextLocal = deepMerge(currentLocal, patch as any);
 
   // Normalize known keys, but keep everything else.

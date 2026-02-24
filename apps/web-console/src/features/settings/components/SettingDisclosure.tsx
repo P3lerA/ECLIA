@@ -1,4 +1,5 @@
 import React from "react";
+import { usePresence } from "../../motion/usePresence";
 
 export type SettingDisclosureProps = {
   title: React.ReactNode;
@@ -46,6 +47,7 @@ export function SettingDisclosure(props: SettingDisclosureProps) {
 
   const isOpen = isControlled ? Boolean(open) : internalOpen;
   const bodyId = React.useId();
+  const { present, motion } = usePresence(isOpen, { exitMs: 160 });
 
   const toggle = () => {
     if (disabled) return;
@@ -81,8 +83,8 @@ export function SettingDisclosure(props: SettingDisclosureProps) {
         {right ? <div className="settingDisclosureRight">{right}</div> : null}
       </div>
 
-      {isOpen ? (
-        <div className="settingDisclosureBody" id={bodyId}>
+      {present ? (
+        <div className="settingDisclosureBody motion-disclosure" id={bodyId} data-motion={motion}>
           {children}
         </div>
       ) : null}

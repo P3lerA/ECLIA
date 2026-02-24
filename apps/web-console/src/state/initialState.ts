@@ -46,7 +46,13 @@ export function makeInitialState(): AppState {
       enabledTools:
         prefs.enabledTools === undefined ? defaultEnabledToolNames() : normalizeEnabledToolNames(prefs.enabledTools),
       displayPlainOutput: Boolean(prefs.displayPlainOutput ?? false),
-      displayWorkProcess: Boolean(prefs.displayWorkProcess ?? false)
+      displayWorkProcess: Boolean(prefs.displayWorkProcess ?? false),
+
+      // Web tool rendering (UI preference): preview truncation.
+      webResultTruncateChars:
+        typeof prefs.webResultTruncateChars === "number" && Number.isFinite(prefs.webResultTruncateChars)
+          ? Math.trunc(prefs.webResultTruncateChars)
+          : 4000
     },
 
     model: prefs.model ?? "openai-compatible",

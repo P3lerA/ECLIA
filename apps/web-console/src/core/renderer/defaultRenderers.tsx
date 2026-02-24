@@ -10,6 +10,7 @@ import { tryFormatToolPayload } from "./toolPayloadFormat";
 function ToolNameIcon({ name }: { name: string }) {
   if (name === "exec") return <TerminalIcon />;
   if (name === "send") return <EnterIcon />;
+  if (name === "web") return <GlobeIcon />;
   return null;
 }
 
@@ -46,6 +47,17 @@ function EnterIcon() {
     <svg {...iconProps()}>
       <polyline points="9 10 4 15 9 20" />
       <path d="M20 4v7a4 4 0 0 1-4 4H4" />
+    </svg>
+  );
+}
+
+function GlobeIcon() {
+  return (
+    <svg {...iconProps()}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M2 12h20" />
+      <path d="M12 2a15 15 0 0 1 0 20" />
+      <path d="M12 2a15 15 0 0 0 0 20" />
     </svg>
   );
 }
@@ -273,7 +285,8 @@ function ToolBlockView({ block }: { block: ToolBlock }) {
 }
 
 function ToolPayloadRendered({ block, payload }: { block: ToolBlock; payload: any }) {
-  const formatted = tryFormatToolPayload(block, payload);
+  const webResultTruncateChars = useAppState().settings.webResultTruncateChars;
+  const formatted = tryFormatToolPayload(block, payload, { webResultTruncateChars });
 
   if (formatted?.kind === "tool_call_raw") {
     return (
@@ -364,6 +377,57 @@ function ToolPayloadRendered({ block, payload }: { block: ToolBlock; payload: an
             <pre className="code-lite">{stderr}</pre>
           </div>
         ) : null}
+      </div>
+    );
+  }
+
+  if (formatted?.kind === "web_error_summary") {
+    return <div className="muted" style={{ marginTop: 6 }}>[error] {formatted.message}</div>;
+  }
+
+  if (formatted?.kind === "web_search_results") {
+    if (!formatted.results.length) {
+      return <div className="muted" style={{ marginTop: 6 }}>[no results]</div>;
+    }
+
+    return (
+      <div className="web-results" style={{ marginTop: 6 }}>
+        {formatted.results.map((r, idx) => (
+          <div key={`${r.url}-${idx}`} className="web-result">
+            {r.url ? (
+              <a className="web-result-title" href={r.url} target="_blank" rel="noreferrer">
+                {r.title || r.url}
+              </a>
+            ) : (
+              <div className="web-result-title">{r.title}</div>
+            )}
+            {r.summary ? <div className="web-result-snippet muted">{r.summary}</div> : null}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (formatted?.kind === "web_content_results") {
+    if (!formatted.results.length) {
+      return <div className="muted" style={{ marginTop: 6 }}>[no results]</div>;
+    }
+
+    return (
+      <div className="web-results" style={{ marginTop: 6 }}>
+        {formatted.results.map((r, idx) => (
+          <div key={`${r.url}-${idx}`} className="web-result">
+            {r.url ? (
+              <a className="web-result-title" href={r.url} target="_blank" rel="noreferrer">
+                {r.title || r.url}
+              </a>
+            ) : (
+              <div className="web-result-title">{r.title}</div>
+            )}
+            {r.content ? <pre className="code-lite">{r.content}</pre> : <div className="muted">[no content]</div>}
+            {r.truncated ? <div className="muted">(truncated)</div> : null}
+          </div>
+        ))}
       </div>
     );
   }

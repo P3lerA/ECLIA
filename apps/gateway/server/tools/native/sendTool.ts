@@ -11,8 +11,8 @@ import {
   uriFromRef
 } from "@eclia/tool-protocol";
 
-import type { ToolAccessMode } from "./policy.js";
-import type { ToolSafetyCheck } from "./approvalFlow.js";
+import type { ToolAccessMode } from "../policy.js";
+import type { ToolSafetyCheck } from "../approvalFlow.js";
 
 function isRecord(v: unknown): v is Record<string, any> {
   return typeof v === "object" && v !== null && !Array.isArray(v);

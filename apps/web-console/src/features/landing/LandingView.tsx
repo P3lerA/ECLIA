@@ -2,6 +2,26 @@ import React from "react";
 import { useSendMessage } from "../chat/useSendMessage";
 import { ThemeCycleButton } from "../theme/ThemeCycleButton";
 
+function SendUpIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="22"
+      height="22"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M12 18V6.5" />
+      <path d="M7 11.5 12 6.5l5 5" />
+    </svg>
+  );
+}
+
 export function LandingView({ onOpenMenu }: { onOpenMenu: () => void }) {
   const { sendText } = useSendMessage();
   const [text, setText] = React.useState("");
@@ -38,7 +58,7 @@ export function LandingView({ onOpenMenu }: { onOpenMenu: () => void }) {
           aria-label="Prompt"
         />
         <button className="prompt-send" onClick={() => void send()} aria-label="Send">
-          ↗
+          <SendUpIcon />
         </button>
       </div>
 

@@ -33,8 +33,6 @@ export function AdaptersSection(props: AdaptersSectionProps) {
 
   return (
     <>
-      <div className="settings-subtitle">Adapters</div>
-
       {!cfgBaseAvailable ? (
         <div className="devNoteText muted">Config service unavailable. Start the backend (pnpm dev:all) to edit adapters.</div>
       ) : null}

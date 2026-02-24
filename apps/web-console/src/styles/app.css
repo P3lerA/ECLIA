@@ -474,6 +474,23 @@ button, input, select, textarea{
   word-break: break-word;
 }
 
+.web-results{
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.web-result-title{
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.web-result-snippet{
+  margin-top: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* Thought blocks (internal reasoning): hidden/collapsed by default. */
 .block-thought{
   margin-top: 8px;
@@ -1268,7 +1285,7 @@ textarea:focus{
 
 /* Collapsible variant: subtitle-style section (no outer frame) */
 .collapsibleSection{
-  margin-top: 12px;
+  margin-top: 8px;
   border: none;
   background: transparent;
   border-radius: 0;

@@ -54,6 +54,40 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
     : [];
   const discordDefaultStreamMode = normalizeDiscordStreamMode((disc as any).default_stream_mode);
 
+  const web = (config as any)?.tools?.web ?? {};
+  const rawWebProfiles = Array.isArray((web as any).profiles) ? ((web as any).profiles as any[]) : [];
+  const webProfiles: CfgBase["webProfiles"] = [];
+  const seenWebIds = new Set<string>();
+
+  for (let i = 0; i < rawWebProfiles.length; i++) {
+    const p = rawWebProfiles[i] ?? {};
+    const id = String(p.id ?? "").trim();
+    if (!id || seenWebIds.has(id)) continue;
+    seenWebIds.add(id);
+
+    const name = String(p.name ?? "").trim() || `Profile ${i + 1}`;
+    const provider = String(p.provider ?? "tavily").trim() || "tavily";
+    const projectId = String(p.project_id ?? "").trim();
+    const apiKeyConfigured = Boolean(p.api_key_configured);
+
+    webProfiles.push({ id, name, provider, projectId, apiKeyConfigured });
+  }
+
+  if (webProfiles.length === 0) {
+    webProfiles.push({
+      id: "default",
+      name: "Default",
+      provider: "tavily",
+      projectId: "",
+      apiKeyConfigured: false
+    });
+  }
+
+  let webActiveProfileId = String((web as any).active_profile ?? "").trim() || "";
+  if (!webProfiles.some((p) => p.id === webActiveProfileId)) {
+    webActiveProfileId = webProfiles[0]?.id ?? "default";
+  }
+
   const codex = (config.inference as any)?.codex_oauth ?? {};
   const rawCodexProfiles = Array.isArray((codex as any).profiles) ? ((codex as any).profiles as any[]) : [];
 
@@ -112,6 +146,9 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
     discordGuildIds,
     discordDefaultStreamMode,
 
+    webActiveProfileId,
+    webProfiles,
+
     skillsEnabled,
     skillsAvailable
   };
@@ -129,6 +166,9 @@ export type BuildDevConfigPatchArgs = {
   inferenceValid: boolean;
   dirtyDevDiscord: boolean;
   discordValid: boolean;
+
+  dirtyDevWeb: boolean;
+  webValid: boolean;
   dirtyDevSkills: boolean;
 };
 
@@ -148,6 +188,8 @@ export function buildDevConfigPatch(args: BuildDevConfigPatchArgs): any {
     inferenceValid,
     dirtyDevDiscord,
     discordValid,
+    dirtyDevWeb,
+    webValid,
     dirtyDevSkills
   } = args;
 
@@ -218,6 +260,23 @@ export function buildDevConfigPatch(args: BuildDevConfigPatchArgs): any {
     };
   }
 
+  if (dirtyDevWeb) {
+    if (!webValid) throw new Error("Invalid web provider profile settings.");
+
+    body.tools = {
+      web: {
+        active_profile: draft.webActiveProfileId,
+        profiles: draft.webProfiles.map((p) => ({
+          id: p.id,
+          name: p.name.trim(),
+          provider: p.provider.trim() || "tavily",
+          project_id: p.projectId.trim(),
+          ...(p.apiKey.trim().length ? { api_key: p.apiKey.trim() } : {})
+        }))
+      }
+    };
+  }
+
   if (dirtyDevSkills) {
     body.skills = {
       enabled: Array.isArray(draft.skillsEnabled) ? draft.skillsEnabled : []
@@ -258,6 +317,27 @@ export function applyDevConfigPatchToCfgBase(cfgBase: CfgBase, body: any): CfgBa
         .slice(0, 1) as CodexOAuthProfile[])
     : cfgBase.codexOAuthProfiles;
 
+  const nextWebProfiles = Array.isArray(body.tools?.web?.profiles)
+    ? (body.tools.web.profiles as any[]).map((p, idx) => {
+        const prev = cfgBase.webProfiles.find((x) => x.id === p.id);
+        const apiKeyConfigured = Boolean(String(p.api_key ?? "").trim()) || Boolean(prev?.apiKeyConfigured);
+
+        return {
+          id: String(p.id),
+          name: String(p.name ?? "").trim() || `Profile ${idx + 1}`,
+          provider: String(p.provider ?? "tavily").trim() || "tavily",
+          projectId: String(p.project_id ?? "").trim(),
+          apiKeyConfigured
+        };
+      })
+    : cfgBase.webProfiles;
+
+  let nextWebActiveProfileId =
+    typeof body.tools?.web?.active_profile === "string" ? String(body.tools.web.active_profile).trim() : cfgBase.webActiveProfileId;
+  if (!nextWebProfiles.some((p) => p.id === nextWebActiveProfileId)) {
+    nextWebActiveProfileId = nextWebProfiles[0]?.id ?? "default";
+  }
+
   return {
     host: body.console?.host ?? cfgBase.host,
     port: body.console?.port ?? cfgBase.port,
@@ -282,6 +362,9 @@ export function applyDevConfigPatchToCfgBase(cfgBase: CfgBase, body: any): CfgBa
     discordGuildIds: body.adapters?.discord?.guild_ids ?? cfgBase.discordGuildIds,
     discordDefaultStreamMode: normalizeDiscordStreamMode(body.adapters?.discord?.default_stream_mode ?? cfgBase.discordDefaultStreamMode),
 
+    webActiveProfileId: nextWebActiveProfileId,
+    webProfiles: nextWebProfiles,
+
     skillsEnabled: Array.isArray((body as any).skills?.enabled)
       ? ([...((body as any).skills.enabled as string[])].sort((a, b) => a.localeCompare(b)) as string[])
       : cfgBase.skillsEnabled,
@@ -296,7 +379,7 @@ export function applyDevConfigPatchToCfgBase(cfgBase: CfgBase, body: any): CfgBa
  *
  * Note: this intentionally mirrors the previous behavior (only some fields are updated).
  */
-export function draftAfterDevSave(d: SettingsDraft, nextBase: CfgBase, dirtyDevInference: boolean): SettingsDraft {
+export function draftAfterDevSave(d: SettingsDraft, nextBase: CfgBase, dirtyDevInference: boolean, dirtyDevWeb: boolean): SettingsDraft {
   return {
     ...d,
     inferenceProfiles: dirtyDevInference
@@ -316,6 +399,17 @@ export function draftAfterDevSave(d: SettingsDraft, nextBase: CfgBase, dirtyDevI
     adapterDiscordBotToken: "",
     adapterDiscordGuildIds: nextBase.discordGuildIds.join("\n"),
     adapterDiscordDefaultStreamMode: nextBase.discordDefaultStreamMode,
+
+    webActiveProfileId: dirtyDevWeb ? nextBase.webActiveProfileId : d.webActiveProfileId,
+    webProfiles: dirtyDevWeb
+      ? nextBase.webProfiles.map((p) => ({
+          id: p.id,
+          name: p.name,
+          provider: p.provider,
+          projectId: p.projectId,
+          apiKey: ""
+        }))
+      : d.webProfiles.map((p) => ({ ...p, apiKey: "" })),
 
     debugCaptureUpstreamRequests: nextBase.debugCaptureUpstreamRequests,
 

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { ToolDef, ToolName } from "../../../../core/tools/ToolRegistry";
 import { SettingDisclosure } from "../../components/SettingDisclosure";
 
@@ -5,6 +6,9 @@ export type ToolSettingItemProps = {
   tool: ToolDef;
   enabled: boolean;
   onToggle: (name: ToolName, enabled: boolean) => void;
+
+  /** Optional tool-specific settings UI shown when expanded. */
+  details?: ReactNode;
 };
 
 /**
@@ -14,7 +18,7 @@ export type ToolSettingItemProps = {
  * Expanded: details/config (currently: description + id).
  */
 export function ToolSettingItem(props: ToolSettingItemProps) {
-  const { tool, enabled, onToggle } = props;
+  const { tool, enabled, onToggle, details } = props;
 
   return (
     <SettingDisclosure
@@ -29,12 +33,10 @@ export function ToolSettingItem(props: ToolSettingItemProps) {
         />
       }
     >
+
+      {details ? <div>{details}</div> : null}
       <div className="devNoteText muted" style={{ marginTop: 0 }}>
         {tool.description}
-      </div>
-
-      <div className="hint">
-        Tool id: <code>{tool.name}</code>
       </div>
     </SettingDisclosure>
   );

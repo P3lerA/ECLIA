@@ -11,9 +11,11 @@ import {
   normalizeActiveModel,
   normalizeGuildIds,
   parseContextLimit,
+  parseWebResultTruncateChars,
   portNumber,
   sameCodexOAuthProfiles,
   sameOpenAICompatProfiles,
+  sameWebProfiles,
   sameStringArray
 } from "./settingsUtils";
 import { AdaptersSection } from "./sections/adapters/AdaptersSection";
@@ -89,8 +91,21 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         contextTokenLimit: String(state.settings.contextTokenLimit ?? 20000),
         contextLimitEnabled: Boolean(state.settings.contextLimitEnabled ?? true),
 
+        webResultTruncateChars: String(state.settings.webResultTruncateChars ?? 4000),
+
         consoleHost: cfgBase?.host ?? prev?.consoleHost ?? "",
         consolePort: cfgBase ? String(cfgBase.port) : prev?.consolePort ?? "",
+
+        webActiveProfileId: cfgBase?.webActiveProfileId ?? prev?.webActiveProfileId ?? "default",
+        webProfiles: cfgBase
+          ? cfgBase.webProfiles.map((p) => ({
+              id: p.id,
+              name: p.name,
+              provider: p.provider,
+              projectId: p.projectId,
+              apiKey: ""
+            }))
+          : prev?.webProfiles ?? [{ id: "default", name: "Default", provider: "tavily", apiKey: "", projectId: "" }],
 
         inferenceProfiles: cfgBase
           ? cfgBase.openaiCompatProfiles.map((p) => ({
@@ -130,6 +145,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       state.settings.enabledTools,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
+      state.settings.webResultTruncateChars,
       state.transport,
       state.model,
       cfgBase
@@ -148,7 +164,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         d.transport !== state.transport ||
         d.model !== effectiveStateModel ||
         d.contextLimitEnabled !== state.settings.contextLimitEnabled ||
-        parseContextLimit(d.contextTokenLimit) !== state.settings.contextTokenLimit;
+        parseContextLimit(d.contextTokenLimit) !== state.settings.contextTokenLimit ||
+        parseWebResultTruncateChars(d.webResultTruncateChars) !== state.settings.webResultTruncateChars;
 
       const dirtyDevHostPort = cfgBase
         ? d.consoleHost.trim() !== cfgBase.host || portNumber(d.consolePort) !== cfgBase.port
@@ -180,7 +197,22 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
       const dirtyDevSkills = cfgBase ? !sameStringArray(d.skillsEnabled, cfgBase.skillsEnabled) : false;
 
-      return dirtyUi || dirtyDevHostPort || dirtyDevDebug || dirtyDevInference || dirtyDevCodexHome || dirtyDevDiscord || dirtyDevSkills;
+      const dirtyDevWeb = cfgBase
+        ? d.webActiveProfileId !== cfgBase.webActiveProfileId ||
+          !sameWebProfiles(d.webProfiles, cfgBase.webProfiles) ||
+          d.webProfiles.some((p) => p.apiKey.trim().length > 0)
+        : false;
+
+      return (
+        dirtyUi ||
+        dirtyDevHostPort ||
+        dirtyDevDebug ||
+        dirtyDevInference ||
+        dirtyDevCodexHome ||
+        dirtyDevDiscord ||
+        dirtyDevWeb ||
+        dirtyDevSkills
+      );
     },
     [
       state.settings.textureDisabled,
@@ -189,6 +221,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       state.settings.enabledTools,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
+      state.settings.webResultTruncateChars,
       state.transport,
       state.model,
       cfgBase
@@ -205,6 +238,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       state.settings.enabledTools,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
+      state.settings.webResultTruncateChars,
       state.transport,
       state.model,
       cfgBase
@@ -239,9 +273,16 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       draft.adapterDiscordDefaultStreamMode !== cfgBase.discordDefaultStreamMode
     : false;
 
+  const dirtyDevWeb = cfgBase
+    ? draft.webActiveProfileId !== cfgBase.webActiveProfileId ||
+      !sameWebProfiles(draft.webProfiles, cfgBase.webProfiles) ||
+      draft.webProfiles.some((p) => p.apiKey.trim().length > 0)
+    : false;
+
   const dirtyDevSkills = cfgBase ? !sameStringArray(draft.skillsEnabled, cfgBase.skillsEnabled) : false;
 
-  const dirtyDev = dirtyDevHostPort || dirtyDevDebug || dirtyDevInference || dirtyDevCodexHome || dirtyDevDiscord || dirtyDevSkills;
+  const dirtyDev =
+    dirtyDevHostPort || dirtyDevDebug || dirtyDevInference || dirtyDevCodexHome || dirtyDevDiscord || dirtyDevWeb || dirtyDevSkills;
 
   const [saving, setSaving] = React.useState(false);
 
@@ -257,6 +298,15 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const discordAppIdOk = Boolean((cfgBase?.discordAppId ?? "").trim().length) || draft.adapterDiscordAppId.trim().length > 0;
   const discordValid = !draft.adapterDiscordEnabled || (discordTokenOk && discordAppIdOk);
 
+  const webProviders = new Set(["tavily"]);
+  const webIds = draft.webProfiles.map((p) => p.id);
+  const webIdsUnique = new Set(webIds.map((x) => x.trim()).filter(Boolean)).size === draft.webProfiles.length;
+  const webValid =
+    draft.webProfiles.length > 0 &&
+    webIdsUnique &&
+    draft.webProfiles.every((p) => p.id.trim().length > 0 && p.name.trim().length > 0 && webProviders.has(p.provider)) &&
+    draft.webProfiles.some((p) => p.id === draft.webActiveProfileId);
+
   const canSave =
     dirty &&
     !saving &&
@@ -266,7 +316,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         (!dirtyDevHostPort || hostPortValid) &&
         (!dirtyDevInference || inferenceValid) &&
         (!dirtyDevCodexHome || codexHomeValid) &&
-        (!dirtyDevDiscord || discordValid)));
+        (!dirtyDevDiscord || discordValid) &&
+        (!dirtyDevWeb || webValid)));
 
   const discard = () => {
     discardDraft();
@@ -299,6 +350,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           inferenceValid,
           dirtyDevDiscord,
           discordValid,
+          dirtyDevWeb,
+          webValid,
           dirtyDevSkills
         });
 
@@ -313,7 +366,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           nextCfgBase = nextBase;
 
           // Clear secret inputs after a successful save so the form becomes clean.
-          setDraft((d) => draftAfterDevSave(d, nextBase, dirtyDevInference));
+          setDraft((d) => draftAfterDevSave(d, nextBase, dirtyDevInference, dirtyDevWeb));
 
           setCfgSaved(
             dirtyDevHostPort
@@ -365,6 +418,11 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       const nextLimit = parseContextLimit(draft.contextTokenLimit);
       if (nextLimit !== state.settings.contextTokenLimit) {
         dispatch({ type: "settings/contextTokenLimit", value: nextLimit });
+      }
+
+      const nextWebTruncate = parseWebResultTruncateChars(draft.webResultTruncateChars);
+      if (nextWebTruncate !== state.settings.webResultTruncateChars) {
+        dispatch({ type: "settings/webResultTruncateChars", value: nextWebTruncate });
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to save config.";
@@ -476,7 +534,15 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             ) : null}
 
             {activeSection === "tools" ? (
-              <ToolsSection draft={draft} setDraft={setDraft} />
+              <ToolsSection
+                draft={draft}
+                setDraft={setDraft}
+                cfgLoading={cfgLoading}
+                cfgBaseAvailable={!!cfgBase}
+                cfgWebProfiles={cfgBase?.webProfiles ?? []}
+                dirtyDevWeb={dirtyDevWeb}
+                webValid={webValid}
+              />
             ) : null}
 
             {activeSection === "inference" ? (

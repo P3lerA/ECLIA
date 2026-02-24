@@ -19,8 +19,13 @@ import {
   checkSendNeedsApproval,
   parseSendArgs,
   prepareSendAttachments
-} from "../tools/sendTool.js";
-import { EXEC_TOOL_NAME, SEND_TOOL_NAME } from "../tools/toolSchemas.js";
+} from "../tools/native/sendTool.js";
+import {
+  checkWebNeedsApproval,
+  invokeWebTool,
+  parseWebArgs
+} from "../tools/native/webTool.js";
+import { EXEC_TOOL_NAME, SEND_TOOL_NAME, WEB_TOOL_NAME } from "../tools/toolSchemas.js";
 import type { McpStdioClient } from "../mcp/stdioClient.js";
 import type { ToolCall, UpstreamProvider } from "../upstream/provider.js";
 import { safeJsonStringify } from "../httpUtils.js";
@@ -41,6 +46,7 @@ type PlannedToolCall = {
   safetyCheck?: ToolSafetyCheck;
   execArgs?: ReturnType<typeof parseExecArgs>;
   sendArgs?: ReturnType<typeof parseSendArgs>;
+  webArgs?: ReturnType<typeof parseWebArgs>;
 };
 
 export async function runToolCalls(args: {
@@ -63,6 +69,7 @@ export async function runToolCalls(args: {
   storedOrigin: SessionMetaV1["origin"] | undefined;
 
   config: any;
+  rawConfig?: any;
 
   parseWarningByCall?: Map<string, string>;
   emit?: (event: string, data: any) => void;
@@ -90,6 +97,7 @@ export async function runToolCalls(args: {
     let safetyCheck: ToolSafetyCheck | undefined;
     let execArgs: ReturnType<typeof parseExecArgs> | undefined;
     let sendArgs: ReturnType<typeof parseSendArgs> | undefined;
+    let webArgs: ReturnType<typeof parseWebArgs> | undefined;
 
     const toolEnabled = !args.enabledToolSet || args.enabledToolSet.has(call.name);
 
@@ -107,6 +115,13 @@ export async function runToolCalls(args: {
       const plan = planToolApproval({ approvals: args.approvals, sessionId: args.sessionId, check: safetyCheck, timeoutMs: 5 * 60_000 });
       approvalInfo = plan.approval;
       waiter = plan.waiter;
+    } else if (toolEnabled && call.name === WEB_TOOL_NAME) {
+      webArgs = parseWebArgs(parsed);
+      safetyCheck = checkWebNeedsApproval(webArgs, args.toolAccessMode);
+
+      const plan = planToolApproval({ approvals: args.approvals, sessionId: args.sessionId, check: safetyCheck, timeoutMs: 5 * 60_000 });
+      approvalInfo = plan.approval;
+      waiter = plan.waiter;
     }
 
     plannedCalls.push({
@@ -117,7 +132,8 @@ export async function runToolCalls(args: {
       waiter,
       safetyCheck,
       execArgs,
-      sendArgs
+      sendArgs,
+      webArgs
     });
 
     emit("tool_call", {
@@ -425,6 +441,58 @@ export async function runToolCalls(args: {
           ok = r.ok;
           output = {
             type: "send_result",
+            ...r.result,
+            ok,
+            policy: { mode: args.toolAccessMode, ...check }
+          };
+        }
+      }
+    } else if (name === WEB_TOOL_NAME) {
+      if (p.parseError) {
+        ok = false;
+        output = {
+          type: "web_result",
+          ok: false,
+          error: { code: "bad_arguments_json", message: `Invalid JSON arguments: ${p.parseError}` },
+          argsRaw: call.argsRaw
+        };
+      } else {
+        const webArgs = p.webArgs ?? parseWebArgs(p.parsed);
+        const check = p.safetyCheck ?? checkWebNeedsApproval(webArgs, args.toolAccessMode);
+        const waiter = p.waiter;
+
+        const invokeWeb = async (): Promise<{ ok: boolean; result: any }> => {
+          return await invokeWebTool({ parsed: webArgs, rawConfig: args.rawConfig });
+        };
+
+        const actionLabel = `web:${webArgs.mode}`;
+
+        if (check.requireApproval) {
+          const decision = await waitForToolApproval(waiter);
+          if (decision.decision !== "approve") {
+            ok = false;
+            output = {
+              type: "web_result",
+              ok: false,
+              error: approvalOutcomeToError(decision, { actionLabel }),
+              policy: { mode: args.toolAccessMode, ...check, approvalId: waiter?.approvalId },
+              args: webArgs
+            };
+          } else {
+            const r = await invokeWeb();
+            ok = r.ok;
+            output = {
+              type: "web_result",
+              ...r.result,
+              ok,
+              policy: { mode: args.toolAccessMode, ...check, approvalId: waiter?.approvalId, decision: "approve" }
+            };
+          }
+        } else {
+          const r = await invokeWeb();
+          ok = r.ok;
+          output = {
+            type: "web_result",
             ...r.result,
             ok,
             policy: { mode: args.toolAccessMode, ...check }

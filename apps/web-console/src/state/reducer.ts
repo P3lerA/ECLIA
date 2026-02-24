@@ -55,6 +55,12 @@ export type AppSettings = {
    * - false: show only the final assistant message per user turn
    */
   displayWorkProcess: boolean;
+
+  /**
+   * Web tool result rendering: max characters to preview per item.
+   * UI-only (does not affect tool execution).
+   */
+  webResultTruncateChars: number;
 };
 
 export type AppGPU = {
@@ -97,6 +103,7 @@ export type Action =
   | { type: "settings/enabledTools"; enabledTools: ToolName[] }
   | { type: "settings/displayPlainOutput"; enabled: boolean }
   | { type: "settings/displayWorkProcess"; enabled: boolean }
+  | { type: "settings/webResultTruncateChars"; value: number }
   | { type: "gpu/available"; available: boolean }
   | { type: "message/add"; sessionId: string; message: Message }
   | { type: "messages/set"; sessionId: string; messages: Message[] }
@@ -229,6 +236,12 @@ export function reducer(state: AppState, action: Action): AppState {
     case "settings/displayWorkProcess":
       if (state.settings.displayWorkProcess === action.enabled) return state;
       return { ...state, settings: { ...state.settings, displayWorkProcess: action.enabled } };
+
+    case "settings/webResultTruncateChars": {
+      const v = clampInt(action.value, 200, 200_000);
+      if (state.settings.webResultTruncateChars === v) return state;
+      return { ...state, settings: { ...state.settings, webResultTruncateChars: v } };
+    }
 
     case "gpu/available":
       if (state.gpu.available === action.available) return state;

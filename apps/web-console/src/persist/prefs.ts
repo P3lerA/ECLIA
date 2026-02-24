@@ -71,6 +71,12 @@ export type StoredPrefsV1 = {
    */
   displayWorkProcess?: boolean;
 
+  /**
+   * Web tool result rendering: max characters to preview per item.
+   * This is a UI-only preference (does not affect tool execution).
+   */
+  webResultTruncateChars?: number;
+
 };
 
 const KEY = "eclia-prefs-v1";
@@ -128,6 +134,10 @@ export function readStoredPrefs(): StoredPrefsV1 {
 
     if (typeof (parsed as any).displayWorkProcess === "boolean") {
       out.displayWorkProcess = Boolean((parsed as any).displayWorkProcess);
+    }
+
+    if (typeof (parsed as any).webResultTruncateChars === "number" && Number.isFinite((parsed as any).webResultTruncateChars)) {
+      out.webResultTruncateChars = Math.trunc((parsed as any).webResultTruncateChars);
     }
 
 

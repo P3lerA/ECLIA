@@ -455,6 +455,7 @@ export async function handleChat(
           patchedOrigin: metaPatch.origin,
           storedOrigin: priorMeta.origin,
           config,
+          rawConfig: raw,
           parseWarningByCall: parsedWarningByCall,
           emit: (event, data) => {
             if (streamMode === "full") send(res, event, data);

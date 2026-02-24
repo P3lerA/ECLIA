@@ -30,7 +30,7 @@ export function SkillsSection(props: SkillsSectionProps) {
               const enabled = draft.skillsEnabled.includes(s.name);
 
               return (
-                <div key={s.name} className="row stack-gap">
+                <div key={s.name} className="row">
                   <div className="row-left">
                     <div className="row-main">{s.name}</div>
                     <div className="row-sub muted">{s.summary || "(no summary)"}</div>

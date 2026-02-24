@@ -98,6 +98,27 @@
   }
 }
 
+@keyframes k-disclosure-in{
+  from{
+    opacity: 0;
+    transform: translateY(var(--dist-1));
+  }
+  to{
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes k-disclosure-out{
+  from{
+    opacity: 1;
+    transform: none;
+  }
+  to{
+    opacity: 0;
+    transform: translateY(calc(var(--dist-1) * -0.5));
+  }
+}
+
 /* Utility classes */
 .motion-page{
   animation: k-page-in var(--motion-4) var(--ease-enter) both;
@@ -117,6 +138,9 @@
 
 .motion-sheet[data-motion="enter"]{ animation: k-sheet-in var(--motion-3) var(--ease-enter) both; }
 .motion-sheet[data-motion="exit"]{ animation: k-sheet-out var(--motion-2) var(--ease-exit) both; }
+
+.motion-disclosure[data-motion="enter"]{ animation: k-disclosure-in var(--motion-2) var(--ease-enter) both; }
+.motion-disclosure[data-motion="exit"]{ animation: k-disclosure-out var(--motion-2) var(--ease-exit) both; }
 
 /* Composer docking */
 .motion-dock[data-motion="enter"]{ animation: k-dock-in var(--motion-4) var(--ease-enter) both; }
@@ -158,7 +182,8 @@ textarea,
   .motion-msg,
   .motion-overlay,
   .motion-sheet,
-  .motion-dock{
+  .motion-dock,
+  .motion-disclosure{
     animation: none !important;
   }
   .btn,

@@ -22,7 +22,24 @@ export type FormattedToolPayload =
       stdout?: string;
       stderr?: string;
       exitCode: number | null;
+    }
+  | {
+      kind: "web_search_results";
+      results: Array<{ title: string; url: string; summary?: string }>;
+    }
+  | {
+      kind: "web_content_results";
+      mode: "extract" | "crawl";
+      results: Array<{ title: string; url: string; content?: string; truncated?: boolean }>;
+    }
+  | {
+      kind: "web_error_summary";
+      message: string;
     };
+
+export type ToolPayloadFormatOptions = {
+  webResultTruncateChars?: number;
+};
 
 function isRecord(v: unknown): v is Record<string, any> {
   return Boolean(v) && typeof v === "object" && !Array.isArray(v);
@@ -47,7 +64,7 @@ function parseExitCode(v: unknown): number | null {
  * - Return `null` when unsure so callers can fall back to JSON.
  * - Keep the logic compact and additive (new tools add new branches).
  */
-export function tryFormatToolPayload(block: ToolBlock, payload: any): FormattedToolPayload | null {
+export function tryFormatToolPayload(block: ToolBlock, payload: any, opts?: ToolPayloadFormatOptions): FormattedToolPayload | null {
   try {
     // 1) Tool call: show the raw arguments (verbatim string) when available.
     if (block.status === "calling") {
@@ -154,6 +171,71 @@ export function tryFormatToolPayload(block: ToolBlock, payload: any): FormattedT
         stderr: stderr || undefined,
         exitCode: parseExitCode((out as any).exitCode)
       };
+    }
+
+    // 4) Web tool results: show a compact list.
+    const isWebTool = block.name === "web";
+    if (isWebTool && (block.status === "ok" || block.status === "error")) {
+      const out = isRecord(payload) && isRecord(payload.output) ? payload.output : payload;
+      if (!isRecord(out)) return null;
+
+      const ok =
+        typeof (out as any).ok === "boolean"
+          ? Boolean((out as any).ok)
+          : isRecord(payload) && typeof (payload as any).ok === "boolean"
+            ? Boolean((payload as any).ok)
+            : block.status === "ok";
+
+      if (!ok || block.status === "error") {
+        const errObj = isRecord((out as any).error) ? (out as any).error : null;
+        const code = errObj && typeof errObj.code === "string" ? String(errObj.code) : "";
+        const msg = errObj && typeof errObj.message === "string" ? String(errObj.message) : "";
+        const message = msg ? (code ? `[${code}] ${msg}` : msg) : "Web tool failed.";
+        return { kind: "web_error_summary", message };
+      }
+
+      const modeRaw = typeof (out as any).mode === "string" ? String((out as any).mode) : "";
+      const limit =
+        typeof opts?.webResultTruncateChars === "number" && Number.isFinite(opts.webResultTruncateChars)
+          ? Math.max(200, Math.trunc(opts.webResultTruncateChars))
+          : 4000;
+
+      const resultsRaw = Array.isArray((out as any).results) ? ((out as any).results as any[]) : [];
+
+      if (modeRaw === "search") {
+        const results = resultsRaw
+          .map((r) => {
+            if (!isRecord(r)) return null;
+            const url = typeof (r as any).url === "string" ? String((r as any).url) : "";
+            const title = typeof (r as any).title === "string" ? String((r as any).title) : "";
+            const summary = typeof (r as any).summary === "string" ? String((r as any).summary) : "";
+            if (!url && !title) return null;
+            const s = summary && summary.length > limit ? `${summary.slice(0, limit)}…` : summary;
+            return { title: title || url, url, summary: s || undefined };
+          })
+          .filter(Boolean) as Array<{ title: string; url: string; summary?: string }>;
+
+        return { kind: "web_search_results", results };
+      }
+
+      if (modeRaw === "extract" || modeRaw === "crawl") {
+        const results = resultsRaw
+          .map((r) => {
+            if (!isRecord(r)) return null;
+            const url = typeof (r as any).url === "string" ? String((r as any).url) : "";
+            const title = typeof (r as any).title === "string" ? String((r as any).title) : "";
+            const content = typeof (r as any).raw_content === "string" ? String((r as any).raw_content) : "";
+            const wasTruncated = Boolean((r as any).raw_content_truncated);
+            if (!url && !title && !content) return null;
+            const c = content && content.length > limit ? `${content.slice(0, limit)}…` : content;
+            return { title: title || url, url, content: c || undefined, truncated: wasTruncated || content.length > limit };
+          })
+          .filter(Boolean) as Array<{ title: string; url: string; content?: string; truncated?: boolean }>;
+
+        return { kind: "web_content_results", mode: modeRaw as "extract" | "crawl", results };
+      }
+
+      return null;
     }
 
     return null;

@@ -23,6 +23,12 @@ export function parseContextLimit(s: string): number {
   return Math.max(256, Math.min(1_000_000, Math.trunc(n)));
 }
 
+export function parseWebResultTruncateChars(s: string): number {
+  const n = Number(s);
+  if (!Number.isFinite(n)) return 4000;
+  return Math.max(200, Math.min(200_000, Math.trunc(n)));
+}
+
 export function normalizeGuildIds(input: string): string[] {
   const raw = String(input ?? "")
     .split(/[\n\r,\t\s]+/g)
@@ -107,6 +113,22 @@ export function sameCodexOAuthProfiles(draft: SettingsDraft["codexOAuthProfiles"
     if (a.id !== b.id) return false;
     if (a.name.trim() !== b.name) return false;
     if (a.model.trim() !== b.model) return false;
+  }
+  return true;
+}
+
+export function sameWebProfiles(
+  draft: SettingsDraft["webProfiles"],
+  base: Array<{ id: string; name: string; provider: string; projectId: string }>
+): boolean {
+  if (draft.length !== base.length) return false;
+  for (let i = 0; i < draft.length; i++) {
+    const a = draft[i];
+    const b = base[i];
+    if (a.id !== b.id) return false;
+    if (a.name.trim() !== b.name) return false;
+    if (a.provider.trim() !== b.provider) return false;
+    if (a.projectId.trim() !== b.projectId) return false;
   }
   return true;
 }
