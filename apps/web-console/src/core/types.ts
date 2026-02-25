@@ -121,6 +121,30 @@ export type ChatRequest = {
    * Default is 20k tokens (estimator-based).
    */
   contextTokenLimit?: number;
+
+  /**
+   * Optional sampling temperature override.
+   * If omitted, provider defaults apply.
+   */
+  temperature?: number;
+
+  /**
+   * Optional nucleus sampling override (top_p).
+   * If omitted, provider defaults apply.
+   */
+  topP?: number;
+
+  /**
+   * Optional top-k sampling override.
+   * Non-standard in OpenAI, but supported by some OpenAI-compatible providers.
+   */
+  topK?: number;
+
+  /**
+   * Optional output token limit override.
+   * If omitted, provider defaults apply.
+   */
+  maxOutputTokens?: number;
 };
 
 export type ChatEvent =

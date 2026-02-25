@@ -29,6 +29,16 @@ export type SettingsDraft = {
   contextTokenLimit: string;
   contextLimitEnabled: boolean;
 
+  // Inference sampling overrides (runtime; persisted locally).
+  // Empty string => omit from request (use provider defaults).
+  temperature: string;
+  topP: string;
+  topK: string;
+
+  // Output limit override (runtime; persisted locally).
+  // Empty string (or -1) => omit from request (use provider defaults / unlimited).
+  maxOutputTokens: string;
+
   // Web tool: UI-only rendering preference.
   webResultTruncateChars: string; // keep as string for input UX
 

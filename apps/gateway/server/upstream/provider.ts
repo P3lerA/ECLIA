@@ -62,6 +62,14 @@ export interface UpstreamProvider {
     headers: Record<string, string>;
     messages: any[];
     tools: any[];
+    /** Optional sampling temperature override (OpenAI-compatible). */
+    temperature?: number;
+    /** Optional nucleus sampling override (top_p, OpenAI-compatible). */
+    topP?: number;
+    /** Optional top-k sampling override (non-standard). */
+    topK?: number;
+    /** Optional output token limit override (max_tokens/max_output_tokens). */
+    maxOutputTokens?: number;
     signal: AbortSignal;
     onDelta: (text: string) => void;
     debug?: UpstreamRequestDebugCapture;

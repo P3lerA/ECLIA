@@ -184,6 +184,10 @@ function AppInner() {
       model: state.model,
       contextLimitEnabled: state.settings.contextLimitEnabled,
       contextTokenLimit: state.settings.contextTokenLimit,
+      temperature: state.settings.temperature ?? undefined,
+      topP: state.settings.topP ?? undefined,
+      topK: state.settings.topK ?? undefined,
+      maxOutputTokens: state.settings.maxOutputTokens ?? undefined,
       toolAccessMode: state.settings.toolAccessMode,
       enabledTools: state.settings.enabledTools
     });
@@ -195,6 +199,10 @@ function AppInner() {
     state.settings.webResultTruncateChars,
     state.settings.contextLimitEnabled,
     state.settings.contextTokenLimit,
+    state.settings.temperature,
+    state.settings.topP,
+    state.settings.topK,
+    state.settings.maxOutputTokens,
     state.settings.toolAccessMode,
     state.settings.enabledTools,
     state.transport,

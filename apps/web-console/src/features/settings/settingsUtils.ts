@@ -29,6 +29,84 @@ export function parseWebResultTruncateChars(s: string): number {
   return Math.max(200, Math.min(200_000, Math.trunc(n)));
 }
 
+function clampFloat(n: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, n));
+}
+
+/**
+ * Parse optional temperature input.
+ *
+ * - Empty string => null (omit from request; provider default)
+ * - Otherwise => clamp to [0, 2] and round to 3 decimals
+ */
+export function parseTemperature(s: string): number | null {
+  const raw = String(s ?? "").trim();
+  if (!raw) return null;
+
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+
+  const v = clampFloat(n, 0, 2);
+  return Math.round(v * 1000) / 1000;
+}
+
+/**
+ * Parse optional top_p input.
+ *
+ * - Empty string => null (omit from request; provider default)
+ * - Otherwise => clamp to [0, 1] and round to 3 decimals
+ */
+export function parseTopP(s: string): number | null {
+  const raw = String(s ?? "").trim();
+  if (!raw) return null;
+
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+
+  const v = clampFloat(n, 0, 1);
+  return Math.round(v * 1000) / 1000;
+}
+
+/**
+ * Parse optional top_k input.
+ *
+ * - Empty string => null (omit from request; provider default)
+ * - Otherwise => clamp to [1, 1000]
+ */
+export function parseTopK(s: string): number | null {
+  const raw = String(s ?? "").trim();
+  if (!raw) return null;
+
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+
+  const i = Math.trunc(n);
+  if (i < 1) return 1;
+  if (i > 1000) return 1000;
+  return i;
+}
+
+/**
+ * Parse optional max output tokens.
+ *
+ * - Empty string => null (omit from request; provider default)
+ * - -1 / 0 / any non-positive number => null (treat as "unlimited")
+ * - Otherwise => clamp to [1, 200000]
+ */
+export function parseMaxOutputTokens(s: string): number | null {
+  const raw = String(s ?? "").trim();
+  if (!raw) return null;
+
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+
+  const i = Math.trunc(n);
+  // Convention: -1 means "unlimited".
+  if (i <= 0) return null;
+  if (i > 200000) return 200000;
+  return i;
+}
+
 export function normalizeGuildIds(input: string): string[] {
   const raw = String(input ?? "")
     .split(/[\n\r,\t\s]+/g)

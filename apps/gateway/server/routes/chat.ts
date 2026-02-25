@@ -19,6 +19,7 @@ import type { ToolCall } from "../upstream/provider.js";
 import { json, readJson, safeInt } from "../httpUtils.js";
 import { composeSystemInstruction } from "../instructions/systemInstruction.js";
 import { buildSkillsInstructionPart } from "../instructions/skillsInstruction.js";
+import { readGitInfo } from "../gitInfo.js";
 
 import { appendSessionWarning } from "../debug/warnings.js";
 import { parseAssistantToolCallsFromText } from "../tools/assistantOutputParse.js";
@@ -42,6 +43,38 @@ type ChatReqBody = {
    * Token counting is vendor-specific; we use a conservative estimator.
    */
   contextTokenLimit?: number;
+
+  /**
+   * Optional sampling temperature override.
+   * If omitted/null, provider defaults apply.
+   */
+  temperature?: number;
+
+  /**
+   * Optional nucleus sampling override (top_p).
+   * If omitted/null, provider defaults apply.
+   */
+  topP?: number;
+
+  /**
+   * Optional top-k sampling override.
+   * Non-standard in OpenAI, but supported by some OpenAI-compatible providers.
+   */
+  topK?: number;
+
+  /**
+   * Optional output token limit override.
+   *
+   * Note: upstream APIs vary between `max_tokens` and `max_output_tokens`.
+   * The gateway normalizes this to a single field and the provider adapter
+   * translates it as needed.
+   */
+  maxOutputTokens?: number;
+
+  /**
+   * Alias for maxOutputTokens (compat).
+   */
+  maxTokens?: number;
 
   /**
    * Tool access mode (client preference).
@@ -81,6 +114,37 @@ type Toolhost = {
   toolsForModel: any[];
   nameToMcpTool: (name: string) => string;
 };
+
+function clampOptionalNumber(v: unknown, min: number, max: number): number | null {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return null;
+  const clamped = Math.max(min, Math.min(max, n));
+  return Math.round(clamped * 1000) / 1000;
+}
+
+function clampOptionalInt(v: unknown, min: number, max: number): number | null {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return null;
+  const i = Math.trunc(n);
+  return Math.max(min, Math.min(max, i));
+}
+
+/**
+ * Clamp an optional int, but treat non-positive values (0, -1, ...) as "unset".
+ *
+ * This is primarily used for max output tokens where -1 is commonly used as
+ * a sentinel for "unlimited".
+ */
+function clampOptionalPositiveInt(v: unknown, min: number, max: number): number | null {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return null;
+  const i = Math.trunc(n);
+  if (i <= 0) return null;
+  return Math.max(min, Math.min(max, i));
+}
 
 function isToolCall(v: unknown): v is ToolCall {
   return (
@@ -158,6 +222,9 @@ export async function handleChat(
   const routeModel = String(body.model ?? "").trim();
   const userText = String(body.userText ?? "");
 
+  // Correlation id for this logical user turn (persisted in transcript turn metadata).
+  const turnId = crypto.randomUUID();
+
   if (!sessionId) {
     return json(res, 400, { ok: false, error: "missing_session", hint: "sessionId is required" });
   }
@@ -197,6 +264,9 @@ export async function handleChat(
     if ((req as any).aborted || (req.socket as any)?.destroyed || res.writableEnded) return;
 
     const { config, raw, rootDir } = loadEcliaConfig(process.cwd());
+
+    // Best-effort provenance snapshot (commit/branch/dirty).
+    const git = readGitInfo(rootDir);
 
     // Global system instruction (from TOML). Injected as the ONLY role=system message for all providers.
     const { text: systemInstruction } = composeSystemInstruction([
@@ -275,6 +345,36 @@ export async function handleChat(
 
     const tokenLimit = safeInt(body.contextTokenLimit, 20000);
 
+    const temperature = clampOptionalNumber(body.temperature, 0, 2);
+    const topP = clampOptionalNumber(body.topP, 0, 1);
+    const topK = clampOptionalInt(body.topK, 1, 1000);
+    const maxOutputTokens = clampOptionalPositiveInt(body.maxOutputTokens ?? body.maxTokens, 1, 200_000);
+
+    const runtimeForTurn = {
+      temperature,
+      topP,
+      topK,
+      // -1 means "unlimited / omitted".
+      maxOutputTokens: maxOutputTokens ?? -1
+    };
+
+    const buildTurnMeta = (args: { usedTokens: number; upstreamModel?: string; upstreamBaseUrl?: string }) => {
+      const baseUrl = String(args.upstreamBaseUrl ?? "");
+      return {
+        turnId,
+        tokenLimit,
+        usedTokens: args.usedTokens,
+        upstream: {
+          routeKey: routeModel,
+          model: String(args.upstreamModel ?? routeModel),
+          baseUrl
+        },
+        git,
+        runtime: runtimeForTurn,
+        toolAccessMode
+      };
+    };
+
     // Resolve upstream backend (provider + credentials).
     let backend: ReturnType<typeof resolveUpstreamBackend>;
     try {
@@ -285,7 +385,7 @@ export async function handleChat(
 
       const msg = String(e?.message ?? e);
       await persistAssistantError({ store, sessionId, message: msg });
-      await store.appendTurn(sessionId, { tokenLimit, usedTokens: 0 }, Date.now());
+      await store.appendTurn(sessionId, buildTurnMeta({ usedTokens: 0 }), Date.now());
       await store.updateMeta(sessionId, { ...metaPatch, updatedAt: Date.now(), lastModel: routeModel });
 
       send(res, "error", { message: msg });
@@ -305,7 +405,15 @@ export async function handleChat(
 
       const msg = String(e?.message ?? e);
       await persistAssistantError({ store, sessionId, message: msg });
-      await store.appendTurn(sessionId, { tokenLimit, usedTokens: 0 }, Date.now());
+      await store.appendTurn(
+        sessionId,
+        buildTurnMeta({
+          usedTokens: 0,
+          upstreamModel: backend.upstreamModel,
+          upstreamBaseUrl: backend.provider.origin.baseUrl ?? backend.provider.origin.adapter
+        }),
+        Date.now()
+      );
       await store.updateMeta(sessionId, { ...metaPatch, updatedAt: Date.now(), lastModel: routeModel || backend.upstreamModel });
 
       send(res, "error", { message: msg });
@@ -365,6 +473,10 @@ export async function handleChat(
           messages: upstreamMessages,
           signal: upstreamAbort.signal,
           tools: toolsForModelEffective,
+          temperature: temperature ?? undefined,
+          topP: topP ?? undefined,
+          topK: topK ?? undefined,
+          maxOutputTokens: maxOutputTokens ?? undefined,
           onDelta: (text) => {
             if (streamMode === "full") send(res, "delta", { text });
           },
@@ -470,7 +582,15 @@ export async function handleChat(
       }
 
       // Mark end of a logical user-turn (even if it involved tool loops).
-      await store.appendTurn(sessionId, { tokenLimit, usedTokens }, Date.now());
+      await store.appendTurn(
+        sessionId,
+        buildTurnMeta({
+          usedTokens,
+          upstreamModel: backend.upstreamModel,
+          upstreamBaseUrl: backend.provider.origin.baseUrl ?? backend.provider.origin.adapter
+        }),
+        Date.now()
+      );
 
       await store.updateMeta(sessionId, {
         ...metaPatch,
@@ -500,7 +620,15 @@ export async function handleChat(
       await persistAssistantError({ store, sessionId, message: msg });
 
       // Still close the turn so UI can collapse it.
-      await store.appendTurn(sessionId, { tokenLimit, usedTokens }, Date.now());
+      await store.appendTurn(
+        sessionId,
+        buildTurnMeta({
+          usedTokens,
+          upstreamModel: backend.upstreamModel,
+          upstreamBaseUrl: backend.provider.origin.baseUrl ?? backend.provider.origin.adapter
+        }),
+        Date.now()
+      );
       await store.updateMeta(sessionId, { ...metaPatch, updatedAt: Date.now(), lastModel: routeModel || backend.upstreamModel });
 
       if (!res.writableEnded) {

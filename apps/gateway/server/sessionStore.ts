@@ -260,14 +260,74 @@ export class SessionStore {
 
   async appendTurn(sessionId: string, turn: TranscriptTurnV1, ts?: number): Promise<void> {
     await this.ensureSession(sessionId);
+
+    const id = crypto.randomUUID();
+    const now = typeof ts === "number" && Number.isFinite(ts) ? ts : Date.now();
+
+    const tokenLimit = typeof (turn as any)?.tokenLimit === "number" ? (turn as any).tokenLimit : 0;
+    const usedTokens = typeof (turn as any)?.usedTokens === "number" ? (turn as any).usedTokens : 0;
+
+    const turnIdRaw = (turn as any)?.turnId;
+    const turnId = typeof turnIdRaw === "string" && turnIdRaw.trim() ? turnIdRaw.trim() : id;
+
+    const toolAccessModeRaw = (turn as any)?.toolAccessMode;
+    const toolAccessMode: "full" | "safe" | undefined = toolAccessModeRaw === "safe" ? "safe" : toolAccessModeRaw === "full" ? "full" : undefined;
+
+    let upstream: TranscriptTurnV1["upstream"] | undefined;
+    const upstreamIn = (turn as any)?.upstream;
+    if (upstreamIn && typeof upstreamIn === "object") {
+      const routeKey = typeof (upstreamIn as any).routeKey === "string" ? String((upstreamIn as any).routeKey) : "";
+      const model = typeof (upstreamIn as any).model === "string" ? String((upstreamIn as any).model) : "";
+      const baseUrl = typeof (upstreamIn as any).baseUrl === "string" ? String((upstreamIn as any).baseUrl) : "";
+      if (routeKey || model || baseUrl) upstream = { routeKey, model, baseUrl };
+    }
+
+    let git: TranscriptTurnV1["git"] | undefined;
+    const gitIn = (turn as any)?.git;
+    if (gitIn && typeof gitIn === "object") {
+      const commit = typeof (gitIn as any).commit === "string" ? String((gitIn as any).commit).trim() || null : null;
+      const branch = typeof (gitIn as any).branch === "string" ? String((gitIn as any).branch).trim() || null : null;
+      const dirty = typeof (gitIn as any).dirty === "boolean" ? Boolean((gitIn as any).dirty) : null;
+      git = { commit, branch, dirty };
+    }
+
+    let runtime: TranscriptTurnV1["runtime"] | undefined;
+    const runtimeIn = (turn as any)?.runtime;
+    if (runtimeIn && typeof runtimeIn === "object") {
+      const temperature =
+        typeof (runtimeIn as any).temperature === "number" && Number.isFinite((runtimeIn as any).temperature)
+          ? (runtimeIn as any).temperature
+          : null;
+      const topP =
+        typeof (runtimeIn as any).topP === "number" && Number.isFinite((runtimeIn as any).topP)
+          ? (runtimeIn as any).topP
+          : null;
+      const topK =
+        typeof (runtimeIn as any).topK === "number" && Number.isFinite((runtimeIn as any).topK)
+          ? (runtimeIn as any).topK
+          : null;
+
+      // -1 means "unlimited / omitted".
+      const maxRaw = (runtimeIn as any).maxOutputTokens;
+      const maxOutputTokens =
+        typeof maxRaw === "number" && Number.isFinite(maxRaw) ? Math.trunc(maxRaw) : -1;
+
+      runtime = { temperature, topP, topK, maxOutputTokens };
+    }
+
     const rec: TranscriptRecordV1 = {
       v: 1,
-      id: crypto.randomUUID(),
-      ts: typeof ts === "number" && Number.isFinite(ts) ? ts : Date.now(),
+      id,
+      ts: now,
       type: "turn",
       turn: {
-        tokenLimit: typeof (turn as any)?.tokenLimit === "number" ? (turn as any).tokenLimit : 0,
-        usedTokens: typeof (turn as any)?.usedTokens === "number" ? (turn as any).usedTokens : 0
+        turnId,
+        tokenLimit,
+        usedTokens,
+        ...(upstream ? { upstream } : {}),
+        ...(git ? { git } : {}),
+        ...(runtime ? { runtime } : {}),
+        ...(toolAccessMode ? { toolAccessMode } : {})
       }
     };
     await fsp.appendFile(this.transcriptPath(sessionId), JSON.stringify(rec) + "\n", "utf-8");

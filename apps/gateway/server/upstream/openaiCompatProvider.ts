@@ -30,12 +30,16 @@ export function createOpenAICompatProvider(args: {
       return buildTruncatedContext(history, tokenLimit);
     },
 
-    async streamTurn({ headers, messages, tools, signal, onDelta, debug }) {
+    async streamTurn({ headers, messages, tools, temperature, topP, topK, maxOutputTokens, signal, onDelta, debug }) {
       return await streamOpenAICompatTurn({
         url,
         headers,
         model: upstreamModel,
         messages,
+        temperature,
+        topP,
+        topK,
+        maxOutputTokens,
         signal,
         tools,
         onDelta,

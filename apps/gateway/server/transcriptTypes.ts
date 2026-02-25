@@ -55,8 +55,40 @@ export type OpenAICompatMessage =
  * - UI projection ("show work process" vs "final only")
  */
 export type TranscriptTurnV1 = {
+  /** Stable id for this logical user-turn (useful for correlation/debugging). */
+  turnId?: string;
+
   tokenLimit: number;
   usedTokens: number;
+
+  /** Resolved upstream (best-effort). */
+  upstream?: {
+    /** UI route key (may be a profile route like `openai-compatible:<id>`). */
+    routeKey: string;
+    /** Resolved upstream model id (e.g. `gpt-4o-mini`). */
+    model: string;
+    /** Provider base URL. For non-HTTP providers, may be a sentinel like `codex_app_server`. */
+    baseUrl: string;
+  };
+
+  /** Local git metadata snapshot (best-effort; null when unavailable). */
+  git?: {
+    commit: string | null;
+    branch: string | null;
+    dirty: boolean | null;
+  };
+
+  /** Per-request runtime sampling overrides (as provided by the client). */
+  runtime?: {
+    temperature: number | null;
+    topP: number | null;
+    topK: number | null;
+    /** -1 means "unlimited / omitted" (provider default). */
+    maxOutputTokens: number;
+  };
+
+  /** Redundant tool access mode snapshot (useful for debugging). */
+  toolAccessMode?: "full" | "safe";
 };
 
 export type TranscriptRecordV1 =

@@ -12,6 +12,10 @@ import {
   normalizeActiveModel,
   normalizeGuildIds,
   parseContextLimit,
+  parseMaxOutputTokens,
+  parseTemperature,
+  parseTopK,
+  parseTopP,
   parseWebResultTruncateChars,
   portNumber,
   sameCodexOAuthProfiles,
@@ -92,6 +96,11 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         contextTokenLimit: String(state.settings.contextTokenLimit ?? 20000),
         contextLimitEnabled: Boolean(state.settings.contextLimitEnabled ?? true),
 
+        temperature: state.settings.temperature == null ? "" : String(state.settings.temperature),
+        topP: state.settings.topP == null ? "" : String(state.settings.topP),
+        topK: state.settings.topK == null ? "" : String(state.settings.topK),
+        maxOutputTokens: state.settings.maxOutputTokens == null ? "-1" : String(state.settings.maxOutputTokens),
+
         webResultTruncateChars: String(state.settings.webResultTruncateChars ?? 4000),
 
         consoleHost: cfgBase?.host ?? prev?.consoleHost ?? "",
@@ -146,6 +155,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       state.settings.enabledTools,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
+      state.settings.temperature,
+      state.settings.topP,
+      state.settings.topK,
+      state.settings.maxOutputTokens,
       state.settings.webResultTruncateChars,
       state.transport,
       state.model,
@@ -166,6 +179,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         d.model !== effectiveStateModel ||
         d.contextLimitEnabled !== state.settings.contextLimitEnabled ||
         parseContextLimit(d.contextTokenLimit) !== state.settings.contextTokenLimit ||
+        parseTemperature(d.temperature) !== state.settings.temperature ||
+        parseTopP(d.topP) !== state.settings.topP ||
+        parseTopK(d.topK) !== state.settings.topK ||
+        parseMaxOutputTokens(d.maxOutputTokens) !== state.settings.maxOutputTokens ||
         parseWebResultTruncateChars(d.webResultTruncateChars) !== state.settings.webResultTruncateChars;
 
       const dirtyDevHostPort = cfgBase
@@ -222,6 +239,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       state.settings.enabledTools,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
+      state.settings.temperature,
+      state.settings.topP,
+      state.settings.topK,
+      state.settings.maxOutputTokens,
       state.settings.webResultTruncateChars,
       state.transport,
       state.model,
@@ -239,6 +260,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       state.settings.enabledTools,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
+      state.settings.temperature,
+      state.settings.topP,
+      state.settings.topK,
+      state.settings.maxOutputTokens,
       state.settings.webResultTruncateChars,
       state.transport,
       state.model,
@@ -419,6 +444,26 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       const nextLimit = parseContextLimit(draft.contextTokenLimit);
       if (nextLimit !== state.settings.contextTokenLimit) {
         dispatch({ type: "settings/contextTokenLimit", value: nextLimit });
+      }
+
+      const nextTemp = parseTemperature(draft.temperature);
+      if (nextTemp !== state.settings.temperature) {
+        dispatch({ type: "settings/temperature", value: nextTemp });
+      }
+
+      const nextTopP = parseTopP(draft.topP);
+      if (nextTopP !== state.settings.topP) {
+        dispatch({ type: "settings/topP", value: nextTopP });
+      }
+
+      const nextTopK = parseTopK(draft.topK);
+      if (nextTopK !== state.settings.topK) {
+        dispatch({ type: "settings/topK", value: nextTopK });
+      }
+
+      const nextMaxOut = parseMaxOutputTokens(draft.maxOutputTokens);
+      if (nextMaxOut !== state.settings.maxOutputTokens) {
+        dispatch({ type: "settings/maxOutputTokens", value: nextMaxOut });
       }
 
       const nextWebTruncate = parseWebResultTruncateChars(draft.webResultTruncateChars);

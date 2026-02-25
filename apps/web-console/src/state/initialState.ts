@@ -42,6 +42,15 @@ export function makeInitialState(): AppState {
       sessionSyncEnabled: typeof prefs.sessionSyncEnabled === "boolean" ? prefs.sessionSyncEnabled : true,
       contextLimitEnabled: typeof prefs.contextLimitEnabled === "boolean" ? prefs.contextLimitEnabled : true,
       contextTokenLimit: typeof prefs.contextTokenLimit === "number" ? prefs.contextTokenLimit : 20000,
+      temperature: typeof prefs.temperature === "number" && Number.isFinite(prefs.temperature) ? Math.max(0, Math.min(2, prefs.temperature)) : null,
+      topP: typeof prefs.topP === "number" && Number.isFinite(prefs.topP) ? Math.max(0, Math.min(1, prefs.topP)) : null,
+      topK: typeof prefs.topK === "number" && Number.isFinite(prefs.topK) ? Math.max(1, Math.min(1000, Math.trunc(prefs.topK))) : null,
+      maxOutputTokens:
+        typeof prefs.maxOutputTokens === "number" && Number.isFinite(prefs.maxOutputTokens)
+          ? Math.trunc(prefs.maxOutputTokens) <= 0
+            ? null
+            : Math.max(1, Math.min(200_000, Math.trunc(prefs.maxOutputTokens)))
+          : null,
       toolAccessMode: prefs.toolAccessMode === "safe" ? "safe" : "full",
       enabledTools:
         prefs.enabledTools === undefined ? defaultEnabledToolNames() : normalizeEnabledToolNames(prefs.enabledTools),

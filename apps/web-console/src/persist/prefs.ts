@@ -36,6 +36,31 @@ export type StoredPrefsV1 = {
    */
   contextTokenLimit?: number;
 
+
+  /**
+   * Sampling temperature override.
+   * If omitted, the request does not send an override (provider default).
+   */
+  temperature?: number;
+
+  /**
+   * Nucleus sampling override (top_p).
+   * If omitted, the request does not send an override (provider default).
+   */
+  topP?: number;
+
+  /**
+   * Top-k sampling override.
+   * Non-standard in OpenAI, but supported by some OpenAI-compatible providers.
+   */
+  topK?: number;
+
+  /**
+   * Output token limit override.
+   * If omitted, the request does not send an override (provider default).
+   */
+  maxOutputTokens?: number;
+
   /**
    * Tool execution access mode (per UI, persisted locally).
    * - full: allow the gateway to execute tools automatically.
@@ -106,6 +131,27 @@ export function readStoredPrefs(): StoredPrefsV1 {
 
     if (typeof (parsed as any).contextTokenLimit === "number" && Number.isFinite((parsed as any).contextTokenLimit)) {
       out.contextTokenLimit = Math.trunc((parsed as any).contextTokenLimit);
+    }
+
+
+    if (typeof (parsed as any).temperature === "number" && Number.isFinite((parsed as any).temperature)) {
+      // Clamp to a typical OpenAI-compatible range.
+      out.temperature = Math.max(0, Math.min(2, (parsed as any).temperature));
+    }
+
+    if (typeof (parsed as any).topP === "number" && Number.isFinite((parsed as any).topP)) {
+      // Clamp to a typical OpenAI-compatible range.
+      out.topP = Math.max(0, Math.min(1, (parsed as any).topP));
+    }
+
+    if (typeof (parsed as any).topK === "number" && Number.isFinite((parsed as any).topK)) {
+      out.topK = Math.max(1, Math.min(1000, Math.trunc((parsed as any).topK)));
+    }
+
+    if (typeof (parsed as any).maxOutputTokens === "number" && Number.isFinite((parsed as any).maxOutputTokens)) {
+      const i = Math.trunc((parsed as any).maxOutputTokens);
+      // Convention: -1/0 means "unlimited" (omit).
+      if (i > 0) out.maxOutputTokens = Math.max(1, Math.min(200_000, i));
     }
 
     if ((parsed as any).toolAccessMode === "safe" || (parsed as any).toolAccessMode === "full") {

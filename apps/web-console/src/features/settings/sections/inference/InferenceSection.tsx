@@ -143,6 +143,70 @@ export function InferenceSection(props: InferenceSectionProps) {
             </select>
           </label>
 
+          <label className="field">
+            <div className="field-label">Temperature</div>
+            <input
+              className="select"
+              inputMode="decimal"
+              type="number"
+              min={0}
+              max={2}
+              step={0.1}
+              value={draft.temperature}
+              onChange={(e) => setDraft((d) => ({ ...d, temperature: e.target.value }))}
+              placeholder="default"
+            />
+            <div className="field-sub muted">Blank = provider default.</div>
+          </label>
+
+          <label className="field">
+            <div className="field-label">Top P</div>
+            <input
+              className="select"
+              inputMode="decimal"
+              type="number"
+              min={0}
+              max={1}
+              step={0.05}
+              value={draft.topP}
+              onChange={(e) => setDraft((d) => ({ ...d, topP: e.target.value }))}
+              placeholder="default"
+            />
+            <div className="field-sub muted">Blank = provider default.</div>
+          </label>
+
+          <label className="field">
+            <div className="field-label">Top K</div>
+            <input
+              className="select"
+              inputMode="numeric"
+              type="number"
+              min={1}
+              max={1000}
+              step={1}
+              value={draft.topK}
+              onChange={(e) => setDraft((d) => ({ ...d, topK: e.target.value }))}
+              placeholder="default"
+            />
+            <div className="field-sub muted">Blank = provider default. Sent only when supported.</div>
+          </label>
+
+          <label className="field">
+            <div className="field-label">Max output tokens</div>
+            <input
+              className="select"
+              inputMode="numeric"
+              type="number"
+              min={-1}
+              max={200000}
+              step={64}
+              value={draft.maxOutputTokens}
+              onChange={(e) => setDraft((d) => ({ ...d, maxOutputTokens: e.target.value }))}
+              placeholder="-1"
+            />
+            <div className="field-sub muted">-1 (or blank) = unlimited (omit from request).</div>
+          </label>
+
           <div className="field" style={{ gridColumn: "1 / -1" }}>
             <div className="field-label">Context limit (tokens)</div>
 

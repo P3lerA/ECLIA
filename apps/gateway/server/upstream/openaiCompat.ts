@@ -135,10 +135,70 @@ export async function streamOpenAICompatTurn(args: {
   messages: any[];
   signal: AbortSignal;
   tools: any[];
+  /** Optional sampling temperature override. */
+  temperature?: number;
+  /** Optional nucleus sampling override (top_p). */
+  topP?: number;
+  /** Optional top-k sampling override (non-standard). */
+  topK?: number;
+  /** Optional output token limit override (max_tokens/max_output_tokens). */
+  maxOutputTokens?: number;
   onDelta: (text: string) => void;
   debug?: UpstreamRequestDebugCapture;
 }): Promise<UpstreamTurnResult> {
   let upstream: Response;
+
+  function urlHost(url: string): string {
+    try {
+      return new URL(url).hostname.toLowerCase();
+    } catch {
+      return "";
+    }
+  }
+
+  function isLikelyStrictOpenAIHost(host: string): boolean {
+    // OpenAI Chat Completions does not accept many vendor extensions (e.g. top_k).
+    // Azure OpenAI typically follows the same schema.
+    return host === "api.openai.com" || host.endsWith(".openai.azure.com");
+  }
+
+  function extractUpstreamErrorText(raw: string): string {
+    const t = String(raw ?? "").trim();
+    if (!t) return "";
+    try {
+      const j = JSON.parse(t);
+      const msg = j?.error?.message ?? j?.message;
+      if (typeof msg === "string" && msg.trim()) return msg.trim();
+    } catch {
+      // ignore
+    }
+    return t;
+  }
+
+  async function postJson(body: any): Promise<Response> {
+    if (args.debug) {
+      dumpUpstreamRequestBody({
+        rootDir: args.debug.rootDir,
+        sessionId: args.debug.sessionId,
+        seq: args.debug.seq,
+        providerKind: "openai_compat",
+        upstreamModel: args.model,
+        url: args.url,
+        body
+      });
+    }
+
+    return await fetch(args.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        ...args.headers
+      },
+      body: JSON.stringify(body),
+      signal: args.signal
+    });
+  }
 
   const requestBody: any = {
     model: args.model,
@@ -153,34 +213,92 @@ export async function streamOpenAICompatTurn(args: {
     requestBody.tools = args.tools;
   }
 
-  if (args.debug) {
-    dumpUpstreamRequestBody({
-      rootDir: args.debug.rootDir,
-      sessionId: args.debug.sessionId,
-      seq: args.debug.seq,
-      providerKind: "openai_compat",
-      upstreamModel: args.model,
-      url: args.url,
-      body: requestBody
-    });
+  if (typeof args.temperature === "number" && Number.isFinite(args.temperature)) {
+    requestBody.temperature = Math.max(0, Math.min(2, args.temperature));
   }
 
-  upstream = await fetch(args.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "text/event-stream",
-      ...args.headers
-    },
-    body: JSON.stringify(requestBody),
-    signal: args.signal
-  });
+  if (typeof args.topP === "number" && Number.isFinite(args.topP)) {
+    requestBody.top_p = Math.max(0, Math.min(1, args.topP));
+  }
+
+  // Output cap: OpenAI-compatible Chat Completions uses `max_tokens`.
+  // Some providers instead accept `max_output_tokens`. We default to `max_tokens` and
+  // fall back on schema errors.
+  let maxOut: number | null = null;
+  if (typeof args.maxOutputTokens === "number" && Number.isFinite(args.maxOutputTokens)) {
+    const i = Math.trunc(args.maxOutputTokens);
+    // Allow -1/0 as a sentinel meaning "unlimited" (omit from request).
+    if (i > 0) maxOut = Math.max(1, Math.min(200_000, i));
+  }
+  if (maxOut !== null) requestBody.max_tokens = maxOut;
+
+  // Non-standard: top_k.
+  // We avoid sending this to known-strict OpenAI/Azure hosts.
+  const topK =
+    typeof args.topK === "number" && Number.isFinite(args.topK)
+      ? Math.max(1, Math.min(1000, Math.trunc(args.topK)))
+      : null;
+  const host = urlHost(args.url);
+  const allowTopK = topK !== null && !isLikelyStrictOpenAIHost(host);
+  if (allowTopK) requestBody.top_k = topK;
+
+  // Attempt request (+ controlled fallbacks for non-standard fields).
+  upstream = await postJson(requestBody);
 
   if (!upstream.ok || !upstream.body) {
     const text = await upstream.text().catch(() => "");
-    throw new Error(
-      `Upstream error: ${upstream.status} ${upstream.statusText}${text ? ` — ${text.slice(0, 200)}` : ""}`
-    );
+    const msg = extractUpstreamErrorText(text);
+
+    const candidates: any[] = [];
+
+    // Fallback 1: some providers reject `max_tokens` but accept `max_output_tokens`.
+    if (maxOut !== null && Object.prototype.hasOwnProperty.call(requestBody, "max_tokens") && /max_tokens/i.test(msg)) {
+      const swapped = { ...requestBody };
+      delete swapped.max_tokens;
+      swapped.max_output_tokens = maxOut;
+      candidates.push(swapped);
+    }
+
+    // Fallback 2: some providers reject vendor extensions like `top_k`.
+    if (Object.prototype.hasOwnProperty.call(requestBody, "top_k")) {
+      // If we have a clear hint, or the error message is empty/generic, try dropping it once.
+      if (!msg || /top_k|unknown|unrecognized|unexpected|not supported/i.test(msg) || upstream.status === 400) {
+        const dropped = { ...requestBody };
+        delete dropped.top_k;
+        candidates.push(dropped);
+      }
+    }
+
+    // Fallback 3: combined fallback (swap + drop) if both were set.
+    if (maxOut !== null && Object.prototype.hasOwnProperty.call(requestBody, "top_k")) {
+      const combo = { ...requestBody };
+      delete combo.top_k;
+      if (Object.prototype.hasOwnProperty.call(combo, "max_tokens")) {
+        delete combo.max_tokens;
+        combo.max_output_tokens = maxOut;
+      }
+      // Avoid duplicates.
+      if (candidates.length) {
+        const last = candidates[candidates.length - 1];
+        if (JSON.stringify(last) !== JSON.stringify(combo)) candidates.push(combo);
+      } else {
+        candidates.push(combo);
+      }
+    }
+
+    for (const body of candidates) {
+      upstream = await postJson(body);
+      if (upstream.ok && upstream.body) break;
+    }
+
+    if (!upstream.ok || !upstream.body) {
+      const text2 = await upstream.text().catch(() => "");
+      const msg2 = extractUpstreamErrorText(text2);
+      const detail = msg2 || msg;
+      throw new Error(
+        `Upstream error: ${upstream.status} ${upstream.statusText}${detail ? ` — ${detail.slice(0, 200)}` : ""}`
+      );
+    }
   }
 
   const reader = upstream.body.getReader();

@@ -85,10 +85,20 @@ type OpenAICompatMessage =
   | { role: "assistant"; content: any; tool_calls?: OpenAICompatToolCall[] }
   | { role: "tool"; tool_call_id: string; content: any };
 
+type TranscriptTurn = {
+  turnId?: string;
+  tokenLimit: number;
+  usedTokens: number;
+  upstream?: { routeKey: string; model: string; baseUrl: string };
+  git?: { commit: string | null; branch: string | null; dirty: boolean | null };
+  runtime?: { temperature: number | null; topP: number | null; topK: number | null; maxOutputTokens: number };
+  toolAccessMode?: "full" | "safe";
+};
+
 type TranscriptRecord =
   | { v: 1; id: string; ts: number; type: "msg"; msg: OpenAICompatMessage }
   | { v: 1; id: string; ts: number; type: "reset" }
-  | { v: 1; id: string; ts: number; type: "turn"; turn: { tokenLimit: number; usedTokens: number } };
+  | { v: 1; id: string; ts: number; type: "turn"; turn: TranscriptTurn };
 
 function transcriptToMessages(records: TranscriptRecord[]): Message[] {
   const out: Message[] = [];

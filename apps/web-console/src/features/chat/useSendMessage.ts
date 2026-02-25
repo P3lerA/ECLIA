@@ -172,7 +172,11 @@ export function useSendMessage() {
             userText: trimmed,
             toolAccessMode: state.settings.toolAccessMode,
             enabledTools: state.settings.enabledTools,
-            contextTokenLimit: effectiveContextBudget
+            contextTokenLimit: effectiveContextBudget,
+            temperature: state.settings.temperature ?? undefined,
+            topP: state.settings.topP ?? undefined,
+            topK: state.settings.topK ?? undefined,
+            maxOutputTokens: state.settings.maxOutputTokens ?? undefined
           },
           { onEvent },
           abort.signal
@@ -211,6 +215,8 @@ export function useSendMessage() {
       state.settings.sessionSyncEnabled,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
+      state.settings.temperature,
+      state.settings.topP,
       state.settings.toolAccessMode,
       state.settings.enabledTools,
       location.pathname,

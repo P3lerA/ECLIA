@@ -23,6 +23,30 @@ export type AppSettings = {
   contextTokenLimit: number;
 
   /**
+   * Optional sampling temperature override.
+   * When null, the UI omits the field so the provider default applies.
+   */
+  temperature: number | null;
+
+  /**
+   * Optional nucleus sampling override (top_p).
+   * When null, the UI omits the field so the provider default applies.
+   */
+  topP: number | null;
+
+  /**
+   * Optional top_k override (non-standard in OpenAI; supported by some OpenAI-compatible providers).
+   * When null, the UI omits the field.
+   */
+  topK: number | null;
+
+  /**
+   * Optional output token limit override.
+   * When null, the UI omits the field so the provider default applies.
+   */
+  maxOutputTokens: number | null;
+
+  /**
    * Tool access mode for potentially dangerous tools (starting with exec).
    * - full: allow the gateway to execute automatically.
    * - safe: only auto-run allowlisted commands, otherwise require approval.
@@ -99,6 +123,10 @@ export type Action =
   | { type: "settings/sessionSyncEnabled"; enabled: boolean }
   | { type: "settings/contextLimitEnabled"; enabled: boolean }
   | { type: "settings/contextTokenLimit"; value: number }
+  | { type: "settings/temperature"; value: number | null }
+  | { type: "settings/topP"; value: number | null }
+  | { type: "settings/topK"; value: number | null }
+  | { type: "settings/maxOutputTokens"; value: number | null }
   | { type: "settings/toolAccessMode"; mode: "full" | "safe" }
   | { type: "settings/enabledTools"; enabledTools: ToolName[] }
   | { type: "settings/displayPlainOutput"; enabled: boolean }
@@ -200,6 +228,30 @@ export function reducer(state: AppState, action: Action): AppState {
       const v = clampInt(action.value, 256, 1_000_000);
       if (state.settings.contextTokenLimit === v) return state;
       return { ...state, settings: { ...state.settings, contextTokenLimit: v } };
+    }
+
+    case "settings/temperature": {
+      const v = clampFloatOrNull(action.value, 0, 2);
+      if (state.settings.temperature === v) return state;
+      return { ...state, settings: { ...state.settings, temperature: v } };
+    }
+
+    case "settings/topP": {
+      const v = clampFloatOrNull(action.value, 0, 1);
+      if (state.settings.topP === v) return state;
+      return { ...state, settings: { ...state.settings, topP: v } };
+    }
+
+    case "settings/topK": {
+      const v = clampIntOrNull(action.value, 1, 1000);
+      if (state.settings.topK === v) return state;
+      return { ...state, settings: { ...state.settings, topK: v } };
+    }
+
+    case "settings/maxOutputTokens": {
+      const v = clampIntOrNull(action.value, 1, 200_000);
+      if (state.settings.maxOutputTokens === v) return state;
+      return { ...state, settings: { ...state.settings, maxOutputTokens: v } };
     }
 
     case "settings/toolAccessMode":
@@ -478,6 +530,22 @@ function findLastStreamingAssistantIndex(list: Message[]): number {
     if (list[i].role === "assistant" && list[i].streaming) return i;
   }
   return -1;
+}
+
+function clampFloatOrNull(v: unknown, min: number, max: number): number | null {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === "number" ? v : NaN;
+  if (!Number.isFinite(n)) return null;
+  const clamped = Math.max(min, Math.min(max, n));
+  return Math.round(clamped * 1000) / 1000;
+}
+
+function clampIntOrNull(v: unknown, min: number, max: number): number | null {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === "number" ? v : NaN;
+  if (!Number.isFinite(n)) return null;
+  const i = Math.trunc(n);
+  return Math.max(min, Math.min(max, i));
 }
 
 function clampInt(v: unknown, min: number, max: number): number {
