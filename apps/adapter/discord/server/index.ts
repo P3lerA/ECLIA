@@ -207,16 +207,6 @@ async function* iterSse(resp: Response): AsyncGenerator<SseEvent> {
   }
 }
 
-function now() {
-  return Date.now();
-}
-
-function truncateForDiscord(s: string, max: number = 1900): string {
-  const t = s.trim();
-  if (t.length <= max) return t;
-  return t.slice(0, max - 20) + "\n…(truncated)";
-}
-
 function explainFetchError(e: any): string {
   const msg = String(e?.message ?? e);
   const c: any = e && typeof e === "object" ? (e as any).cause : null;
@@ -238,7 +228,18 @@ async function runGatewayChat(args: {
   toolAccessMode?: "safe" | "full";
   streamMode?: "full" | "final";
   origin?: any;
-  streamToDiscord?: (partial: string) => Promise<void>;
+  /**
+   * Optional record-level callback for verbose adapters.
+   *
+   * When provided, the adapter will NOT stream partial deltas. Instead it will emit
+   * one callback per logical transcript record:
+   * - assistant message (including tool calls)
+   * - tool result
+   *
+   * This keeps Discord output stable (no message edits) while still exposing tool
+   * activity when streamMode="full".
+   */
+  onRecord?: (record: DiscordTranscriptRecord) => Promise<void>;
 }): Promise<{ text: string; meta?: any }>
 {
   let resp: Response;
@@ -251,7 +252,7 @@ async function runGatewayChat(args: {
         userText: args.userText,
         model: args.model,
         toolAccessMode: args.toolAccessMode ?? "full",
-        streamMode: args.streamMode ?? (args.streamToDiscord ? "full" : "final"),
+        streamMode: args.streamMode ?? (args.onRecord ? "full" : "final"),
         origin: args.origin
       })
     });
@@ -264,64 +265,269 @@ async function runGatewayChat(args: {
     throw new Error(`gateway_http_${resp.status}: ${t ? t.slice(0, 240) : resp.statusText}`);
   }
 
+  const onRecord = typeof args.onRecord === "function" ? args.onRecord : null;
+
+  // Serialize adapter-side record emissions to preserve ordering, but DO NOT
+  // await within the SSE loop. Awaiting Discord sends here can stall consumption of
+  // the gateway response stream and trigger undici/Fetch "terminated" errors.
+  let recordQueue: Promise<void> = Promise.resolve();
+  const enqueueRecord = (rec: DiscordTranscriptRecord) => {
+    if (!onRecord) return;
+    recordQueue = recordQueue
+      .then(() => onRecord(rec))
+      .catch(() => {
+        // Swallow adapter-side send failures.
+      });
+  };
+  const drainRecords = async () => {
+    if (!onRecord) return;
+    await recordQueue;
+  };
+
   let current = "";
   let lastCompleted = "";
   let finalText = "";
   let meta: any = undefined;
-  let lastEditAt = 0;
 
-  for await (const ev of iterSse(resp)) {
-    if (ev.event === "meta") {
-      try { meta = JSON.parse(ev.data); } catch { /* ignore */ }
-    }
-    if (ev.event === "assistant_start") {
-      current = "";
-    }
-    if (ev.event === "delta") {
-      try {
-        const j = JSON.parse(ev.data) as any;
-        const text = typeof j?.text === "string" ? j.text : "";
-        if (text) current += text;
+  // Record-level streaming state.
+  let pendingAssistantText: string | null = null;
+  let pendingAssistantToolCalls: any[] = [];
+  let assistantFlushTimer: NodeJS.Timeout | null = null;
+  const ASSISTANT_FLUSH_DELAY_MS = 250;
 
-        if (args.streamToDiscord) {
-          const t = now();
-          // Very conservative edit throttle (Discord rate limits are easy to hit).
-          if (t - lastEditAt > 1200 && current.trim()) {
-            lastEditAt = t;
-            await args.streamToDiscord(truncateForDiscord(current));
+  const clearAssistantFlushTimer = () => {
+    if (assistantFlushTimer) clearTimeout(assistantFlushTimer);
+    assistantFlushTimer = null;
+  };
+
+  const flushAssistantRecord = (reason: string) => {
+    clearAssistantFlushTimer();
+    if (!onRecord) return;
+    if (pendingAssistantText === null) return;
+
+    const toolCalls = pendingAssistantToolCalls;
+    const text = pendingAssistantText;
+
+    pendingAssistantText = null;
+    pendingAssistantToolCalls = [];
+
+    enqueueRecord({ type: "assistant", text, toolCalls, reason });
+  };
+
+  const scheduleAssistantFlush = () => {
+    if (!onRecord) return;
+    clearAssistantFlushTimer();
+    assistantFlushTimer = setTimeout(() => {
+      flushAssistantRecord("debounce");
+    }, ASSISTANT_FLUSH_DELAY_MS);
+  };
+
+  let sseError: any = null;
+  try {
+    for await (const ev of iterSse(resp)) {
+        if (ev.event === "meta") {
+          try { meta = JSON.parse(ev.data); } catch { /* ignore */ }
+        }
+        if (ev.event === "assistant_start") {
+          // A new assistant phase is starting; flush any pending assistant record first.
+          flushAssistantRecord("assistant_start");
+          current = "";
+        }
+        if (ev.event === "delta") {
+          try {
+            const j = JSON.parse(ev.data) as any;
+            const text = typeof j?.text === "string" ? j.text : "";
+            if (text) current += text;
+          } catch {
+            // ignore malformed chunks
           }
         }
-      } catch {
-        // ignore malformed chunks
-      }
+        if (ev.event === "assistant_end") {
+          // Legacy gateway: end-of-turn marker for streamed responses
+          lastCompleted = current;
+
+          if (onRecord) {
+            // Close the assistant record, but debounce to allow tool_call events
+            // (which belong to the assistant transcript entry) to arrive.
+            pendingAssistantText = current;
+            current = "";
+            scheduleAssistantFlush();
+          }
+        }
+        if (ev.event === "tool_call") {
+          // Tool call blocks are part of the assistant transcript record.
+          if (onRecord) {
+            try {
+              const j = JSON.parse(ev.data) as any;
+              pendingAssistantToolCalls.push(j);
+              // Debounce flush so multiple tool calls batch into the same assistant record.
+              scheduleAssistantFlush();
+            } catch {
+              // ignore malformed tool_call blocks
+            }
+          }
+        }
+        if (ev.event === "tool_result") {
+          if (onRecord) {
+            // Ensure the preceding assistant record (with tool calls) is flushed before tool results.
+            flushAssistantRecord("tool_result");
+            try {
+              const j = JSON.parse(ev.data) as any;
+              enqueueRecord({ type: "tool_result", ...j });
+            } catch {
+              enqueueRecord({
+                type: "tool_result",
+                name: "(unknown)",
+                callId: "(unknown)",
+                ok: false,
+                result: { ok: false, error: { code: "bad_event", message: "Malformed tool_result event" } }
+              });
+            }
+          }
+        }
+        if (ev.event === "final") {
+          // New gateway mode: final-only response
+          try {
+            const j = JSON.parse(ev.data) as any;
+            const text = typeof j?.text === "string" ? j.text : "";
+            if (text) finalText = text;
+          } catch {
+            // ignore
+          }
+        }
+        if (ev.event === "error") {
+          if (onRecord) {
+            // Don't let any pending debounced message linger.
+            flushAssistantRecord("error");
+          }
+          try {
+            const j = JSON.parse(ev.data) as any;
+            throw new Error(String(j?.message ?? "gateway_error"));
+          } catch (e: any) {
+            throw new Error(String(e?.message ?? e));
+          }
+        }
+        if (ev.event === "done") {
+          if (onRecord) {
+            // Make sure any pending assistant record is emitted before we exit.
+            flushAssistantRecord("done");
+          }
+          break;
+        }
     }
-    if (ev.event === "assistant_end") {
-      // Legacy gateway: end-of-turn marker for streamed responses
-      lastCompleted = current;
-    }
-    if (ev.event === "final") {
-      // New gateway mode: final-only response
-      try {
-        const j = JSON.parse(ev.data) as any;
-        const text = typeof j?.text === "string" ? j.text : "";
-        if (text) finalText = text;
-      } catch {
-        // ignore
-      }
-    }
-    if (ev.event === "error") {
-      try {
-        const j = JSON.parse(ev.data) as any;
-        throw new Error(String(j?.message ?? "gateway_error"));
-      } catch (e: any) {
-        throw new Error(String(e?.message ?? e));
-      }
-    }
-    if (ev.event === "done") break;
+  } catch (e: any) {
+    sseError = e;
+  } finally {
+    // If we exit the loop without a done marker, still flush pending assistant.
+    flushAssistantRecord("eof");
+    await drainRecords();
   }
+
+  if (sseError) throw sseError;
 
   const text = (finalText || lastCompleted || current).trim();
   return { text, meta };
+}
+
+type DiscordTranscriptRecord =
+  | {
+      type: "assistant";
+      text: string;
+      toolCalls: any[];
+      /** Internal: helpful for debugging adapter-side ordering issues. */
+      reason: string;
+    }
+  | {
+      type: "tool_result";
+      callId: string;
+      name: string;
+      ok: boolean;
+      result: any;
+    };
+
+type DiscordSendFn = (payload: { content: string; files?: any[] }) => Promise<void>;
+
+function formatToolCallForDiscord(call: any): string {
+  const callId = typeof call?.callId === "string" ? call.callId : "";
+  const name = typeof call?.name === "string" ? call.name : "";
+  const raw = typeof call?.args?.raw === "string" ? call.args.raw : "";
+  const approval = call?.args?.approval;
+  const needsApproval = Boolean(approval && typeof approval === "object" && (approval as any).required);
+
+  const summaryParts: string[] = [];
+  if (name) summaryParts.push(name);
+  if (callId) summaryParts.push(`(${callId})`);
+  if (needsApproval) summaryParts.push("[needs approval]");
+  const summary = summaryParts.join(" ").trim();
+
+  const argLine = raw.trim() ? "\n```json\n" + raw + "\n```" : "";
+  return `- ${summary || "tool_call"}${argLine}`;
+}
+
+function formatToolResultForDiscord(name: string, ok: boolean, result: any): string {
+  const label = name ? name : "tool";
+  const header = `**Tool result:** ${label} (${ok ? "ok" : "error"})`;
+
+  let detail = "";
+  const errMsg = typeof result?.error?.message === "string" ? result.error.message : "";
+  if (!ok && errMsg) detail = `\n${errMsg}`;
+
+  let body = "";
+  try {
+    body = JSON.stringify(result ?? null, null, 2);
+  } catch {
+    body = String(result ?? "");
+  }
+
+  // Keep the JSON block, but let the caller decide whether to attach as a file.
+  return header + detail + "\n```json\n" + body + "\n```";
+}
+
+async function sendTextOrFile(send: DiscordSendFn, text: string): Promise<void> {
+  const t = text.trim() ? text.trim() : "(empty)";
+  if (t.length <= 1900) {
+    await send({ content: t });
+    return;
+  }
+
+  const buf = Buffer.from(t, "utf8");
+  await send({
+    content: "Message too long; attached as a file.",
+    files: [{ attachment: buf, name: `eclia-${crypto.randomUUID()}.txt` }]
+  });
+}
+
+function canSendToChannel(channel: Message["channel"]): channel is Message["channel"] & { send: (payload: any) => Promise<any> } {
+  return typeof (channel as any)?.send === "function";
+}
+
+function createInteractionSendFn(interaction: ChatInputCommandInteraction): DiscordSendFn {
+  let first = true;
+  return async (payload) => {
+    if (first) {
+      first = false;
+      await interaction.editReply(payload as any);
+      return;
+    }
+    await interaction.followUp(payload as any);
+  };
+}
+
+function createMessageSendFn(message: Message): DiscordSendFn {
+  let first = true;
+  const channelCanSend = canSendToChannel(message.channel);
+  return async (payload) => {
+    if (first) {
+      first = false;
+      await message.reply(payload as any);
+      return;
+    }
+    if (channelCanSend) {
+      await message.channel.send(payload as any);
+      return;
+    }
+    await message.reply(payload as any);
+  };
 }
 
 async function registerSlashCommands(args: { token: string; appId: string; guildIds: string[]; keepGlobal?: boolean }) {
@@ -340,7 +546,7 @@ async function registerSlashCommands(args: { token: string; appId: string; guild
         },
         {
           name: "verbose",
-          description: "Stream intermediate output (tools/deltas)",
+          description: "Show intermediate tool output (no message edits)",
           type: 5,
           required: false
         }
@@ -551,20 +757,47 @@ async function main() {
     const sessionId = sessionIdForDiscord(origin);
 
     // Verbose implies full gateway stream mode (and enables streamed edits even if globally disabled).
-    const useStreamEdits = streamEdits || verbose;
+    const useRecordStream = streamEdits || verbose;
     const useStreamMode: "full" | "final" = verbose ? "full" : streamMode;
 
     try {
       await interaction.deferReply();
-      const streamFn = useStreamEdits
-        ? async (partial: string) => {
-            try {
-              await interaction.editReply(partial || "…");
-            } catch {
-              // ignore edit errors
+      if (useRecordStream) {
+        const send = createInteractionSendFn(interaction);
+
+        // Emit a user transcript record explicitly (slash commands aren't a regular message).
+        await sendTextOrFile(send, `**User**\n${prompt}`);
+
+        await runGatewayChat({
+          gatewayUrl,
+          sessionId,
+          origin,
+          streamMode: useStreamMode,
+          userText: prompt,
+          toolAccessMode,
+          onRecord: async (rec) => {
+            if (rec.type === "assistant") {
+              const parts: string[] = [];
+              parts.push("**Assistant**");
+              const t = String(rec.text ?? "").trim();
+              if (t) parts.push(t);
+              if (Array.isArray(rec.toolCalls) && rec.toolCalls.length) {
+                parts.push("", "**Tool calls**");
+                for (const tc of rec.toolCalls) parts.push(formatToolCallForDiscord(tc));
+              }
+              await sendTextOrFile(send, parts.join("\n"));
+              return;
+            }
+
+            if (rec.type === "tool_result") {
+              const msg = formatToolResultForDiscord(rec.name, Boolean(rec.ok), rec.result);
+              await sendTextOrFile(send, msg);
+              return;
             }
           }
-        : undefined;
+        });
+        return;
+      }
 
       const out = await runGatewayChat({
         gatewayUrl,
@@ -572,8 +805,7 @@ async function main() {
         origin,
         streamMode: useStreamMode,
         userText: prompt,
-        toolAccessMode,
-        streamToDiscord: streamFn
+        toolAccessMode
       });
 
       const text = out.text || "(empty)";
@@ -589,7 +821,12 @@ async function main() {
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       try {
-        await interaction.editReply(`Error: ${msg}`);
+        // If we already emitted record-stream messages, avoid editing the first message.
+        if (useRecordStream && (interaction as any).replied) {
+          await interaction.followUp(`Error: ${msg}`);
+        } else {
+          await interaction.editReply(`Error: ${msg}`);
+        }
       } catch {
         // ignore
       }
@@ -610,28 +847,49 @@ async function main() {
       const sessionId = sessionIdForDiscord(origin);
 
       try {
-        const reply = await message.reply("…");
-        const streamFn = streamEdits
-          ? async (partial: string) => {
-              try {
-                await reply.edit(partial || "…");
-              } catch {
-                // ignore
+        if (streamEdits) {
+          const send = createMessageSendFn(message);
+          await runGatewayChat({
+            gatewayUrl,
+            sessionId,
+            origin,
+            streamMode,
+            userText: prompt,
+            toolAccessMode,
+            onRecord: async (rec) => {
+              if (rec.type === "assistant") {
+                const parts: string[] = [];
+                parts.push("**Assistant**");
+                const t = String(rec.text ?? "").trim();
+                if (t) parts.push(t);
+                if (Array.isArray(rec.toolCalls) && rec.toolCalls.length) {
+                  parts.push("", "**Tool calls**");
+                  for (const tc of rec.toolCalls) parts.push(formatToolCallForDiscord(tc));
+                }
+                await sendTextOrFile(send, parts.join("\n"));
+                return;
+              }
+
+              if (rec.type === "tool_result") {
+                const msg = formatToolResultForDiscord(rec.name, Boolean(rec.ok), rec.result);
+                await sendTextOrFile(send, msg);
+                return;
               }
             }
-          : undefined;
+          });
+          return;
+        }
+
+        const reply = await message.reply("…");
 
         const out = await runGatewayChat({
-
           gatewayUrl,
           sessionId,
-        origin,
-        streamMode,
+          origin,
+          streamMode,
           userText: prompt,
-          toolAccessMode,
-          streamToDiscord: streamFn
-        
-      });
+          toolAccessMode
+        });
 
         const text = out.text || "(empty)";
         if (text.length <= 1900) {

@@ -2,6 +2,7 @@ import React from "react";
 import { useActiveSession, useAppDispatch, useAppState, useMessages } from "../../state/AppState";
 import { MessageList } from "./MessageList";
 import { ChatComposer } from "./ChatComposer";
+import { EcliaLogo } from "../common/EcliaLogo";
 import { SegmentedSwitch, type SegmentedSwitchOption } from "../common/SegmentedSwitch";
 import { ThemeModeSwitch } from "../theme/ThemeModeSwitch";
 
@@ -114,9 +115,7 @@ export function ChatView({
       <div className="chatTopDock">
         <div className="chatTopDock-inner">
           <div className="chatview-head chatTopBar">
-            <div className="brand brand-md" data-text="ECLIA">
-              ECLIA
-            </div>
+            <EcliaLogo size="md" />
             <div className="chatview-title">
               <div className="title">{session.title}</div>
               <div className="meta">{session.meta}</div>

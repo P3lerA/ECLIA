@@ -1,6 +1,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { setGatewayToken } from "../../core/api/gatewayAuth";
+import { EcliaLogo } from "../common/EcliaLogo";
 
 export function GatewayTokenView(props: { onAuthed: () => void }) {
   const { onAuthed } = props;
@@ -62,9 +63,7 @@ export function GatewayTokenView(props: { onAuthed: () => void }) {
 
   return (
     <div className="landing">
-      <div className="brand brand-lg motion-item" style={delay(0)} data-text="ECLIA">
-        ECLIA
-      </div>
+      <EcliaLogo size="lg" className="motion-item" style={delay(0)} />
 
 
       <div className="promptbar motion-item" style={delay(150)}>

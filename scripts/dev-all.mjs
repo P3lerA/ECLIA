@@ -2,6 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
+const DEFAULT_API_PORT = 8787;
+const GATEWAY_READY_TIMEOUT_MS = 30_000;
+const GATEWAY_READY_INTERVAL_MS = 300;
+
 function readFileMaybe(p) {
   try {
     return fs.readFileSync(p, "utf8");
@@ -17,18 +21,21 @@ function parseBoolLike(v) {
   return null;
 }
 
-/**
- * Minimal TOML scanner for: [adapters.discord] enabled = true|false
- * This is intentionally tiny to avoid introducing a runtime dependency in dev scripts.
- */
-function scanDiscordEnabled(tomlText) {
+function parsePortLike(v) {
+  const raw = String(v ?? "").trim().replace(/^["']|["']$/g, "");
+  const s = raw.replaceAll("_", "");
+  if (!/^\d+$/.test(s)) return null;
+  const port = Number(s);
+  if (!Number.isFinite(port) || port <= 0 || port > 65535) return null;
+  return port;
+}
+
+function scanTomlKey(tomlText, targetSection, targetKey) {
   let section = "";
   for (const raw of String(tomlText ?? "").split(/\r?\n/)) {
     let line = raw.trim();
-    if (!line) continue;
-    if (line.startsWith("#")) continue;
+    if (!line || line.startsWith("#")) continue;
 
-    // strip inline comments (best-effort; good enough for our simple keys)
     const hash = line.indexOf("#");
     if (hash >= 0) line = line.slice(0, hash).trim();
     if (!line) continue;
@@ -39,13 +46,26 @@ function scanDiscordEnabled(tomlText) {
       continue;
     }
 
-    if (section !== "adapters.discord") continue;
-
-    const m = line.match(/^enabled\s*=\s*(.+?)\s*$/);
+    if (section !== targetSection) continue;
+    const m = line.match(new RegExp(`^${targetKey}\\s*=\\s*(.+?)\\s*$`));
     if (!m) continue;
-    return parseBoolLike(m[1]);
+    return m[1];
   }
   return null;
+}
+
+/**
+ * Minimal TOML scanner for: [adapters.discord] enabled = true|false
+ * This is intentionally tiny to avoid introducing a runtime dependency in dev scripts.
+ */
+function scanDiscordEnabled(tomlText) {
+  const raw = scanTomlKey(tomlText, "adapters.discord", "enabled");
+  return raw === null ? null : parseBoolLike(raw);
+}
+
+function scanApiPort(tomlText) {
+  const raw = scanTomlKey(tomlText, "api", "port");
+  return raw === null ? null : parsePortLike(raw);
 }
 
 function detectDiscordEnabled(rootDir) {
@@ -58,7 +78,23 @@ function detectDiscordEnabled(rootDir) {
   return (localVal ?? baseVal ?? false) === true;
 }
 
- function pnpmCmd() {  return "pnpm"; }
+function detectApiPort(rootDir) {
+  const local = readFileMaybe(path.join(rootDir, "eclia.config.local.toml"));
+  const base = readFileMaybe(path.join(rootDir, "eclia.config.toml"));
+
+  const localVal = scanApiPort(local);
+  const baseVal = scanApiPort(base);
+
+  return localVal ?? baseVal ?? DEFAULT_API_PORT;
+}
+
+function pnpmCmd() {
+  return "pnpm";
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function wirePrefix(stream, out, prefix) {
   let buf = "";
@@ -96,18 +132,16 @@ function spawnDev(tag, args) {
 
 const rootDir = process.cwd();
 const discordEnabled = detectDiscordEnabled(rootDir);
+const apiPort = detectApiPort(rootDir);
+const gatewayHealthUrl = `http://127.0.0.1:${apiPort}/api/health`;
 
 console.log(`[DEV] root: ${rootDir}`);
+console.log(`[DEV] api port: ${apiPort}`);
 console.log(`[DEV] discord adapter: ${discordEnabled ? "enabled" : "disabled"}`);
 
 const children = [];
-children.push(spawnDev("WEB", ["-C", "apps/web-console", "dev"]));
-children.push(spawnDev("API", ["-C", "apps/gateway", "dev"]));
-if (discordEnabled) {
-  children.push(spawnDev("DISCORD", ["-C", "apps/adapter/discord", "dev"]));
-}
-
 let shuttingDown = false;
+
 function shutdown(code = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
@@ -118,17 +152,98 @@ function shutdown(code = 0) {
       // ignore
     }
   }
-  // Allow stdio flush.
   setTimeout(() => process.exit(code), 50);
 }
 
-for (const c of children) {
-  c.on("exit", (code, signal) => {
+function registerChild(tag, child) {
+  children.push(child);
+
+  child.on("error", (err) => {
+    if (shuttingDown) return;
+    console.error(`[DEV] ${tag} spawn failed: ${String(err?.message ?? err)}`);
+    shutdown(1);
+  });
+
+  child.on("exit", (code, signal) => {
     if (shuttingDown) return;
     const exitCode = typeof code === "number" ? code : signal ? 1 : 0;
+    console.error(`[DEV] ${tag} exited (code=${String(code)} signal=${String(signal)})`);
     shutdown(exitCode);
   });
+
+  return child;
 }
+
+function spawnRegistered(tag, args) {
+  return registerChild(tag, spawnDev(tag, args));
+}
+
+async function probeGatewayHealth(timeoutMs = 1_500) {
+  let timer = null;
+  try {
+    const ctrl = new AbortController();
+    timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const resp = await fetch(gatewayHealthUrl, { method: "GET", signal: ctrl.signal });
+    return resp.ok;
+  } catch {
+    return false;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function waitForGatewayReady(apiChild) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < GATEWAY_READY_TIMEOUT_MS) {
+    if (shuttingDown) return false;
+    if (apiChild.exitCode !== null || apiChild.killed) {
+      throw new Error("gateway process exited before it became ready");
+    }
+
+    let timer = null;
+    try {
+      const ctrl = new AbortController();
+      timer = setTimeout(() => ctrl.abort(), 1_500);
+      const resp = await fetch(gatewayHealthUrl, { method: "GET", signal: ctrl.signal });
+      if (resp.ok) return true;
+    } catch {
+      // gateway is not ready yet
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+
+    await sleep(GATEWAY_READY_INTERVAL_MS);
+  }
+
+  throw new Error(`gateway health check timed out after ${GATEWAY_READY_TIMEOUT_MS}ms (${gatewayHealthUrl})`);
+}
+
+async function main() {
+  const gatewayAlreadyUp = await probeGatewayHealth();
+  if (gatewayAlreadyUp) {
+    console.log(`[DEV] gateway already healthy at ${gatewayHealthUrl}; reusing existing process`);
+  } else {
+    const apiChild = spawnRegistered("API", ["-C", "apps/gateway", "dev"]);
+    console.log(`[DEV] waiting for gateway: ${gatewayHealthUrl}`);
+    await waitForGatewayReady(apiChild);
+    if (shuttingDown) return;
+  }
+
+  console.log("[DEV] gateway ready; starting WEB");
+  spawnRegistered("WEB", ["-C", "apps/web-console", "dev"]);
+
+  if (discordEnabled) {
+    console.log("[DEV] gateway ready; starting DISCORD");
+    spawnRegistered("DISCORD", ["-C", "apps/adapter/discord", "dev"]);
+  }
+}
+
+main().catch((err) => {
+  if (shuttingDown) return;
+  console.error(`[DEV] startup failed: ${String(err?.message ?? err)}`);
+  shutdown(1);
+});
 
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));

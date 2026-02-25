@@ -1,4 +1,5 @@
 import { ThemeModeSwitch } from "../theme/ThemeModeSwitch";
+import { EcliaLogo } from "../common/EcliaLogo";
 
 /**
  * Placeholder screen.
@@ -19,9 +20,7 @@ export function PluginsView({ onBack }: { onBack: () => void }) {
         </button>
 
         <div className="settings-head-title">
-          <div className="brand brand-md" data-text="ECLIA">
-            ECLIA
-          </div>
+          <EcliaLogo size="md" />
           <div className="settings-title">Plugins</div>
         </div>
 

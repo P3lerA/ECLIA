@@ -1,6 +1,7 @@
 import React from "react";
 import { runtime } from "../../core/runtime";
 import { useAppDispatch, useAppState } from "../../state/AppState";
+import { EcliaLogo } from "../common/EcliaLogo";
 import { ThemeModeSwitch } from "../theme/ThemeModeSwitch";
 import { useStagedDraft } from "../common/useStagedDraft";
 import type { CfgBase, SettingsDraft } from "./settingsTypes";
@@ -470,9 +471,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         </button>
 
         <div className="settings-head-title">
-          <div className="brand brand-md" data-text="ECLIA">
-            ECLIA
-          </div>
+          <EcliaLogo size="md" onClick={back} disabled={dirty || saving} />
           <div className="settings-title">Settings</div>
         </div>
 

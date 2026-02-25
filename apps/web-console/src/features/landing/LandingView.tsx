@@ -1,5 +1,6 @@
 import React from "react";
 import { useSendMessage } from "../chat/useSendMessage";
+import { EcliaLogo } from "../common/EcliaLogo";
 import { PromptBar } from "../common/PromptBar";
 import { ThemeCycleButton } from "../theme/ThemeCycleButton";
 
@@ -45,9 +46,7 @@ export function LandingView({ onOpenMenu }: { onOpenMenu: () => void }) {
 
   return (
     <div className="landing">
-      <div className="brand brand-lg motion-item" style={delay(0)} data-text="ECLIA">
-        ECLIA
-      </div>
+      <EcliaLogo size="lg" className="motion-item" style={delay(0)} />
 
       <PromptBar
         className="promptbar motion-item"
