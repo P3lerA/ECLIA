@@ -4,7 +4,7 @@ import { SettingsAdvancedSection } from "../../components/SettingsAdvancedSectio
 import { SettingDisclosure } from "../../components/SettingDisclosure";
 import { SettingsToggleRow } from "../../components/SettingsToggleRow";
 import type { CodexOAuthProfile, CodexOAuthStatus, SettingsDraft } from "../../settingsTypes";
-import { codexProfileRoute, openaiProfileRoute } from "../../settingsUtils";
+import { anthropicProfileRoute, codexProfileRoute, openaiProfileRoute } from "../../settingsUtils";
 
 export type InferenceSectionProps = {
   draft: SettingsDraft;
@@ -16,16 +16,23 @@ export type InferenceSectionProps = {
   cfgBaseAvailable: boolean;
   cfgCodexHome: string;
   cfgOpenaiCompatProfiles: Array<{ id: string; apiKeyConfigured: boolean }>;
+  cfgAnthropicProfiles: Array<{ id: string; apiKeyConfigured: boolean }>;
 
   expandedOpenAICompatProfileId: string | null;
   setExpandedOpenAICompatProfileId: React.Dispatch<React.SetStateAction<string | null>>;
 
+  expandedAnthropicProfileId: string | null;
+  setExpandedAnthropicProfileId: React.Dispatch<React.SetStateAction<string | null>>;
+
   dirtyDevInference: boolean;
-  inferenceValid: boolean;
 
   patchOpenAICompatProfile: (profileId: string, patch: Partial<SettingsDraft["inferenceProfiles"][number]>) => void;
   newOpenAICompatProfile: () => void;
   deleteOpenAICompatProfile: (profileId: string) => void;
+
+  patchAnthropicProfile: (profileId: string, patch: Partial<SettingsDraft["anthropicProfiles"][number]>) => void;
+  newAnthropicProfile: () => void;
+  deleteAnthropicProfile: (profileId: string) => void;
 
   codexProfiles: CodexOAuthProfile[];
 
@@ -59,13 +66,18 @@ export function InferenceSection(props: InferenceSectionProps) {
     cfgBaseAvailable,
     cfgCodexHome,
     cfgOpenaiCompatProfiles,
+    cfgAnthropicProfiles,
     expandedOpenAICompatProfileId,
     setExpandedOpenAICompatProfileId,
+    expandedAnthropicProfileId,
+    setExpandedAnthropicProfileId,
     dirtyDevInference,
-    inferenceValid,
     patchOpenAICompatProfile,
     newOpenAICompatProfile,
     deleteOpenAICompatProfile,
+    patchAnthropicProfile,
+    newAnthropicProfile,
+    deleteAnthropicProfile,
     codexProfiles,
     patchCodexProfile,
     refreshCodexStatus,
@@ -85,6 +97,21 @@ export function InferenceSection(props: InferenceSectionProps) {
   } = props;
 
   const devDisabled = cfgLoading || !cfgBaseAvailable;
+
+  const openaiValid =
+    draft.inferenceProfiles.length > 0 &&
+    draft.inferenceProfiles.every((p) => p.name.trim().length > 0 && p.baseUrl.trim().length > 0 && p.modelId.trim().length > 0);
+
+  const anthropicValid =
+    draft.anthropicProfiles.length > 0 &&
+    draft.anthropicProfiles.every(
+      (p) =>
+        p.id.trim().length > 0 &&
+        p.name.trim().length > 0 &&
+        p.baseUrl.trim().length > 0 &&
+        p.modelId.trim().length > 0 &&
+        p.anthropicVersion.trim().length > 0
+    );
 
   return (
     <>
@@ -113,14 +140,24 @@ export function InferenceSection(props: InferenceSectionProps) {
               className="select"
               value={draft.model}
               onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value }))}
-              disabled={!draft.inferenceProfiles.length && !codexProfiles.length}
+              disabled={!draft.inferenceProfiles.length && !draft.anthropicProfiles.length && !codexProfiles.length}
             >
-              {draft.inferenceProfiles.length || codexProfiles.length ? (
+              {draft.inferenceProfiles.length || draft.anthropicProfiles.length || codexProfiles.length ? (
                 <>
                   {draft.inferenceProfiles.length ? (
                     <optgroup label="OpenAI-compatible">
                       {draft.inferenceProfiles.map((p) => (
                         <option key={p.id} value={openaiProfileRoute(p.id)}>
+                          {p.name.trim() || "Untitled"}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
+
+                  {draft.anthropicProfiles.length ? (
+                    <optgroup label="Anthropic-compatible">
+                      {draft.anthropicProfiles.map((p) => (
+                        <option key={p.id} value={anthropicProfileRoute(p.id)}>
                           {p.name.trim() || "Untitled"}
                         </option>
                       ))}
@@ -342,7 +379,132 @@ export function InferenceSection(props: InferenceSectionProps) {
           </button>
         </div>
 
-        {dirtyDevInference && !inferenceValid ? <div className="devNoteText muted">Invalid provider profile settings.</div> : null}
+        {dirtyDevInference && !openaiValid ? <div className="devNoteText muted">Invalid OpenAI-compatible profile settings.</div> : null}
+      </div>
+
+      
+      <div className="card">
+        <div className="card-title">Anthropic-compatible profiles</div>
+
+        {draft.anthropicProfiles.map((p) => {
+          const isExpanded = expandedAnthropicProfileId === p.id;
+          const isActivated = draft.model === anthropicProfileRoute(p.id);
+          const apiKeyConfigured = cfgAnthropicProfiles.find((x) => x.id === p.id)?.apiKeyConfigured ?? false;
+          const profileValid =
+            p.id.trim().length > 0 &&
+            p.name.trim().length > 0 &&
+            p.baseUrl.trim().length > 0 &&
+            p.modelId.trim().length > 0 &&
+            p.anthropicVersion.trim().length > 0;
+
+          return (
+            <SettingDisclosure
+              key={p.id}
+              title={p.name.trim() || "Untitled"}
+              open={isExpanded}
+              onOpenChange={(next) => setExpandedAnthropicProfileId(next ? p.id : null)}
+              right={
+                isActivated ? (
+                  <span className="activatedPill">Activated</span>
+                ) : (
+                  <span className="activatedPill activatedPillPlaceholder" aria-hidden="true">
+                    Activated
+                  </span>
+                )
+              }
+              ariaLabel={`Provider profile: ${p.name.trim() || "Untitled"}`}
+            >
+              <div className="grid2">
+                <label className="field">
+                  <div className="field-label">Name</div>
+                  <input
+                    className="select"
+                    value={p.name}
+                    onChange={(e) => patchAnthropicProfile(p.id, { name: e.target.value })}
+                    placeholder="Anthropic"
+                    spellCheck={false}
+                    disabled={devDisabled}
+                  />
+                </label>
+
+                <label className="field">
+                  <div className="field-label">API key (local)</div>
+                  <input
+                    className="select"
+                    type="password"
+                    value={p.apiKey}
+                    onChange={(e) => patchAnthropicProfile(p.id, { apiKey: e.target.value })}
+                    placeholder={apiKeyConfigured ? "configured (leave blank to keep)" : "not set"}
+                    spellCheck={false}
+                    disabled={devDisabled}
+                  />
+                  <div className="field-sub muted">
+                    {apiKeyConfigured
+                      ? "A key is already configured (not shown). Enter a new one to replace it."
+                      : "No key detected. Set it here or in eclia.config.local.toml."}
+                  </div>
+                </label>
+
+                <label className="field">
+                  <div className="field-label">Base URL</div>
+                  <input
+                    className="select"
+                    value={p.baseUrl}
+                    onChange={(e) => patchAnthropicProfile(p.id, { baseUrl: e.target.value })}
+                    placeholder="https://api.anthropic.com"
+                    spellCheck={false}
+                    disabled={devDisabled}
+                  />
+                </label>
+
+                <label className="field">
+                  <div className="field-label">Model</div>
+                  <input
+                    className="select"
+                    value={p.modelId}
+                    onChange={(e) => patchAnthropicProfile(p.id, { modelId: e.target.value })}
+                    placeholder="claude-3-5-sonnet-latest"
+                    spellCheck={false}
+                    disabled={devDisabled}
+                  />
+                </label>
+
+                <label className="field" style={{ gridColumn: "1 / -1" }}>
+                  <div className="field-label">Anthropic version</div>
+                  <input
+                    className="select"
+                    value={p.anthropicVersion}
+                    onChange={(e) => patchAnthropicProfile(p.id, { anthropicVersion: e.target.value })}
+                    placeholder="2023-06-01"
+                    spellCheck={false}
+                    disabled={devDisabled}
+                  />
+                </label>
+              </div>
+
+              <div className="profileActions">
+                <button
+                  type="button"
+                  className="btn subtle"
+                  onClick={() => deleteAnthropicProfile(p.id)}
+                  disabled={devDisabled || draft.anthropicProfiles.length <= 1}
+                >
+                  Delete profile
+                </button>
+              </div>
+
+              {dirtyDevInference && !profileValid ? <div className="devNoteText muted">Missing required fields.</div> : null}
+            </SettingDisclosure>
+          );
+        })}
+
+        <div className="profileActions">
+          <button type="button" className="btn subtle" onClick={newAnthropicProfile} disabled={devDisabled}>
+            New profile
+          </button>
+        </div>
+
+        {dirtyDevInference && !anthropicValid ? <div className="devNoteText muted">Invalid Anthropic-compatible profile settings.</div> : null}
       </div>
 
       <div className="card">

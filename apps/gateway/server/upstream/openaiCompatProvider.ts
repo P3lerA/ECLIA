@@ -4,7 +4,7 @@ import { buildTruncatedContext } from "../context.js";
 import { inferVendorFromBaseUrl } from "../normalize.js";
 
 import { streamOpenAICompatTurn } from "./openaiCompat.js";
-import type { UpstreamProvider } from "./provider.js";
+import type { ToolResult, UpstreamProvider } from "./provider.js";
 
 export function createOpenAICompatProvider(args: {
   baseUrl: string;
@@ -59,8 +59,8 @@ export function createOpenAICompatProvider(args: {
       };
     },
 
-    buildToolResultMessage({ callId, content }) {
-      return { role: "tool", tool_call_id: callId, content };
+    buildToolResultMessages({ results }: { results: ToolResult[] }) {
+      return results.map((r) => ({ role: "tool", tool_call_id: r.callId, content: r.content }));
     }
   };
 }

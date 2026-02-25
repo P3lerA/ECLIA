@@ -75,9 +75,12 @@ export type EcliaConfig = {
      */
     system_instruction?: string;
 
-    provider: "openai_compat";
+    provider: "openai_compat" | "anthropic" | "codex_oauth";
     openai_compat: {
       profiles: OpenAICompatProfile[];
+    };
+    anthropic: {
+      profiles: AnthropicProfile[];
     };
     codex_oauth: {
       profiles: CodexOAuthProfile[];
@@ -132,6 +135,45 @@ export type OpenAICompatProfile = {
    */
   auth_header?: string;
 };
+
+export type AnthropicProfile = {
+  /**
+   * Stable identifier used by UI/runtime routing.
+   * Not shown to users.
+   */
+  id: string;
+
+  /**
+   * Display name (shown in the Console UI).
+   */
+  name: string;
+
+  /**
+   * Example: https://api.anthropic.com
+   * (The gateway will call <base_url>/v1/messages by default.)
+   */
+  base_url: string;
+
+  /**
+   * Real upstream model id (NOT the UI route key).
+   */
+  model: string;
+
+  /**
+   * Secret (prefer local overrides).
+   */
+  api_key?: string;
+
+  /**
+   * Default: x-api-key
+   */
+  auth_header?: string;
+
+  /**
+   * Default: 2023-06-01
+   */
+  anthropic_version?: string;
+};
 export type CodexOAuthProfile = {
   /**
    * Stable identifier used by UI/runtime routing.
@@ -180,6 +222,12 @@ export type EcliaConfigPatch = Partial<{
           Pick<OpenAICompatProfile, "id">
       >;
     }>;
+    anthropic: Partial<{
+      profiles: Array<
+        Partial<Pick<AnthropicProfile, "id" | "name" | "base_url" | "model" | "api_key" | "auth_header" | "anthropic_version">> &
+          Pick<AnthropicProfile, "id">
+      >;
+    }>;
     codex_oauth: Partial<{
       profiles: Array<
         Partial<Pick<CodexOAuthProfile, "id" | "name" | "model" | "access_token" | "refresh_token" | "id_token" | "expires_at">> &
@@ -212,6 +260,18 @@ export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
           base_url: "https://api.openai.com/v1",
           model: "gpt-4o-mini",
           auth_header: "Authorization"
+        }
+      ]
+    },
+    anthropic: {
+      profiles: [
+        {
+          id: "default",
+          name: "Default",
+          base_url: "https://api.anthropic.com",
+          model: "claude-opus-4-6",
+          auth_header: "x-api-key",
+          anthropic_version: "2023-06-01"
         }
       ]
     },
@@ -342,12 +402,18 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
 
   const openaiRaw = isRecord((infRaw as any).openai_compat) ? (infRaw as any).openai_compat : {};
 
+  const anthropicRaw = isRecord((infRaw as any).anthropic) ? (infRaw as any).anthropic : {};
+
   const codexRaw = isRecord((infRaw as any).codex_oauth) ? (infRaw as any).codex_oauth : {};
 
   const adaptersRaw = isRecord(raw.adapters) ? raw.adapters : {};
   const discordRaw = isRecord((adaptersRaw as any).discord) ? (adaptersRaw as any).discord : {};
 
-  const provider = (infRaw as any).provider === "openai_compat" ? "openai_compat" : base.inference.provider;
+  const providerRaw = typeof (infRaw as any).provider === "string" ? String((infRaw as any).provider).trim() : "";
+  const provider =
+    providerRaw === "openai_compat" || providerRaw === "anthropic" || providerRaw === "codex_oauth"
+      ? (providerRaw as EcliaConfig["inference"]["provider"])
+      : base.inference.provider;
 
   const system_instruction = coerceOptionalString((infRaw as any).system_instruction);
 
@@ -385,6 +451,50 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
       model: coerceString(openaiRaw.model, base.inference.openai_compat.profiles[0].model),
       api_key: coerceOptionalString(openaiRaw.api_key),
       auth_header: coerceString(openaiRaw.auth_header, base.inference.openai_compat.profiles[0].auth_header ?? "Authorization")
+    });
+  }
+
+  // Anthropic (Messages API)
+  const anthropicProfilesRaw = Array.isArray((anthropicRaw as any).profiles) ? ((anthropicRaw as any).profiles as any[]) : null;
+  const anthropicProfiles: AnthropicProfile[] = [];
+  const seenAnthropic = new Set<string>();
+
+  if (anthropicProfilesRaw && anthropicProfilesRaw.length) {
+    for (let i = 0; i < anthropicProfilesRaw.length; i++) {
+      const p = anthropicProfilesRaw[i];
+      if (!isRecord(p)) continue;
+
+      const id = coerceProfileId((p as any).id, `profile_${i + 1}`);
+      if (seenAnthropic.has(id)) continue;
+      seenAnthropic.add(id);
+
+      const name = coerceString((p as any).name, `Profile ${i + 1}`);
+      const base_url = coerceString((p as any).base_url, base.inference.anthropic.profiles[0].base_url);
+      const model = coerceString((p as any).model, base.inference.anthropic.profiles[0].model);
+      const api_key = coerceOptionalString((p as any).api_key);
+      const auth_header = coerceString((p as any).auth_header, base.inference.anthropic.profiles[0].auth_header ?? "x-api-key");
+      const anthropic_version = coerceString(
+        (p as any).anthropic_version,
+        base.inference.anthropic.profiles[0].anthropic_version ?? "2023-06-01"
+      );
+
+      anthropicProfiles.push({ id, name, base_url, model, api_key, auth_header, anthropic_version });
+    }
+  }
+
+  // Legacy schema fallback: base_url/model/api_key/auth_header/anthropic_version at [inference.anthropic]
+  if (anthropicProfiles.length === 0) {
+    anthropicProfiles.push({
+      id: "default",
+      name: "Default",
+      base_url: coerceString((anthropicRaw as any).base_url, base.inference.anthropic.profiles[0].base_url),
+      model: coerceString((anthropicRaw as any).model, base.inference.anthropic.profiles[0].model),
+      api_key: coerceOptionalString((anthropicRaw as any).api_key),
+      auth_header: coerceString((anthropicRaw as any).auth_header, base.inference.anthropic.profiles[0].auth_header ?? "x-api-key"),
+      anthropic_version: coerceString(
+        (anthropicRaw as any).anthropic_version,
+        base.inference.anthropic.profiles[0].anthropic_version ?? "2023-06-01"
+      )
     });
   }
   // Codex OAuth (optional; used for ChatGPT/Codex browser login tokens).
@@ -443,6 +553,9 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
       provider,
       openai_compat: {
         profiles
+      },
+      anthropic: {
+        profiles: anthropicProfiles.length ? anthropicProfiles : base.inference.anthropic.profiles
       },
       codex_oauth: {
         profiles: codexProfilesOut
@@ -603,6 +716,53 @@ export function writeLocalEcliaConfig(
     (patch.inference.openai_compat as any).profiles = preserved;
   }
 
+  // Special-case: Anthropic profiles are also an array, so deepMerge() replaces wholesale.
+  // Preserve existing secrets (api_key) per profile id unless the patch explicitly sets a new one.
+  {
+    const currentAnthropicProfilesRaw = (currentLocal as any)?.inference?.anthropic?.profiles;
+    const currentAnthropicProfiles = Array.isArray(currentAnthropicProfilesRaw) ? (currentAnthropicProfilesRaw as any[]) : null;
+    const legacyKey = coerceOptionalString((currentLocal as any)?.inference?.anthropic?.api_key);
+    const legacyAuthHeader = coerceOptionalString((currentLocal as any)?.inference?.anthropic?.auth_header);
+    const legacyVersion = coerceOptionalString((currentLocal as any)?.inference?.anthropic?.anthropic_version);
+
+    if (patch.inference?.anthropic && Array.isArray((patch.inference.anthropic as any).profiles)) {
+      const patched = (patch.inference.anthropic as any).profiles as any[];
+      const preserved: any[] = [];
+
+      for (let i = 0; i < patched.length; i++) {
+        const p = patched[i];
+        if (!isRecord(p)) continue;
+
+        const id = coerceProfileId((p as any).id, `profile_${i + 1}`);
+        const existing = currentAnthropicProfiles?.find((x) => isRecord(x) && coerceProfileId((x as any).id, "") === id);
+
+        const next: Record<string, any> = { ...p, id };
+
+        if (!Object.prototype.hasOwnProperty.call(p, "api_key")) {
+          const existingKey = coerceOptionalString((existing as any)?.api_key);
+          if (existingKey) next.api_key = existingKey;
+          if (!existingKey && id === "default" && legacyKey) next.api_key = legacyKey;
+        }
+
+        if (!Object.prototype.hasOwnProperty.call(p, "auth_header")) {
+          const existingHeader = coerceOptionalString((existing as any)?.auth_header);
+          if (existingHeader) next.auth_header = existingHeader;
+          if (!existingHeader && id === "default" && legacyAuthHeader) next.auth_header = legacyAuthHeader;
+        }
+
+        if (!Object.prototype.hasOwnProperty.call(p, "anthropic_version")) {
+          const existingVersion = coerceOptionalString((existing as any)?.anthropic_version);
+          if (existingVersion) next.anthropic_version = existingVersion;
+          if (!existingVersion && id === "default" && legacyVersion) next.anthropic_version = legacyVersion;
+        }
+
+        preserved.push(next);
+      }
+
+      (patch.inference.anthropic as any).profiles = preserved;
+    }
+  }
+
   // Special-case: tools.web.profiles is also an array, so deepMerge() replaces wholesale.
   // Preserve existing secrets (api_key) per profile id unless the patch explicitly sets a new one.
   {
@@ -682,6 +842,17 @@ export function writeLocalEcliaConfig(
           model: p.model,
           auth_header: p.auth_header
         }))
+      },
+      anthropic: {
+        ...(isRecord((nextLocal.inference as any)?.anthropic) ? (nextLocal.inference as any).anthropic : {}),
+        profiles: normalized.inference.anthropic.profiles.map((p) => ({
+          id: p.id,
+          name: p.name,
+          base_url: p.base_url,
+          model: p.model,
+          auth_header: p.auth_header,
+          anthropic_version: p.anthropic_version
+        }))
       }
     },
     adapters: {
@@ -735,6 +906,26 @@ export function writeLocalEcliaConfig(
     }
 
     const out = (toWrite as any).inference.openai_compat.profiles as any[];
+    for (let i = 0; i < out.length; i++) {
+      const row = out[i];
+      const raw = byId.get(String(row.id));
+      const key = coerceOptionalString((raw as any)?.api_key);
+      if (key) row.api_key = key;
+    }
+  }
+
+  // inference.anthropic.profiles[].api_key: only write keys that exist in the file.
+  const nextAnthropicProfilesRaw = (nextLocal as any)?.inference?.anthropic?.profiles;
+  if (Array.isArray(nextAnthropicProfilesRaw)) {
+    const byId = new Map<string, any>();
+    for (const p of nextAnthropicProfilesRaw) {
+      if (!isRecord(p)) continue;
+      const id = coerceProfileId((p as any).id, "");
+      if (!id) continue;
+      byId.set(id, p);
+    }
+
+    const out = ((toWrite as any).inference?.anthropic?.profiles ?? []) as any[];
     for (let i = 0; i < out.length; i++) {
       const row = out[i];
       const raw = byId.get(String(row.id));
@@ -832,6 +1023,7 @@ export function resolveUpstreamModel(routeKey: string, config: EcliaConfig): str
 
 export type InferenceSelection =
   | { kind: "openai_compat"; profile: OpenAICompatProfile; upstreamModel: string }
+  | { kind: "anthropic"; profile: AnthropicProfile; upstreamModel: string }
   | { kind: "codex_oauth"; profile: CodexOAuthProfile; upstreamModel: string };
 
 /**
@@ -839,6 +1031,7 @@ export type InferenceSelection =
  *
  * Today we support:
  * - OpenAI-compatible profiles: openai-compatible:<profile-id>
+ * - Anthropic profiles: anthropic:<profile-id>
  * - Codex OAuth profiles: codex-oauth:<profile-id>
  */
 export function resolveInferenceSelection(routeKey: string, config: EcliaConfig): InferenceSelection {
@@ -850,9 +1043,42 @@ export function resolveInferenceSelection(routeKey: string, config: EcliaConfig)
     return { kind: "codex_oauth", ...sel };
   }
 
+  // Anthropic route formats: anthropic:<profile-id> OR anthropic-compatible:<profile-id>
+  if (/^anthropic(?::|$)/.test(k) || /^anthropic-compatible(?::|$)/.test(k)) {
+    const sel = resolveAnthropicSelection(k, config);
+    return { kind: "anthropic", ...sel };
+  }
+
   // Default/fallback: OpenAI-compatible.
   const sel = resolveOpenAICompatSelection(k, config);
   return { kind: "openai_compat", ...sel };
+}
+
+export function resolveAnthropicSelection(
+  routeKey: string,
+  config: EcliaConfig
+): { profile: AnthropicProfile; upstreamModel: string } {
+  const k = (routeKey ?? "").trim();
+  const profiles = config.inference.anthropic?.profiles ?? [];
+
+  const fallback = profiles[0] ?? DEFAULT_ECLIA_CONFIG.inference.anthropic.profiles[0];
+  if (!fallback) throw new Error("No Anthropic profiles configured");
+
+  // Primary route formats: anthropic:<profile-id> OR anthropic-compatible:<profile-id>
+  const m = k.match(/^anthropic(?:-compatible)?:([\s\S]+)$/);
+  if (m) {
+    const id = m[1]?.trim();
+    const profile = profiles.find((p) => p.id === id) ?? fallback;
+    return { profile, upstreamModel: profile.model };
+  }
+
+  // Shorthand route keys.
+  if (k === "anthropic" || k === "anthropic-compatible" || !k) {
+    return { profile: fallback, upstreamModel: fallback.model };
+  }
+
+  // If someone passes an unknown anthropic-ish key, still fall back.
+  return { profile: fallback, upstreamModel: fallback.model };
 }
 
 export function resolveCodexOAuthSelection(

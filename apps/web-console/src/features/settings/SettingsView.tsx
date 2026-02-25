@@ -20,6 +20,7 @@ import {
   portNumber,
   sameCodexOAuthProfiles,
   sameOpenAICompatProfiles,
+  sameAnthropicProfiles,
   sameWebProfiles,
   sameStringArray
 } from "./settingsUtils";
@@ -92,7 +93,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         debugCaptureUpstreamRequests: cfgBase ? cfgBase.debugCaptureUpstreamRequests : prev?.debugCaptureUpstreamRequests ?? false,
         debugParseAssistantOutput: cfgBase ? cfgBase.debugParseAssistantOutput : prev?.debugParseAssistantOutput ?? false,
         transport: state.transport,
-        model: cfgBase ? normalizeActiveModel(state.model, cfgBase.openaiCompatProfiles) : state.model,
+        model: cfgBase ? normalizeActiveModel(state.model, cfgBase.openaiCompatProfiles, cfgBase.anthropicProfiles) : state.model,
         contextTokenLimit: String(state.settings.contextTokenLimit ?? 20000),
         contextLimitEnabled: Boolean(state.settings.contextLimitEnabled ?? true),
 
@@ -127,6 +128,19 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
               apiKey: ""
             }))
           : prev?.inferenceProfiles ?? [],
+
+        anthropicProfiles: cfgBase
+          ? cfgBase.anthropicProfiles.map((p) => ({
+              id: p.id,
+              name: p.name,
+              baseUrl: p.baseUrl,
+              modelId: p.modelId,
+              authHeader: p.authHeader,
+              anthropicVersion: p.anthropicVersion,
+              apiKey: ""
+            }))
+          : prev?.anthropicProfiles ?? [],
+
 
         codexOAuthProfiles: cfgBase
           ? cfgBase.codexOAuthProfiles.map((p) => ({ ...p })).slice(0, 1)
@@ -168,7 +182,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
   const isDirtyDraft = React.useCallback(
     (d: SettingsDraft): boolean => {
-      const effectiveStateModel = cfgBase ? normalizeActiveModel(state.model, cfgBase.openaiCompatProfiles) : state.model;
+      const effectiveStateModel = cfgBase ? normalizeActiveModel(state.model, cfgBase.openaiCompatProfiles, cfgBase.anthropicProfiles) : state.model;
 
       const dirtyUi =
         d.textureDisabled !== state.settings.textureDisabled ||
@@ -196,8 +210,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
       const dirtyDevInference = cfgBase
         ? !sameOpenAICompatProfiles(d.inferenceProfiles, cfgBase.openaiCompatProfiles) ||
+          !sameAnthropicProfiles(d.anthropicProfiles, cfgBase.anthropicProfiles) ||
           !sameCodexOAuthProfiles(d.codexOAuthProfiles, cfgBase.codexOAuthProfiles) ||
           d.inferenceProfiles.some((p) => p.apiKey.trim().length > 0) ||
+          d.anthropicProfiles.some((p) => p.apiKey.trim().length > 0) ||
           d.inferenceSystemInstruction.trim() !== (cfgBase.systemInstruction ?? "").trim()
         : false;
 
@@ -282,8 +298,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
   const dirtyDevInference = cfgBase
     ? !sameOpenAICompatProfiles(draft.inferenceProfiles, cfgBase.openaiCompatProfiles) ||
+      !sameAnthropicProfiles(draft.anthropicProfiles, cfgBase.anthropicProfiles) ||
       !sameCodexOAuthProfiles(draft.codexOAuthProfiles, cfgBase.codexOAuthProfiles) ||
       draft.inferenceProfiles.some((p) => p.apiKey.trim().length > 0) ||
+      draft.anthropicProfiles.some((p) => p.apiKey.trim().length > 0) ||
       draft.inferenceSystemInstruction.trim() !== (cfgBase.systemInstruction ?? "").trim()
     : false;
 
@@ -317,8 +335,19 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const openaiValid =
     draft.inferenceProfiles.length > 0 &&
     draft.inferenceProfiles.every((p) => p.name.trim().length > 0 && p.baseUrl.trim().length > 0 && p.modelId.trim().length > 0);
+
+  const anthropicValid =
+    draft.anthropicProfiles.length > 0 &&
+    draft.anthropicProfiles.every(
+      (p) =>
+        p.id.trim().length > 0 &&
+        p.name.trim().length > 0 &&
+        p.baseUrl.trim().length > 0 &&
+        p.modelId.trim().length > 0 &&
+        p.anthropicVersion.trim().length > 0
+    );
   const codexValid = draft.codexOAuthProfiles.every((p) => p.id.trim().length > 0 && p.name.trim().length > 0 && p.model.trim().length > 0);
-  const inferenceValid = openaiValid && codexValid;
+  const inferenceValid = openaiValid && anthropicValid && codexValid;
 
   const discordTokenOk = Boolean(cfgBase?.discordTokenConfigured) || draft.adapterDiscordBotToken.trim().length > 0;
   const discordAppIdOk = Boolean((cfgBase?.discordAppId ?? "").trim().length) || draft.adapterDiscordAppId.trim().length > 0;
@@ -429,7 +458,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       }
       {
         const effectiveModelForDispatch = nextCfgBase
-          ? normalizeActiveModel(state.model, nextCfgBase.openaiCompatProfiles)
+          ? normalizeActiveModel(state.model, nextCfgBase.openaiCompatProfiles, nextCfgBase.anthropicProfiles)
           : state.model;
 
         if (draft.model !== effectiveModelForDispatch) {
@@ -598,8 +627,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                 cfgBaseAvailable={!!cfgBase}
                 cfgCodexHome={cfgBase?.codexHome ?? ""}
                 cfgOpenaiCompatProfiles={cfgBase?.openaiCompatProfiles ?? []}
+                cfgAnthropicProfiles={cfgBase?.anthropicProfiles ?? []}
                 dirtyDevInference={dirtyDevInference}
-                inferenceValid={inferenceValid}
                 dirtyDevCodexHome={dirtyDevCodexHome}
                 codexHomeValid={codexHomeValid}
                 {...inferenceController}

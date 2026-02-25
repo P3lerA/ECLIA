@@ -30,6 +30,18 @@ type ConfigReqBody = {
       }>;
     };
 
+    anthropic?: {
+      profiles?: Array<{
+        id: string;
+        name?: string;
+        base_url?: string;
+        model?: string;
+        api_key?: string;
+        auth_header?: string;
+        anthropic_version?: string;
+      }>;
+    };
+
     codex_oauth?: {
       profiles?: Array<{
         id: string;
@@ -139,6 +151,17 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
               api_key_configured: Boolean(p.api_key && p.api_key.trim())
             }))
           },
+          anthropic: {
+            profiles: (config.inference as any).anthropic?.profiles?.map((p: any) => ({
+              id: p.id,
+              name: p.name,
+              base_url: p.base_url,
+              model: p.model,
+              auth_header: p.auth_header,
+              anthropic_version: p.anthropic_version,
+              api_key_configured: Boolean(p.api_key && String(p.api_key).trim())
+            })) ?? []
+          },
           codex_oauth: {
             // ECLIA supports a single Codex OAuth profile (Codex auth is global).
             profiles: (config.inference.codex_oauth?.profiles ?? []).slice(0, 1).map((p) => ({
@@ -244,6 +267,32 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
       }
 
       patch.inference = { ...(patch.inference ?? {}), openai_compat: { profiles: out } };
+    }
+
+    if (body.inference?.anthropic?.profiles) {
+      const raw = body.inference.anthropic.profiles;
+      const out: any[] = [];
+      const seen = new Set<string>();
+
+      for (const row of raw) {
+        const id = String(row?.id ?? "").trim();
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+
+        const next: any = { id };
+        if (typeof row.name === "string" && row.name.trim()) next.name = row.name.trim();
+        if (typeof row.base_url === "string" && row.base_url.trim()) next.base_url = row.base_url.trim();
+        if (typeof row.model === "string" && row.model.trim()) next.model = row.model.trim();
+        if (typeof row.auth_header === "string" && row.auth_header.trim()) next.auth_header = row.auth_header.trim();
+        if (typeof row.anthropic_version === "string" && row.anthropic_version.trim()) next.anthropic_version = row.anthropic_version.trim();
+
+        // api_key: optional; empty means unchanged.
+        if (typeof row.api_key === "string" && row.api_key.trim()) next.api_key = row.api_key.trim();
+
+        out.push(next);
+      }
+
+      patch.inference = { ...(patch.inference ?? {}), anthropic: { profiles: out } };
     }
 
     if (body.inference?.codex_oauth?.profiles) {

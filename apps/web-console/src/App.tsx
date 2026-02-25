@@ -144,21 +144,18 @@ function AppInner() {
   }, [state.sessions]);
 
   // Keep a live ref so async bootstrap work doesn't capture a stale session id.
+  // Update synchronously during render to avoid an effect-timing race.
   const activeIdRef = React.useRef(state.activeSessionId);
-  React.useEffect(() => {
-    activeIdRef.current = state.activeSessionId;
-  }, [state.activeSessionId]);
+  activeIdRef.current = state.activeSessionId;
 
   // Prefer the session id from the URL on initial load (direct linking / refresh).
   const urlSessionId = React.useMemo(() => getSessionIdFromPath(location.pathname), [location.pathname]);
 
   // Keep a live ref so async bootstrap doesn't accidentally pin the UI to the
   // session id that happened to be in the URL when the app first mounted.
-  // (e.g. user clicks "New session" while the session list is still loading.)
+  // Update synchronously during render to avoid an effect-timing race.
   const urlSessionIdRef = React.useRef<string | null>(urlSessionId);
-  React.useEffect(() => {
-    urlSessionIdRef.current = urlSessionId;
-  }, [urlSessionId]);
+  urlSessionIdRef.current = urlSessionId;
 
   // Theme: apply & persist (handles system changes in "system" mode).
   React.useEffect(() => {

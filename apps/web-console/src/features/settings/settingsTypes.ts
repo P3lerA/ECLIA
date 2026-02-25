@@ -68,6 +68,19 @@ export type SettingsDraft = {
     apiKey: string; // input only; empty = unchanged
   }>;
 
+
+  // Inference (Anthropic-compatible).
+  // Secrets are stored in local TOML; keys are never read back.
+  anthropicProfiles: Array<{
+    id: string;
+    name: string;
+    baseUrl: string;
+    modelId: string;
+    authHeader: string;
+    anthropicVersion: string;
+    apiKey: string; // input only; empty = unchanged
+  }>;
+
   // Codex OAuth (Codex app-server managed ChatGPT login)
   codexOAuthProfiles: CodexOAuthProfile[];
 
@@ -100,6 +113,17 @@ export type OpenAICompatProfileBase = {
   apiKeyConfigured: boolean;
 };
 
+
+export type AnthropicProfileBase = {
+  id: string;
+  name: string;
+  baseUrl: string;
+  modelId: string;
+  authHeader: string;
+  anthropicVersion: string;
+  apiKeyConfigured: boolean;
+};
+
 export type CfgBase = {
   host: string;
   port: number;
@@ -108,6 +132,7 @@ export type CfgBase = {
   debugParseAssistantOutput: boolean;
   systemInstruction: string;
   openaiCompatProfiles: OpenAICompatProfileBase[];
+  anthropicProfiles: AnthropicProfileBase[];
   codexOAuthProfiles: CodexOAuthProfile[];
   discordEnabled: boolean;
   discordAppId: string;
@@ -148,6 +173,19 @@ export type DevConfig = {
         base_url?: string;
         model?: string;
         auth_header?: string;
+        api_key_configured?: boolean;
+      }>;
+    };
+
+
+    anthropic?: {
+      profiles?: Array<{
+        id: string;
+        name?: string;
+        base_url?: string;
+        model?: string;
+        auth_header?: string;
+        anthropic_version?: string;
         api_key_configured?: boolean;
       }>;
     };

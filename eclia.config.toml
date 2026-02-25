@@ -40,6 +40,21 @@ model = "gpt-4o-mini"
 # api_key = "..."
 auth_header = "Authorization"
 
+[[inference.anthropic.profiles]]
+id = "default"
+name = "Anthropic Default"
+
+# Example: "https://api.anthropic.com"
+base_url = "https://api.anthropic.com"
+
+# Real upstream model id (NOT the UI route key).
+model = "claude-opus-4-6"
+
+# Secrets belong in eclia.config.local.toml:
+# api_key = "..."
+auth_header = "x-api-key"
+anthropic_version = "2023-06-01"
+
 [adapters.discord]
 # Discord adapter (optional).
 # Enable this to allow the Discord adapter process to start and authenticate.

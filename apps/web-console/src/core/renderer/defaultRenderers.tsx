@@ -1,5 +1,6 @@
 import React from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { CodeBlock, TextBlock, ToolBlock, ThoughtBlock } from "../types";
 import type { BlockRendererRegistry } from "./BlockRendererRegistry";
 import { apiApproveTool, type ToolApprovalDecision } from "../api/tools";
@@ -108,6 +109,7 @@ function TextBlockView({ block }: { block: TextBlock }) {
   return (
     <div className="block-markdown">
       <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
         components={{
           pre({ children, node: _node, ...props }) {
             // For fenced code blocks, the language (if any) is typically encoded as a

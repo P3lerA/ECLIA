@@ -2,6 +2,7 @@ import type { EcliaConfig } from "@eclia/config";
 import { resolveInferenceSelection } from "@eclia/config";
 
 import { createNoAuthCredential, createStaticApiKeyCredential, type CredentialProvider } from "./credentials.js";
+import { createAnthropicProvider } from "./anthropicProvider.js";
 import { createCodexAppServerProvider } from "./codexAppServerProvider.js";
 import { createOpenAICompatProvider } from "./openaiCompatProvider.js";
 import type { UpstreamProvider } from "./provider.js";
@@ -27,6 +28,28 @@ export function resolveUpstreamBackend(routeModel: string, config: EcliaConfig):
       apiKey: profile.api_key ?? "",
       headerName: profile.auth_header ?? "Authorization",
       treatAuthorizationAsBearer: true,
+      missingMessage
+    });
+
+    return { provider, credentials, upstreamModel };
+  }
+
+  if (sel.kind === "anthropic") {
+    const profile = sel.profile;
+    const upstreamModel = sel.upstreamModel;
+
+    const provider = createAnthropicProvider({
+      baseUrl: profile.base_url,
+      upstreamModel,
+      anthropicVersion: profile.anthropic_version
+    });
+
+    const missingMessage = `Missing API key for profile "${profile.name}". Set inference.anthropic.profiles[].api_key in eclia.config.local.toml (or add it in Settings).`;
+
+    const credentials = createStaticApiKeyCredential({
+      apiKey: profile.api_key ?? "",
+      headerName: profile.auth_header ?? "x-api-key",
+      treatAuthorizationAsBearer: false,
       missingMessage
     });
 

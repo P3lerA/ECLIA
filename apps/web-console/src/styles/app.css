@@ -451,6 +451,23 @@ button, input, select, textarea{
   text-decoration: underline dotted;
   cursor: not-allowed;
 }
+.block-markdown table{
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  display: block;
+  overflow-x: auto;
+}
+.block-markdown th,
+.block-markdown td{
+  border: 1px solid var(--line);
+  padding: 6px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+.block-markdown thead th{
+  background: var(--surface-2);
+}
 .block-tool{
   margin-top: 8px;
   border: 1px dashed var(--line);

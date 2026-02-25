@@ -45,6 +45,40 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
     });
   }
 
+  const anth = (config.inference as any)?.anthropic ?? {};
+  const rawAnthropicProfiles = Array.isArray((anth as any).profiles) ? ((anth as any).profiles as any[]) : [];
+  const anthropicProfiles: CfgBase["anthropicProfiles"] = [];
+  const seenAnthropicIds = new Set<string>();
+
+  for (let i = 0; i < rawAnthropicProfiles.length; i++) {
+    const p = rawAnthropicProfiles[i] ?? {};
+    const id = String(p.id ?? "").trim();
+    if (!id || seenAnthropicIds.has(id)) continue;
+    seenAnthropicIds.add(id);
+
+    const name = String(p.name ?? "").trim() || `Profile ${i + 1}`;
+    const baseUrl = String(p.base_url ?? "https://api.anthropic.com").trim() || "https://api.anthropic.com";
+    const modelId = String(p.model ?? "claude-3-5-sonnet-latest").trim() || "claude-3-5-sonnet-latest";
+    const authHeader = String(p.auth_header ?? "x-api-key").trim() || "x-api-key";
+    const anthropicVersion = String(p.anthropic_version ?? "2023-06-01").trim() || "2023-06-01";
+    const apiKeyConfigured = Boolean(p.api_key_configured);
+
+    anthropicProfiles.push({ id, name, baseUrl, modelId, authHeader, anthropicVersion, apiKeyConfigured });
+  }
+
+  if (anthropicProfiles.length === 0) {
+    anthropicProfiles.push({
+      id: "default",
+      name: "Default",
+      baseUrl: "https://api.anthropic.com",
+      modelId: "claude-3-5-sonnet-latest",
+      authHeader: "x-api-key",
+      anthropicVersion: "2023-06-01",
+      apiKeyConfigured: false
+    });
+  }
+
+
   const disc = config.adapters?.discord ?? {};
   const discordEnabled = Boolean((disc as any).enabled ?? false);
   const discordAppId = String((disc as any).app_id ?? "").trim();
@@ -138,6 +172,7 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
     debugParseAssistantOutput,
     systemInstruction,
     openaiCompatProfiles: profiles,
+    anthropicProfiles,
     codexOAuthProfiles: codexProfiles,
 
     discordEnabled,
@@ -229,6 +264,18 @@ export function buildDevConfigPatch(args: BuildDevConfigPatchArgs): any {
           ...(p.apiKey.trim().length ? { api_key: p.apiKey.trim() } : {})
         }))
       },
+      anthropic: {
+        profiles: draft.anthropicProfiles.map((p) => ({
+          id: p.id,
+          name: p.name.trim(),
+          base_url: p.baseUrl.trim(),
+          model: p.modelId.trim(),
+          auth_header: p.authHeader.trim() || "x-api-key",
+          anthropic_version: p.anthropicVersion.trim() || "2023-06-01",
+          ...(p.apiKey.trim().length ? { api_key: p.apiKey.trim() } : {})
+        }))
+      },
+
       codex_oauth: {
         profiles: draft.codexOAuthProfiles.slice(0, 1).map((p) => ({
           id: "default",
@@ -307,6 +354,24 @@ export function applyDevConfigPatchToCfgBase(cfgBase: CfgBase, body: any): CfgBa
       })
     : cfgBase.openaiCompatProfiles;
 
+
+  const nextAnthropicProfiles = Array.isArray(body.inference?.anthropic?.profiles)
+    ? (body.inference.anthropic.profiles as any[]).map((p, idx) => {
+        const prev = cfgBase.anthropicProfiles.find((x) => x.id === p.id);
+        const apiKeyConfigured = Boolean(String(p.api_key ?? "").trim()) || Boolean(prev?.apiKeyConfigured);
+
+        return {
+          id: String(p.id),
+          name: String(p.name ?? "").trim() || `Profile ${idx + 1}`,
+          baseUrl: String(p.base_url ?? "").trim() || "https://api.anthropic.com",
+          modelId: String(p.model ?? "").trim() || "claude-3-5-sonnet-latest",
+          authHeader: String(p.auth_header ?? "x-api-key"),
+          anthropicVersion: String(p.anthropic_version ?? "2023-06-01"),
+          apiKeyConfigured
+        };
+      })
+    : cfgBase.anthropicProfiles;
+
   const nextCodexProfiles = Array.isArray((body.inference as any)?.codex_oauth?.profiles)
     ? ((((body.inference as any).codex_oauth.profiles as any[]) ?? [])
         .map((p) => ({
@@ -353,6 +418,7 @@ export function applyDevConfigPatchToCfgBase(cfgBase: CfgBase, body: any): CfgBa
     systemInstruction:
       typeof (body.inference as any)?.system_instruction === "string" ? (body.inference as any).system_instruction : cfgBase.systemInstruction,
     openaiCompatProfiles: nextProfiles,
+    anthropicProfiles: nextAnthropicProfiles,
 
     codexOAuthProfiles: nextCodexProfiles,
 
@@ -392,6 +458,17 @@ export function draftAfterDevSave(d: SettingsDraft, nextBase: CfgBase, dirtyDevI
           apiKey: ""
         }))
       : d.inferenceProfiles.map((p) => ({ ...p, apiKey: "" })),
+    anthropicProfiles: dirtyDevInference
+      ? nextBase.anthropicProfiles.map((p) => ({
+          id: p.id,
+          name: p.name,
+          baseUrl: p.baseUrl,
+          modelId: p.modelId,
+          authHeader: p.authHeader,
+          anthropicVersion: p.anthropicVersion,
+          apiKey: ""
+        }))
+      : d.anthropicProfiles.map((p) => ({ ...p, apiKey: "" })),
     codexOAuthProfiles: nextBase.codexOAuthProfiles,
     inferenceSystemInstruction: nextBase.systemInstruction,
     codexHomeOverrideEnabled: Boolean(nextBase.codexHome.trim().length),

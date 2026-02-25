@@ -1,4 +1,5 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import { useActiveSession, useAppDispatch, useAppState, useMessages } from "../../state/AppState";
 import { MessageList } from "./MessageList";
 import { ChatComposer } from "./ChatComposer";
@@ -94,6 +95,7 @@ export function ChatView({
   const session = useActiveSession();
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const navigate = useNavigate();
   const messages = useMessages(session.id);
 
   const showWork = Boolean(state.settings.displayWorkProcess);
@@ -109,13 +111,18 @@ export function ChatView({
     if (dockFromLanding) setDockMotion("enter");
   }, [dockFromLanding]);
 
+  const onLogoClick = React.useCallback(() => {
+    dispatch({ type: "session/new" });
+    navigate("/");
+  }, [dispatch, navigate]);
+
   return (
     <div className="chatview">
       {/* Fixed (like the composer) so page scrolling never pushes it away. */}
       <div className="chatTopDock">
         <div className="chatTopDock-inner">
           <div className="chatview-head chatTopBar">
-            <EcliaLogo size="md" />
+            <EcliaLogo size="md" onClick={onLogoClick} />
             <div className="chatview-title">
               <div className="title">{session.title}</div>
               <div className="meta">{session.meta}</div>

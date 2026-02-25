@@ -6,7 +6,7 @@ import { dumpUpstreamRequestBody } from "../debug/upstreamRequests.js";
 import { spawnCodexAppServerRpc } from "./codexAppServerRpc.js";
 import { formatCodexError } from "./codexErrors.js";
 
-import type { BuiltContext, ProviderTurnResult, ToolCall, UpstreamProvider } from "./provider.js";
+import type { BuiltContext, ProviderTurnResult, ToolCall, ToolResult, UpstreamProvider } from "./provider.js";
 
 type CodexSandboxVariant = "readOnly" | "workspaceWrite" | "dangerFullAccess" | "externalSandbox";
 type CodexSandboxEnumStyle = "camel" | "kebab";
@@ -614,8 +614,8 @@ export function createCodexAppServerProvider(args: { upstreamModel: string }): U
       };
     },
 
-    buildToolResultMessage({ callId, content }) {
-      return { role: "tool", tool_call_id: callId, content };
+    buildToolResultMessages({ results }: { results: ToolResult[] }) {
+      return results.map((r) => ({ role: "tool", tool_call_id: r.callId, content: r.content }));
     }
   };
 }

@@ -27,7 +27,7 @@ import {
 } from "../tools/native/webTool.js";
 import { EXEC_TOOL_NAME, SEND_TOOL_NAME, WEB_TOOL_NAME } from "../tools/toolSchemas.js";
 import type { McpStdioClient } from "../mcp/stdioClient.js";
-import type { ToolCall, UpstreamProvider } from "../upstream/provider.js";
+import type { ToolCall, ToolResult, UpstreamProvider } from "../upstream/provider.js";
 import { safeJsonStringify } from "../httpUtils.js";
 import { sanitizeExecResultForUiAndModel } from "../tools/execResultSanitize.js";
 
@@ -150,8 +150,11 @@ export async function runToolCalls(args: {
     });
   }
 
-  // 2) Execute tools sequentially and feed results back into the upstream transcript.
-  const toolMessages: any[] = [];
+  // 2) Execute tools sequentially and persist results to the transcript.
+  //    We defer provider-specific tool-result message construction until the end,
+  //    because some upstreams (Anthropic Messages API) require a single message
+  //    containing *only* tool_result blocks for a tool-use round.
+  const toolResults: ToolResult[] = [];
 
   for (const p of plannedCalls) {
     if (isCancelled()) break;
@@ -545,9 +548,10 @@ export async function runToolCalls(args: {
       toolTs
     );
 
-    // Feed back to model
-    toolMessages.push(args.provider.buildToolResultMessage({ callId: call.callId, content: toolContent }));
+    // Feed back to model (provider-specific formatting happens after the loop).
+    toolResults.push({ callId: call.callId, content: toolContent, ok });
   }
 
+  const toolMessages = toolResults.length ? args.provider.buildToolResultMessages({ results: toolResults }) : [];
   return { toolMessages };
 }

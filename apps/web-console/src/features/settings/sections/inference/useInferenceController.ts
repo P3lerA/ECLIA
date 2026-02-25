@@ -1,7 +1,7 @@
 import React from "react";
 import type { CodexOAuthProfile, CodexOAuthStatus, CfgBase, SettingsDraft } from "../../settingsTypes";
 import { clearCodexOAuth, fetchCodexStatus, pickNativeFolder, startCodexOAuthLogin } from "../../settingsInteractions";
-import { codexProfileRoute, newLocalId, openaiProfileRoute } from "../../settingsUtils";
+import { anthropicProfileRoute, codexProfileRoute, newLocalId, openaiProfileRoute } from "../../settingsUtils";
 
 export type UseInferenceControllerArgs = {
   /** True when the inference section is currently visible/active. */
@@ -22,9 +22,10 @@ export type UseInferenceControllerArgs = {
  * and the model-route guard that keeps the provider dropdown consistent.
  */
 export function useInferenceController(args: UseInferenceControllerArgs) {
-  const { active, draft, setDraft, cfgBase, setCfgBase, cfgError } = args;
+  const { active, draft, setDraft, cfgBase, setCfgBase } = args;
 
   const [expandedOpenAICompatProfileId, setExpandedOpenAICompatProfileId] = React.useState<string | null>(null);
+  const [expandedAnthropicProfileId, setExpandedAnthropicProfileId] = React.useState<string | null>(null);
 
   const codexProfiles = draft.codexOAuthProfiles;
 
@@ -75,34 +76,76 @@ export function useInferenceController(args: UseInferenceControllerArgs) {
     }
   }, []);
 
+  const autoStatusCheckedRef = React.useRef(false);
+
   // Best-effort: check status once when entering the inference section.
   React.useEffect(() => {
     if (!active) return;
-    if (!cfgBase) return;
-    if (!codexProfiles.length) return;
-    if (codexStatusLoading) return;
-    if (codexStatusCheckedAt !== null) return;
+    if (autoStatusCheckedRef.current) return;
+    autoStatusCheckedRef.current = true;
     void refreshCodexStatus();
-  }, [active, cfgBase, codexProfiles.length, codexStatusLoading, codexStatusCheckedAt, refreshCodexStatus]);
+  }, [active, refreshCodexStatus]);
 
+  // Keep provider/model route consistent with the available profile lists.
   React.useEffect(() => {
+    if (!active) return;
+
     // Avoid "correcting" the provider selection before the config baseline
     // is hydrated. Otherwise, we can accidentally mark the page dirty and block
-    // OpenAI profile hydration (you'd need to hit Discard to recover).
-    if (!cfgBase && !cfgError) return;
+    // profile hydration (you'd need to hit Discard to recover).
+    if (!cfgBase) return;
 
     const k = String(draft.model ?? "").trim();
     const isCodex = /^codex-oauth(?::|$)/.test(k);
+    const isAnthropic =
+      /^anthropic(?::|$)/.test(k) ||
+      /^anthropic-compatible(?::|$)/.test(k) ||
+      k === "anthropic" ||
+      k === "anthropic-compatible";
     const isOpenAI = /^openai-compatible(?::|$)/.test(k) || k === "openai-compatible" || !k;
 
     if (isCodex) {
       const codexOk = codexProfiles.some((p) => codexProfileRoute(p.id) === k);
       if (codexOk) return;
+
       const next = codexProfiles.length
         ? codexProfileRoute(codexProfiles[0].id)
         : draft.inferenceProfiles.length
           ? openaiProfileRoute(draft.inferenceProfiles[0].id)
-          : k;
+          : draft.anthropicProfiles.length
+            ? anthropicProfileRoute(draft.anthropicProfiles[0].id)
+            : k;
+
+      if (k !== next) setDraft((d) => ({ ...d, model: next }));
+      return;
+    }
+
+    if (isAnthropic) {
+      const am = k.match(/^anthropic(?:-compatible)?:([\s\S]+)$/);
+      const id = am ? String(am[1] ?? "").trim() : "";
+
+      if (id && draft.anthropicProfiles.some((p) => p.id === id)) {
+        const canon = anthropicProfileRoute(id);
+        if (k !== canon) setDraft((d) => ({ ...d, model: canon }));
+        return;
+      }
+
+      if (!id && (k === "anthropic" || k === "anthropic-compatible")) {
+        if (draft.anthropicProfiles.length) {
+          const next = anthropicProfileRoute(draft.anthropicProfiles[0].id);
+          if (k !== next) setDraft((d) => ({ ...d, model: next }));
+        }
+        return;
+      }
+
+      const next = draft.anthropicProfiles.length
+        ? anthropicProfileRoute(draft.anthropicProfiles[0].id)
+        : draft.inferenceProfiles.length
+          ? openaiProfileRoute(draft.inferenceProfiles[0].id)
+          : codexProfiles.length
+            ? codexProfileRoute(codexProfiles[0].id)
+            : k;
+
       if (k !== next) setDraft((d) => ({ ...d, model: next }));
       return;
     }
@@ -114,13 +157,12 @@ export function useInferenceController(args: UseInferenceControllerArgs) {
       if (draft.inferenceProfiles.length) {
         const next = openaiProfileRoute(draft.inferenceProfiles[0].id);
         if (k !== next) setDraft((d) => ({ ...d, model: next }));
-      } else if (!cfgBase && codexProfiles.length) {
-        // Config service unavailable: fall back to Codex so the dropdown isn't blank.
-        const next = codexProfileRoute(codexProfiles[0].id);
+      } else if (draft.anthropicProfiles.length) {
+        const next = anthropicProfileRoute(draft.anthropicProfiles[0].id);
         if (k !== next) setDraft((d) => ({ ...d, model: next }));
       }
     }
-  }, [cfgBase, cfgError, draft.inferenceProfiles, draft.model, codexProfiles, setDraft]);
+  }, [active, cfgBase, draft.inferenceProfiles, draft.anthropicProfiles, draft.model, codexProfiles, setDraft]);
 
   const patchOpenAICompatProfile = React.useCallback(
     (profileId: string, patch: Partial<SettingsDraft["inferenceProfiles"][number]>) => {
@@ -162,6 +204,52 @@ export function useInferenceController(args: UseInferenceControllerArgs) {
       });
 
       setExpandedOpenAICompatProfileId((prev) => (prev === profileId ? null : prev));
+    },
+    [setDraft]
+  );
+
+
+  const patchAnthropicProfile = React.useCallback(
+    (profileId: string, patch: Partial<SettingsDraft["anthropicProfiles"][number]>) => {
+      setDraft((d) => ({
+        ...d,
+        anthropicProfiles: d.anthropicProfiles.map((p) => (p.id === profileId ? { ...p, ...patch } : p))
+      }));
+    },
+    [setDraft]
+  );
+
+  const newAnthropicProfile = React.useCallback(() => {
+    const id = newLocalId("p");
+
+    setDraft((d) => {
+      const base = d.anthropicProfiles[0];
+      const next = {
+        id,
+        name: "New profile",
+        baseUrl: base?.baseUrl ?? "https://api.anthropic.com",
+        modelId: base?.modelId ?? "claude-3-5-sonnet-latest",
+        authHeader: base?.authHeader ?? "x-api-key",
+        anthropicVersion: base?.anthropicVersion ?? "2023-06-01",
+        apiKey: ""
+      };
+      return { ...d, anthropicProfiles: [...d.anthropicProfiles, next] };
+    });
+
+    setExpandedAnthropicProfileId(id);
+  }, [setDraft]);
+
+  const deleteAnthropicProfile = React.useCallback(
+    (profileId: string) => {
+      setDraft((d) => {
+        if (d.anthropicProfiles.length <= 1) return d;
+        return {
+          ...d,
+          anthropicProfiles: d.anthropicProfiles.filter((p) => p.id !== profileId)
+        };
+      });
+
+      setExpandedAnthropicProfileId((prev) => (prev === profileId ? null : prev));
     },
     [setDraft]
   );
@@ -290,10 +378,17 @@ export function useInferenceController(args: UseInferenceControllerArgs) {
     expandedOpenAICompatProfileId,
     setExpandedOpenAICompatProfileId,
 
+    expandedAnthropicProfileId,
+    setExpandedAnthropicProfileId,
+
     codexProfiles,
     patchOpenAICompatProfile,
     newOpenAICompatProfile,
     deleteOpenAICompatProfile,
+
+    patchAnthropicProfile,
+    newAnthropicProfile,
+    deleteAnthropicProfile,
 
     patchCodexProfile,
 

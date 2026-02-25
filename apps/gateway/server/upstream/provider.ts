@@ -7,6 +7,14 @@ export type ToolCall = {
   argsRaw: string;
 };
 
+export type ToolResult = {
+  callId: string;
+  /** Content string that will be passed back to the upstream in its tool-result format. */
+  content: string;
+  /** Whether the tool execution succeeded (used by some providers for is_error flags). */
+  ok: boolean;
+};
+
 export type ProviderTurnResult = {
   assistantText: string;
   toolCalls: Map<string, ToolCall>;
@@ -75,6 +83,21 @@ export interface UpstreamProvider {
     debug?: UpstreamRequestDebugCapture;
   }): Promise<ProviderTurnResult>;
 
+  /**
+   * Build an assistant message that represents tool invocations in the upstream format.
+   *
+   * - OpenAI-compatible upstreams: assistant message with tool_calls.
+   * - Anthropic Messages API: assistant content blocks with tool_use.
+   */
   buildAssistantToolCallMessage(args: { assistantText: string; toolCalls: ToolCall[] }): any;
-  buildToolResultMessage(args: { callId: string; content: string }): any;
+
+  /**
+   * Build one-or-more messages that represent tool results in the upstream format.
+   *
+   * Important nuance:
+   * - OpenAI-compatible upstreams model tool results as N separate {role:"tool"} messages.
+   * - Anthropic Messages API requires a *single* {role:"user"} message containing only
+   *   tool_result blocks for a given tool-use round.
+   */
+  buildToolResultMessages(args: { results: ToolResult[] }): any[];
 }
