@@ -10,6 +10,7 @@
 
 import type { ToolAccessMode } from "../policy.js";
 import type { ToolSafetyCheck } from "../approvalFlow.js";
+import { DEFAULT_WEB_PROVIDER, WEB_PROVIDER_IDS, type WebProviderId } from "@eclia/config";
 
 export const WEB_TOOL_SCHEMA: any = {
   type: "object",
@@ -17,8 +18,8 @@ export const WEB_TOOL_SCHEMA: any = {
   properties: {
     provider: {
       type: "string",
-      enum: ["tavily"],
-      default: "tavily",
+      enum: [...WEB_PROVIDER_IDS],
+      default: DEFAULT_WEB_PROVIDER,
       description: "Web provider."
     },
     mode: {
@@ -69,7 +70,6 @@ export const WEB_TOOL_SCHEMA: any = {
 };
 
 export type WebToolMode = "search" | "extract";
-export type WebProviderId = "tavily";
 
 export type NormalizedWebToolArgs = {
   provider: WebProviderId;
@@ -145,7 +145,7 @@ function coerceEnum<T extends string>(v: unknown, allowed: readonly T[]): T | un
 export function parseWebArgs(raw: unknown): NormalizedWebToolArgs {
   const obj = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as any) : {};
 
-  const provider = (coerceEnum(obj.provider, ["tavily"] as const) ?? "tavily") as WebProviderId;
+  const provider = (coerceEnum(obj.provider, WEB_PROVIDER_IDS) ?? DEFAULT_WEB_PROVIDER) as WebProviderId;
   const modeRaw = coerceNonEmptyString(obj.mode);
   const mode = (coerceEnum(modeRaw, ["search", "extract"] as const) ?? "search") as WebToolMode;
   const unsupported_mode = modeRaw && modeRaw != mode ? modeRaw : undefined;
@@ -210,7 +210,7 @@ export function resolveTavilyAuth(rawConfig?: any): TavilyAuth | null {
   const activeId = coerceNonEmptyString(toolsWeb?.active_profile);
   const activeProfile =
     profiles?.find((p) => coerceNonEmptyString(p?.id) === activeId) ??
-    profiles?.find((p) => coerceNonEmptyString(p?.provider) === "tavily") ??
+    profiles?.find((p) => coerceNonEmptyString(p?.provider) === DEFAULT_WEB_PROVIDER) ??
     profiles?.[0];
 
   const cfgKeyProfile = coerceNonEmptyString(activeProfile?.api_key);
@@ -333,7 +333,7 @@ export async function invokeWebTool(args: {
   rawConfig?: any;
 }): Promise<{ ok: boolean; result: any }> {
   // Phase 1: Tavily only.
-  if (args.parsed.provider !== "tavily") {
+  if (args.parsed.provider !== DEFAULT_WEB_PROVIDER) {
     return {
       ok: false,
       result: {
@@ -353,7 +353,7 @@ export async function invokeWebTool(args: {
       result: {
         type: "web_result",
         ok: false,
-        provider: "tavily",
+        provider: DEFAULT_WEB_PROVIDER,
         mode: args.parsed.mode,
         error: {
           code: "missing_api_key",
@@ -371,7 +371,7 @@ export async function invokeWebTool(args: {
       result: {
         type: "web_result",
         ok: false,
-        provider: "tavily",
+        provider: DEFAULT_WEB_PROVIDER,
         mode: args.parsed.unsupported_mode,
         error: {
           code: "unsupported_mode",
@@ -389,7 +389,7 @@ export async function invokeWebTool(args: {
         result: {
           type: "web_result",
           ok: false,
-          provider: "tavily",
+          provider: DEFAULT_WEB_PROVIDER,
           mode: "search",
           error: { code: "missing_query", message: "mode=search requires 'query'" }
         }
@@ -414,7 +414,7 @@ export async function invokeWebTool(args: {
     if (!r.ok) {
       return {
         ok: false,
-        result: { type: "web_result", ok: false, provider: "tavily", mode: "search", error: r.error }
+        result: { type: "web_result", ok: false, provider: DEFAULT_WEB_PROVIDER, mode: "search", error: r.error }
       };
     }
 
@@ -425,7 +425,7 @@ export async function invokeWebTool(args: {
       result: {
         type: "web_result",
         ok: true,
-        provider: "tavily",
+        provider: DEFAULT_WEB_PROVIDER,
         mode: "search",
         query: typeof r.json?.query === "string" ? r.json.query : query,
         results: results
@@ -461,7 +461,7 @@ export async function invokeWebTool(args: {
         result: {
           type: "web_result",
           ok: false,
-          provider: "tavily",
+          provider: DEFAULT_WEB_PROVIDER,
           mode: "extract",
           error: { code: "missing_urls", message: "mode=extract requires 'url' or 'urls'" }
         }
@@ -482,7 +482,7 @@ export async function invokeWebTool(args: {
     if (!r.ok) {
       return {
         ok: false,
-        result: { type: "web_result", ok: false, provider: "tavily", mode: "extract", error: r.error }
+        result: { type: "web_result", ok: false, provider: DEFAULT_WEB_PROVIDER, mode: "extract", error: r.error }
       };
     }
 
@@ -515,7 +515,7 @@ export async function invokeWebTool(args: {
       result: {
         type: "web_result",
         ok: true,
-        provider: "tavily",
+        provider: DEFAULT_WEB_PROVIDER,
         mode: "extract",
         results: merged,
         failed_results: Array.isArray(r.json?.failed_results) ? r.json.failed_results : [],
@@ -531,7 +531,7 @@ export async function invokeWebTool(args: {
     result: {
       type: "web_result",
       ok: false,
-      provider: "tavily",
+      provider: DEFAULT_WEB_PROVIDER,
       mode: args.parsed.mode,
       error: { code: "unsupported_mode", message: `Unsupported web mode: ${String(args.parsed.mode)}` }
     }

@@ -137,6 +137,22 @@ def apply_upscale_toggle(tpl: Dict[str, Any], upscale: bool) -> None:
         if missing:
             raise KeyError(f"Template missing hires keys for --upscale: {missing}")
         tpl["enable_hr"] = True
+
+        # Forge quirk: some versions crash in hires pass if hr_additional_modules is missing or null.
+        # The UI's default is ["Use same choices"] and it is a multi-select (list) field.
+        ham = tpl.get("hr_additional_modules", None)
+        if ham is None:
+            tpl["hr_additional_modules"] = ["Use same choices"]
+        elif isinstance(ham, str):
+            s = ham.strip()
+            tpl["hr_additional_modules"] = [s] if s else ["Use same choices"]
+        elif isinstance(ham, list):
+            # Keep user-provided list as-is, but validate it's list[str].
+            if not all(isinstance(x, str) for x in ham):
+                raise TypeError("Template key 'hr_additional_modules' must be a list of strings (or omitted).")
+        else:
+            raise TypeError("Template key 'hr_additional_modules' must be a list of strings (or omitted).")
+
     else:
         tpl["enable_hr"] = False
 

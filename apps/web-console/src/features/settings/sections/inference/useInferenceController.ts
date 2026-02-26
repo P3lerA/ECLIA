@@ -1,7 +1,33 @@
 import React from "react";
+import {
+  ANTHROPIC_DEFAULT_AUTH_HEADER,
+  ANTHROPIC_DEFAULT_BASE_URL,
+  ANTHROPIC_DEFAULT_MODEL,
+  ANTHROPIC_DEFAULT_VERSION,
+  CODEX_OAUTH_DEFAULT_MODEL,
+  DEFAULT_PROFILE_ID,
+  DEFAULT_PROFILE_NAME,
+  OPENAI_COMPAT_DEFAULT_AUTH_HEADER,
+  OPENAI_COMPAT_DEFAULT_BASE_URL,
+  OPENAI_COMPAT_DEFAULT_MODEL
+} from "@eclia/config/provider-defaults";
+import { parseRouteKey } from "@eclia/config/route-key";
 import type { CodexOAuthProfile, CodexOAuthStatus, CfgBase, SettingsDraft } from "../../settingsTypes";
 import { clearCodexOAuth, fetchCodexStatus, pickNativeFolder, startCodexOAuthLogin } from "../../settingsInteractions";
 import { anthropicProfileRoute, codexProfileRoute, newLocalId, openaiProfileRoute } from "../../settingsUtils";
+
+const DEFAULT_OPENAI_PROFILE = {
+  base_url: OPENAI_COMPAT_DEFAULT_BASE_URL,
+  model: OPENAI_COMPAT_DEFAULT_MODEL,
+  auth_header: OPENAI_COMPAT_DEFAULT_AUTH_HEADER
+} as const;
+
+const DEFAULT_ANTHROPIC_PROFILE = {
+  base_url: ANTHROPIC_DEFAULT_BASE_URL,
+  model: ANTHROPIC_DEFAULT_MODEL,
+  auth_header: ANTHROPIC_DEFAULT_AUTH_HEADER,
+  anthropic_version: ANTHROPIC_DEFAULT_VERSION
+} as const;
 
 export type UseInferenceControllerArgs = {
   /** True when the inference section is currently visible/active. */
@@ -96,13 +122,10 @@ export function useInferenceController(args: UseInferenceControllerArgs) {
     if (!cfgBase) return;
 
     const k = String(draft.model ?? "").trim();
-    const isCodex = /^codex-oauth(?::|$)/.test(k);
-    const isAnthropic =
-      /^anthropic(?::|$)/.test(k) ||
-      /^anthropic-compatible(?::|$)/.test(k) ||
-      k === "anthropic" ||
-      k === "anthropic-compatible";
-    const isOpenAI = /^openai-compatible(?::|$)/.test(k) || k === "openai-compatible" || !k;
+    const parsed = parseRouteKey(k);
+    const isCodex = parsed.kind === "codex_oauth";
+    const isAnthropic = parsed.kind === "anthropic";
+    const isOpenAI = parsed.kind === "openai_compat" || parsed.kind === "raw_model";
 
     if (isCodex) {
       const codexOk = codexProfiles.some((p) => codexProfileRoute(p.id) === k);
@@ -121,8 +144,7 @@ export function useInferenceController(args: UseInferenceControllerArgs) {
     }
 
     if (isAnthropic) {
-      const am = k.match(/^anthropic(?:-compatible)?:([\s\S]+)$/);
-      const id = am ? String(am[1] ?? "").trim() : "";
+      const id = String(parsed.kind === "anthropic" ? parsed.profileId ?? "" : "").trim();
 
       if (id && draft.anthropicProfiles.some((p) => p.id === id)) {
         const canon = anthropicProfileRoute(id);
@@ -130,7 +152,7 @@ export function useInferenceController(args: UseInferenceControllerArgs) {
         return;
       }
 
-      if (!id && (k === "anthropic" || k === "anthropic-compatible")) {
+      if (!id) {
         if (draft.anthropicProfiles.length) {
           const next = anthropicProfileRoute(draft.anthropicProfiles[0].id);
           if (k !== next) setDraft((d) => ({ ...d, model: next }));
@@ -178,13 +200,12 @@ export function useInferenceController(args: UseInferenceControllerArgs) {
     const id = newLocalId("p");
 
     setDraft((d) => {
-      const base = d.inferenceProfiles[0];
       const next = {
         id,
         name: "New profile",
-        baseUrl: base?.baseUrl ?? "https://api.openai.com/v1",
-        modelId: base?.modelId ?? "gpt-4o-mini",
-        authHeader: base?.authHeader ?? "Authorization",
+        baseUrl: DEFAULT_OPENAI_PROFILE.base_url,
+        modelId: DEFAULT_OPENAI_PROFILE.model,
+        authHeader: DEFAULT_OPENAI_PROFILE.auth_header,
         apiKey: ""
       };
       return { ...d, inferenceProfiles: [...d.inferenceProfiles, next] };
@@ -223,14 +244,13 @@ export function useInferenceController(args: UseInferenceControllerArgs) {
     const id = newLocalId("p");
 
     setDraft((d) => {
-      const base = d.anthropicProfiles[0];
       const next = {
         id,
         name: "New profile",
-        baseUrl: base?.baseUrl ?? "https://api.anthropic.com",
-        modelId: base?.modelId ?? "claude-3-5-sonnet-latest",
-        authHeader: base?.authHeader ?? "x-api-key",
-        anthropicVersion: base?.anthropicVersion ?? "2023-06-01",
+        baseUrl: DEFAULT_ANTHROPIC_PROFILE.base_url,
+        modelId: DEFAULT_ANTHROPIC_PROFILE.model,
+        authHeader: DEFAULT_ANTHROPIC_PROFILE.auth_header,
+        anthropicVersion: DEFAULT_ANTHROPIC_PROFILE.anthropic_version,
         apiKey: ""
       };
       return { ...d, anthropicProfiles: [...d.anthropicProfiles, next] };
@@ -352,11 +372,11 @@ export function useInferenceController(args: UseInferenceControllerArgs) {
 
   const clearCodexOAuthConfig = React.useCallback(async () => {
     setCodexLoginMsg(null);
-    setCodexLoginBusyProfileId("default");
+    setCodexLoginBusyProfileId(DEFAULT_PROFILE_ID);
     try {
       await clearCodexOAuth();
 
-      const reset: CodexOAuthProfile = { id: "default", name: "Default", model: "gpt-5.2-codex" };
+      const reset: CodexOAuthProfile = { id: DEFAULT_PROFILE_ID, name: DEFAULT_PROFILE_NAME, model: CODEX_OAUTH_DEFAULT_MODEL };
       setDraft((d) => ({ ...d, codexOAuthProfiles: [reset] }));
       setCfgBase((b) => (b ? { ...b, codexOAuthProfiles: [reset] } : b));
 

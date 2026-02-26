@@ -1,5 +1,7 @@
 import type { TransportId } from "../../core/transport/TransportRegistry";
 import type { ToolName } from "../../core/tools/ToolRegistry";
+import type { ConfigApiConfig, ConfigApiRequestBody, ConfigApiResponse } from "@eclia/config";
+import type { WebProviderId } from "@eclia/config/provider-defaults";
 
 export type CodexOAuthProfile = {
   id: string;
@@ -48,7 +50,7 @@ export type SettingsDraft = {
   webProfiles: Array<{
     id: string;
     name: string;
-    provider: string;
+    provider: WebProviderId;
     apiKey: string; // input only; empty = unchanged
     projectId: string;
   }>;
@@ -151,7 +153,7 @@ export type CfgBase = {
   webProfiles: Array<{
     id: string;
     name: string;
-    provider: string;
+    provider: WebProviderId;
     projectId: string;
     apiKeyConfigured: boolean;
   }>;
@@ -160,79 +162,6 @@ export type CfgBase = {
   skillsAvailable: Array<{ name: string; summary: string }>;
 };
 
-export type DevConfig = {
-  codex_home?: string;
-  console: { host: string; port: number };
-  api?: { port: number };
-  persona?: {
-    user_preferred_name?: string;
-    assistant_name?: string;
-  };
-  debug?: { capture_upstream_requests?: boolean; parse_assistant_output?: boolean };
-  skills?: {
-    enabled?: string[];
-    available?: Array<{ name?: string; summary?: string }>;
-  };
-  inference?: {
-    system_instruction?: string;
-    provider?: string;
-    openai_compat?: {
-      profiles?: Array<{
-        id: string;
-        name?: string;
-        base_url?: string;
-        model?: string;
-        auth_header?: string;
-        api_key_configured?: boolean;
-      }>;
-    };
-
-
-    anthropic?: {
-      profiles?: Array<{
-        id: string;
-        name?: string;
-        base_url?: string;
-        model?: string;
-        auth_header?: string;
-        anthropic_version?: string;
-        api_key_configured?: boolean;
-      }>;
-    };
-
-    codex_oauth?: {
-      profiles?: Array<{
-        id: string;
-        name?: string;
-        model?: string;
-      }>;
-    };
-  };
-  adapters?: {
-    discord?: {
-      enabled?: boolean;
-      app_id?: string;
-      guild_ids?: string[];
-      default_stream_mode?: string;
-      app_id_configured?: boolean;
-      bot_token_configured?: boolean;
-    };
-  };
-
-  tools?: {
-    web?: {
-      active_profile?: string;
-      profiles?: Array<{
-        id: string;
-        name?: string;
-        provider?: string;
-        project_id?: string;
-        api_key_configured?: boolean;
-      }>;
-    };
-  };
-};
-
-export type ConfigResponse =
-  | { ok: true; config: DevConfig; restartRequired?: boolean; warning?: string }
-  | { ok: false; error: string; hint?: string };
+export type DevConfig = ConfigApiConfig;
+export type ConfigRequestBody = ConfigApiRequestBody;
+export type ConfigResponse = ConfigApiResponse;

@@ -1,5 +1,6 @@
 import { buildTruncatedContext } from "../context.js";
 import { inferVendorFromBaseUrl } from "../normalize.js";
+import { ANTHROPIC_DEFAULT_BASE_URL, ANTHROPIC_DEFAULT_VERSION } from "@eclia/config";
 
 import type { OpenAICompatMessage } from "../transcriptTypes.js";
 
@@ -14,7 +15,7 @@ import type { ToolResult, UpstreamProvider } from "./provider.js";
 
 function anthropicMessagesUrl(baseUrl: string): string {
   const trimmed = String(baseUrl ?? "").trim().replace(/\/+$/, "");
-  if (!trimmed) return "https://api.anthropic.com/v1/messages";
+  if (!trimmed) return `${ANTHROPIC_DEFAULT_BASE_URL}/v1/messages`;
   if (trimmed.endsWith("/messages")) return trimmed;
   if (trimmed.endsWith("/v1")) return `${trimmed}/messages`;
   return `${trimmed}/v1/messages`;
@@ -38,7 +39,7 @@ export function createAnthropicProvider(args: {
   const baseUrl = args.baseUrl;
   const upstreamModel = args.upstreamModel;
   const url = anthropicMessagesUrl(baseUrl);
-  const anthropicVersion = String(args.anthropicVersion ?? "2023-06-01").trim() || "2023-06-01";
+  const anthropicVersion = String(args.anthropicVersion ?? ANTHROPIC_DEFAULT_VERSION).trim() || ANTHROPIC_DEFAULT_VERSION;
 
   const origin = {
     adapter: "anthropic",

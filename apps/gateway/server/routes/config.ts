@@ -1,82 +1,20 @@
 import http from "node:http";
 
-import { loadEcliaConfig, preflightListen, type EcliaConfigPatch, writeLocalEcliaConfig } from "@eclia/config";
+import {
+  DEFAULT_PROFILE_ID,
+  DEFAULT_PROFILE_NAME,
+  DEFAULT_WEB_PROVIDER,
+  isWebProviderId,
+  loadEcliaConfig,
+  preflightListen,
+  type ConfigApiRequestBody,
+  type EcliaConfigPatch,
+  writeLocalEcliaConfig
+} from "@eclia/config";
 
 import { discoverSkills, validateEnabledSkills } from "../skills/registry.js";
 
 import { json, readJson } from "../httpUtils.js";
-
-type ConfigReqBody = {
-  codex_home?: string;
-  console?: { host?: string; port?: number };
-  api?: { port?: number };
-  persona?: {
-    user_preferred_name?: string;
-    assistant_name?: string;
-  };
-  debug?: {
-    capture_upstream_requests?: boolean;
-    parse_assistant_output?: boolean;
-  };
-  skills?: {
-    enabled?: string[];
-  };
-  inference?: {
-    system_instruction?: string;
-    openai_compat?: {
-      profiles?: Array<{
-        id: string;
-        name?: string;
-        base_url?: string;
-        model?: string;
-        api_key?: string;
-        auth_header?: string;
-      }>;
-    };
-
-    anthropic?: {
-      profiles?: Array<{
-        id: string;
-        name?: string;
-        base_url?: string;
-        model?: string;
-        api_key?: string;
-        auth_header?: string;
-        anthropic_version?: string;
-      }>;
-    };
-
-    codex_oauth?: {
-      profiles?: Array<{
-        id: string;
-        name?: string;
-        model?: string;
-      }>;
-    };
-  };
-  adapters?: {
-    discord?: {
-      enabled?: boolean;
-      app_id?: string; // non-secret (optional; empty means unchanged)
-      bot_token?: string; // secret (optional; empty means unchanged)
-      guild_ids?: string[]; // non-secret (optional)
-      default_stream_mode?: string; // non-secret (optional): "full" | "final"
-    };
-  };
-
-  tools?: {
-    web?: {
-      active_profile?: string;
-      profiles?: Array<{
-        id: string;
-        name?: string;
-        provider?: string;
-        api_key?: string;
-        project_id?: string;
-      }>;
-    };
-  };
-};
 
 export async function handleConfig(req: http.IncomingMessage, res: http.ServerResponse) {
   const { config, raw, rootDir } = loadEcliaConfig(process.cwd());
@@ -92,7 +30,8 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
       const id = String(row?.id ?? "").trim();
       if (!id || seenWebIds.has(id)) continue;
       seenWebIds.add(id);
-      const provider = typeof row?.provider === "string" && row.provider.trim() ? row.provider.trim() : "tavily";
+      const rawProvider = typeof row?.provider === "string" ? row.provider.trim() : "";
+      const provider = isWebProviderId(rawProvider) ? rawProvider : DEFAULT_WEB_PROVIDER;
       const name = typeof row?.name === "string" && row.name.trim() ? row.name.trim() : id;
       const project_id = typeof row?.project_id === "string" ? row.project_id.trim() : "";
       const api_key_configured = Boolean(typeof row?.api_key === "string" && row.api_key.trim());
@@ -108,9 +47,9 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
 
     if (toolsWebProfiles.length === 0) {
       toolsWebProfiles.push({
-        id: "default",
-        name: "Default",
-        provider: "tavily",
+        id: DEFAULT_PROFILE_ID,
+        name: DEFAULT_PROFILE_NAME,
+        provider: DEFAULT_WEB_PROVIDER,
         project_id: legacyTavilyProject,
         api_key_configured: Boolean(legacyTavilyKey)
       });
@@ -118,14 +57,14 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
 
     let toolsWebActiveProfile = typeof toolsWeb.active_profile === "string" ? toolsWeb.active_profile.trim() : "";
     if (!toolsWebProfiles.some((p) => p.id === toolsWebActiveProfile)) {
-      toolsWebActiveProfile = toolsWebProfiles[0]?.id ?? "default";
+      toolsWebActiveProfile = toolsWebProfiles[0]?.id ?? DEFAULT_PROFILE_ID;
     }
 
     // If a legacy Tavily key is present but profiles are configured without api_key, treat the
     // active profile as "configured" for UX (the runtime resolver will fall back to legacy paths).
     if (legacyTavilyKey) {
       const active = toolsWebProfiles.find((p) => p.id === toolsWebActiveProfile);
-      if (active && active.provider === "tavily" && !active.api_key_configured) {
+      if (active && active.provider === DEFAULT_WEB_PROVIDER && !active.api_key_configured) {
         active.api_key_configured = true;
       }
     }
@@ -200,7 +139,7 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
   }
 
   if (req.method === "PUT") {
-    const body = (await readJson(req)) as ConfigReqBody;
+    const body = (await readJson(req)) as ConfigApiRequestBody;
 
     const patch: EcliaConfigPatch = {};
 
@@ -323,7 +262,7 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
       // Only allow a single profile (Codex auth is global).
       const row = Array.isArray(raw) ? raw[0] : null;
       if (row) {
-        const next: any = { id: "default" };
+        const next: any = { id: DEFAULT_PROFILE_ID };
         if (typeof row.name === "string" && row.name.trim()) next.name = row.name.trim();
         if (typeof row.model === "string" && row.model.trim()) next.model = row.model.trim();
         out.push(next);
@@ -384,12 +323,13 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
           if (!id || seen.has(id)) continue;
           seen.add(id);
 
-          const provider = typeof row.provider === "string" && row.provider.trim() ? row.provider.trim() : "tavily";
-          if (provider !== "tavily") {
+          const rawProvider = typeof row.provider === "string" ? row.provider.trim() : "";
+          const provider = rawProvider || DEFAULT_WEB_PROVIDER;
+          if (!isWebProviderId(provider)) {
             return json(res, 400, {
               ok: false,
               error: "bad_request",
-              hint: "tools.web.profiles[].provider must be 'tavily' (only provider supported for now)."
+              hint: `tools.web.profiles[].provider must be '${DEFAULT_WEB_PROVIDER}' (only provider supported for now).`
             });
           }
 

@@ -1,4 +1,5 @@
 import React from "react";
+import { DEFAULT_PROFILE_NAME, DEFAULT_WEB_PROVIDER, isWebProviderId } from "@eclia/config/provider-defaults";
 import { SettingDisclosure } from "../../components/SettingDisclosure";
 import type { SettingsDraft } from "../../settingsTypes";
 import { newLocalId } from "../../settingsUtils";
@@ -15,7 +16,7 @@ export type WebToolSettingsProps = {
   webValid: boolean;
 };
 
-const WEB_PROVIDERS: Array<{ id: string; label: string }> = [{ id: "tavily", label: "Tavily" }];
+const WEB_PROVIDERS: Array<{ id: string; label: string }> = [{ id: DEFAULT_WEB_PROVIDER, label: "Tavily" }];
 
 /**
  * Web tool settings.
@@ -47,7 +48,7 @@ export function WebToolSettings(props: WebToolSettingsProps) {
       const next = {
         id,
         name: "New profile",
-        provider: base?.provider ?? "tavily",
+        provider: base?.provider ?? DEFAULT_WEB_PROVIDER,
         apiKey: "",
         projectId: base?.projectId ?? ""
       };
@@ -151,7 +152,7 @@ export function WebToolSettings(props: WebToolSettingsProps) {
                     className="select"
                     value={p.name}
                     onChange={(e) => patchProfile(p.id, { name: e.target.value })}
-                    placeholder="Default"
+                    placeholder={DEFAULT_PROFILE_NAME}
                     spellCheck={false}
                     disabled={devDisabled}
                   />
@@ -162,7 +163,11 @@ export function WebToolSettings(props: WebToolSettingsProps) {
                   <select
                     className="select"
                     value={p.provider}
-                    onChange={(e) => patchProfile(p.id, { provider: e.target.value })}
+                    onChange={(e) =>
+                      patchProfile(p.id, {
+                        provider: isWebProviderId(e.target.value) ? e.target.value : DEFAULT_WEB_PROVIDER
+                      })
+                    }
                     disabled={devDisabled}
                     title={providerLabel}
                   >

@@ -1,4 +1,10 @@
 import type { CodexOAuthProfile, SettingsDraft } from "./settingsTypes";
+import {
+  anthropicProfileRouteKey,
+  codexOAuthProfileRouteKey,
+  openaiCompatProfileRouteKey,
+  parseRouteKey
+} from "@eclia/config/route-key";
 
 export function normalizeDiscordStreamMode(v: unknown): "full" | "final" {
   const s = typeof v === "string" ? v.trim() : "";
@@ -132,15 +138,15 @@ export function sameStringArray(a: string[], b: string[]): boolean {
 }
 
 export function openaiProfileRoute(profileId: string): string {
-  return `openai-compatible:${profileId}`;
+  return openaiCompatProfileRouteKey(profileId);
 }
 
 export function anthropicProfileRoute(profileId: string): string {
-  return `anthropic-compatible:${profileId}`;
+  return anthropicProfileRouteKey(profileId);
 }
 
 export function codexProfileRoute(profileId: string): string {
-  return `codex-oauth:${profileId}`;
+  return codexOAuthProfileRouteKey(profileId);
 }
 
 export function newLocalId(fallbackPrefix: string): string {
@@ -155,36 +161,29 @@ export function normalizeActiveModel(
   anthropicProfiles: Array<{ id: string }> | null | undefined
 ): string {
   const k = String(current ?? "").trim();
+  const parsed = parseRouteKey(k);
 
-  // Codex routes are managed entirely on the frontend for now. Preserve them.
-  if (/^codex-oauth(?::|$)/.test(k)) return k;
+  // Codex routes are managed entirely on the frontend for now.
+  if (parsed.kind === "codex_oauth") return parsed.raw;
 
   const openaiFirst = openaiProfiles && openaiProfiles.length ? openaiProfileRoute(openaiProfiles[0].id) : null;
   const anthropicFirst = anthropicProfiles && anthropicProfiles.length ? anthropicProfileRoute(anthropicProfiles[0].id) : null;
 
-  // OpenAI-compatible routes.
-  const om = k.match(/^openai-compatible:(.+)$/);
-  if (om) {
-    const id = String(om[1] ?? "").trim();
+  if (parsed.kind === "openai_compat") {
+    const id = String(parsed.profileId ?? "").trim();
+    if (!id) return openaiFirst ?? anthropicFirst ?? k;
     if (openaiProfiles?.some((p) => p.id === id)) return k;
     return openaiFirst ?? anthropicFirst ?? k;
   }
-  if (k === "openai-compatible" || !k) {
-    return openaiFirst ?? anthropicFirst ?? k;
-  }
 
-  // Anthropic routes (accept both anthropic:<id> and anthropic-compatible:<id>).
-  const am = k.match(/^anthropic(?:-compatible)?:([\s\S]+)$/);
-  if (am) {
-    const id = String(am[1] ?? "").trim();
+  if (parsed.kind === "anthropic") {
+    const id = String(parsed.profileId ?? "").trim();
+    if (!id) return anthropicFirst ?? openaiFirst ?? k;
     if (anthropicProfiles?.some((p) => p.id === id)) return anthropicProfileRoute(id);
     return anthropicFirst ?? openaiFirst ?? k;
   }
-  if (k === "anthropic" || k === "anthropic-compatible") {
-    return anthropicFirst ?? openaiFirst ?? k;
-  }
 
-  // Legacy route keys and any other values map to the default profile.
+  // Raw model ids and any other values map to the default profile.
   return openaiFirst ?? anthropicFirst ?? k;
 }
 

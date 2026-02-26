@@ -7,7 +7,7 @@
     "eclia": "dist/index.js"
   },
   "scripts": {
-    "dev": "tsx src/index.ts",
+    "dev": "pnpm -C ../../packages/config build && tsx src/index.ts",
     "build": "tsup src/index.ts --format esm --dts --clean",
     "start": "node dist/index.js"
   },

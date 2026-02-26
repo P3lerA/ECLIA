@@ -1,10 +1,7 @@
 import http from "node:http";
 import crypto from "node:crypto";
-import path from "node:path";
-import * as fs from "node:fs";
 
 import { loadEcliaConfig } from "@eclia/config";
-import { isEcliaRef, uriFromRef, tryParseArtifactUriToRepoRelPath } from "@eclia/tool-protocol";
 import {
   Client,
   Events,
@@ -12,522 +9,39 @@ import {
   Partials,
   REST,
   Routes,
-  MessageFlags,
-  type ChatInputCommandInteraction,
-  type Message
+  MessageFlags
 } from "discord.js";
 
-type DiscordOrigin = {
-  kind: "discord";
-  guildId?: string;
-  guildName?: string;
-  channelId: string;
-  channelName?: string;
-  threadId?: string;
-  threadName?: string;
-};
+import { env, hasEnv, boolEnv, normalizeIdList, json, readJson } from "../../utils.js";
+import {
+  guessGatewayUrl,
+  getGatewayToken,
+  resetGatewaySession,
+  coerceStreamMode,
+  runGatewayChat,
+  fetchArtifactBytes
+} from "../../gateway.js";
+import {
+  type SendRequest,
+  sessionIdForDiscord,
+  originFromInteraction,
+  originFromMessage,
+  sendTextOrFile,
+  createInteractionSendFn,
+  createMessageSendFn,
+  extractRefToRepoRelPath,
+  makeOnRecordHandler
+} from "./discord-format.js";
 
-type SendRequest = {
-  origin: DiscordOrigin;
-  content?: string;
-  refs?: string[]; // <eclia://artifact/...> or eclia://artifact/... or .eclia/artifacts/...
-};
-
-function env(name: string, fallback?: string): string {
-  const v = process.env[name];
-  return (v ?? fallback ?? "").trim();
-}
-
-function hasEnv(name: string): boolean {
-  const v = process.env[name];
-  return typeof v === "string" && v.trim().length > 0;
-}
-
-function boolEnv(name: string): boolean {
-  const v = env(name).toLowerCase();
-  return v === "1" || v === "true" || v === "yes" || v === "on";
-}
-
-function coerceStreamMode(v: unknown): "full" | "final" | null {
-  const s = typeof v === "string" ? v.trim() : "";
-  if (s === "full" || s === "final") return s;
-  return null;
-}
-
-function normalizeIdList(input: unknown): string[] {
-  const raw: string[] = [];
-
-  if (Array.isArray(input)) {
-    for (const x of input) {
-      const s = typeof x === "string" ? x.trim() : typeof x === "number" ? String(x) : "";
-      if (s) raw.push(s);
-    }
-  } else if (typeof input === "string") {
-    for (const part of input.split(/[\n\r,\t\s]+/g)) {
-      const s = part.trim();
-      if (s) raw.push(s);
-    }
-  }
-
-  // De-dup while preserving order.
-  const seen = new Set<string>();
-  const uniq: string[] = [];
-  for (const s of raw) {
-    if (seen.has(s)) continue;
-    seen.add(s);
-    uniq.push(s);
-  }
-  return uniq;
-}
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function guildIdsFromEnv(): string[] {
-  // Back-compat: DISCORD_GUILD_ID (single)
   const single = env("DISCORD_GUILD_ID");
-  // New: DISCORD_GUILD_IDS (comma/newline/space separated)
   const multi = env("DISCORD_GUILD_IDS");
   const src = multi || single;
   return normalizeIdList(src);
-}
-
-function json(res: http.ServerResponse, status: number, obj: unknown) {
-  const body = JSON.stringify(obj, null, 2);
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
-  res.end(body);
-}
-
-async function readJson(req: http.IncomingMessage): Promise<any> {
-  const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
-  const raw = Buffer.concat(chunks).toString("utf-8");
-  if (!raw.trim()) return {};
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-
-function sessionIdForDiscord(origin: DiscordOrigin): string {
-  // SessionStore requires: /^[a-zA-Z0-9_-]{1,120}$/
-  // Discord snowflakes are numeric, so we can safely embed them.
-  const parts: string[] = ["discord"];
-  if (origin.guildId) parts.push(`g${origin.guildId}`);
-  // If threadId exists, it is already a channel id in Discord.
-  if (origin.threadId) parts.push(`t${origin.threadId}`);
-  else parts.push(`c${origin.channelId}`);
-  const id = parts.join("_");
-  return id.length <= 120 ? id : id.slice(0, 120);
-}
-
-function guessGatewayUrl(): string {
-  const explicit = env("ECLIA_GATEWAY_URL");
-  if (explicit) return explicit;
-  const { config } = loadEcliaConfig(process.cwd());
-  return `http://127.0.0.1:${config.api.port}`;
-}
-
-let cachedGatewayToken: string | null = null;
-
-function readGatewayToken(): string {
-  // Optional override (useful when the gateway isn't on the same machine).
-  const explicit = env("ECLIA_GATEWAY_TOKEN");
-  if (explicit) return explicit;
-
-  try {
-    const { rootDir } = loadEcliaConfig(process.cwd());
-    const tokenPath = path.join(rootDir, ".eclia", "gateway.token");
-    return fs.readFileSync(tokenPath, "utf-8").trim();
-  } catch {
-    return "";
-  }
-}
-
-function getGatewayToken(): string {
-  if (cachedGatewayToken && cachedGatewayToken.trim()) return cachedGatewayToken;
-  const t = readGatewayToken();
-  if (t) cachedGatewayToken = t;
-  return t;
-}
-
-function withGatewayAuth(headers: Record<string, string>): Record<string, string> {
-  const t = getGatewayToken();
-  return t ? { ...headers, Authorization: `Bearer ${t}` } : headers;
-}
-
-async function ensureGatewaySession(gatewayUrl: string, sessionId: string, origin: DiscordOrigin) {
-  const r = await fetch(`${gatewayUrl}/api/sessions`, {
-    method: "POST",
-    headers: withGatewayAuth({ "Content-Type": "application/json" }),
-    body: JSON.stringify({
-      id: sessionId,
-      title: `Discord ${origin.threadId ? "thread" : "channel"} ${origin.threadId ?? origin.channelId}`,
-      origin
-    })
-  });
-  const j = (await r.json().catch(() => null)) as any;
-  if (!j?.ok) throw new Error(`failed_to_create_session: ${j?.error ?? r.status}`);
-  return j.session;
-}
-
-async function resetGatewaySession(gatewayUrl: string, sessionId: string) {
-  const r = await fetch(`${gatewayUrl}/api/sessions/${encodeURIComponent(sessionId)}/reset`, {
-    method: "POST",
-    headers: withGatewayAuth({ "Content-Type": "application/json" })
-  });
-  const j = (await r.json().catch(() => null)) as any;
-  if (!j?.ok) throw new Error(`failed_to_reset_session: ${j?.error ?? r.status}`);
-  return j.session;
-}
-
-
-type SseEvent = { event: string; data: string };
-
-async function* iterSse(resp: Response): AsyncGenerator<SseEvent> {
-  if (!resp.body) return;
-  const decoder = new TextDecoder();
-  let buf = "";
-
-  // Node's fetch body is an AsyncIterable<Uint8Array>
-  for await (const chunk of resp.body as any) {
-    buf += decoder.decode(chunk, { stream: true });
-    while (true) {
-      const idx = buf.indexOf("\n\n");
-      if (idx < 0) break;
-      const part = buf.slice(0, idx);
-      buf = buf.slice(idx + 2);
-
-      let event = "message";
-      const dataLines: string[] = [];
-      for (const line of part.split("\n")) {
-        if (line.startsWith("event:")) event = line.slice("event:".length).trim();
-        if (line.startsWith("data:")) dataLines.push(line.slice("data:".length).trimStart());
-      }
-      yield { event, data: dataLines.join("\n") };
-    }
-  }
-}
-
-function explainFetchError(e: any): string {
-  const msg = String(e?.message ?? e);
-  const c: any = e && typeof e === "object" ? (e as any).cause : null;
-  if (c && typeof c === "object") {
-    const code = c.code || c.errno;
-    const cmsg = c.message;
-    const parts = [code, cmsg].filter(Boolean).join(": ");
-    return parts ? `${msg} (${parts})` : msg;
-  }
-  return msg;
-}
-
-
-async function runGatewayChat(args: {
-  gatewayUrl: string;
-  sessionId: string;
-  userText: string;
-  model?: string;
-  toolAccessMode?: "safe" | "full";
-  streamMode?: "full" | "final";
-  origin?: any;
-  /**
-   * Optional record-level callback for verbose adapters.
-   *
-   * When provided, the adapter will NOT stream partial deltas. Instead it will emit
-   * one callback per logical transcript record:
-   * - assistant message (including tool calls)
-   * - tool result
-   *
-   * This keeps Discord output stable (no message edits) while still exposing tool
-   * activity when streamMode="full".
-   */
-  onRecord?: (record: DiscordTranscriptRecord) => Promise<void>;
-}): Promise<{ text: string; meta?: any }>
-{
-  let resp: Response;
-  try {
-    resp = await fetch(`${args.gatewayUrl}/api/chat`, {
-      method: "POST",
-      headers: withGatewayAuth({ "Content-Type": "application/json" }),
-      body: JSON.stringify({
-        sessionId: args.sessionId,
-        userText: args.userText,
-        model: args.model,
-        toolAccessMode: args.toolAccessMode ?? "full",
-        streamMode: args.streamMode ?? (args.onRecord ? "full" : "final"),
-        origin: args.origin
-      })
-    });
-  } catch (e: any) {
-    throw new Error(`fetch_failed: ${explainFetchError(e)}`);
-  }
-
-  if (!resp.ok) {
-    const t = await resp.text().catch(() => "");
-    throw new Error(`gateway_http_${resp.status}: ${t ? t.slice(0, 240) : resp.statusText}`);
-  }
-
-  const onRecord = typeof args.onRecord === "function" ? args.onRecord : null;
-
-  // Serialize adapter-side record emissions to preserve ordering, but DO NOT
-  // await within the SSE loop. Awaiting Discord sends here can stall consumption of
-  // the gateway response stream and trigger undici/Fetch "terminated" errors.
-  let recordQueue: Promise<void> = Promise.resolve();
-  const enqueueRecord = (rec: DiscordTranscriptRecord) => {
-    if (!onRecord) return;
-    recordQueue = recordQueue
-      .then(() => onRecord(rec))
-      .catch(() => {
-        // Swallow adapter-side send failures.
-      });
-  };
-  const drainRecords = async () => {
-    if (!onRecord) return;
-    await recordQueue;
-  };
-
-  let current = "";
-  let lastCompleted = "";
-  let finalText = "";
-  let meta: any = undefined;
-
-  // Record-level streaming state.
-  let pendingAssistantText: string | null = null;
-  let pendingAssistantToolCalls: any[] = [];
-  let assistantFlushTimer: NodeJS.Timeout | null = null;
-  const ASSISTANT_FLUSH_DELAY_MS = 250;
-
-  const clearAssistantFlushTimer = () => {
-    if (assistantFlushTimer) clearTimeout(assistantFlushTimer);
-    assistantFlushTimer = null;
-  };
-
-  const flushAssistantRecord = (reason: string) => {
-    clearAssistantFlushTimer();
-    if (!onRecord) return;
-    if (pendingAssistantText === null) return;
-
-    const toolCalls = pendingAssistantToolCalls;
-    const text = pendingAssistantText;
-
-    pendingAssistantText = null;
-    pendingAssistantToolCalls = [];
-
-    enqueueRecord({ type: "assistant", text, toolCalls, reason });
-  };
-
-  const scheduleAssistantFlush = () => {
-    if (!onRecord) return;
-    clearAssistantFlushTimer();
-    assistantFlushTimer = setTimeout(() => {
-      flushAssistantRecord("debounce");
-    }, ASSISTANT_FLUSH_DELAY_MS);
-  };
-
-  let sseError: any = null;
-  try {
-    for await (const ev of iterSse(resp)) {
-        if (ev.event === "meta") {
-          try { meta = JSON.parse(ev.data); } catch { /* ignore */ }
-        }
-        if (ev.event === "assistant_start") {
-          // A new assistant phase is starting; flush any pending assistant record first.
-          flushAssistantRecord("assistant_start");
-          current = "";
-        }
-        if (ev.event === "delta") {
-          try {
-            const j = JSON.parse(ev.data) as any;
-            const text = typeof j?.text === "string" ? j.text : "";
-            if (text) current += text;
-          } catch {
-            // ignore malformed chunks
-          }
-        }
-        if (ev.event === "assistant_end") {
-          // Legacy gateway: end-of-turn marker for streamed responses
-          lastCompleted = current;
-
-          if (onRecord) {
-            // Close the assistant record, but debounce to allow tool_call events
-            // (which belong to the assistant transcript entry) to arrive.
-            pendingAssistantText = current;
-            current = "";
-            scheduleAssistantFlush();
-          }
-        }
-        if (ev.event === "tool_call") {
-          // Tool call blocks are part of the assistant transcript record.
-          if (onRecord) {
-            try {
-              const j = JSON.parse(ev.data) as any;
-              pendingAssistantToolCalls.push(j);
-              // Debounce flush so multiple tool calls batch into the same assistant record.
-              scheduleAssistantFlush();
-            } catch {
-              // ignore malformed tool_call blocks
-            }
-          }
-        }
-        if (ev.event === "tool_result") {
-          if (onRecord) {
-            // Ensure the preceding assistant record (with tool calls) is flushed before tool results.
-            flushAssistantRecord("tool_result");
-            try {
-              const j = JSON.parse(ev.data) as any;
-              enqueueRecord({ type: "tool_result", ...j });
-            } catch {
-              enqueueRecord({
-                type: "tool_result",
-                name: "(unknown)",
-                callId: "(unknown)",
-                ok: false,
-                result: { ok: false, error: { code: "bad_event", message: "Malformed tool_result event" } }
-              });
-            }
-          }
-        }
-        if (ev.event === "final") {
-          // New gateway mode: final-only response
-          try {
-            const j = JSON.parse(ev.data) as any;
-            const text = typeof j?.text === "string" ? j.text : "";
-            if (text) finalText = text;
-          } catch {
-            // ignore
-          }
-        }
-        if (ev.event === "error") {
-          if (onRecord) {
-            // Don't let any pending debounced message linger.
-            flushAssistantRecord("error");
-          }
-          try {
-            const j = JSON.parse(ev.data) as any;
-            throw new Error(String(j?.message ?? "gateway_error"));
-          } catch (e: any) {
-            throw new Error(String(e?.message ?? e));
-          }
-        }
-        if (ev.event === "done") {
-          if (onRecord) {
-            // Make sure any pending assistant record is emitted before we exit.
-            flushAssistantRecord("done");
-          }
-          break;
-        }
-    }
-  } catch (e: any) {
-    sseError = e;
-  } finally {
-    // If we exit the loop without a done marker, still flush pending assistant.
-    flushAssistantRecord("eof");
-    await drainRecords();
-  }
-
-  if (sseError) throw sseError;
-
-  const text = (finalText || lastCompleted || current).trim();
-  return { text, meta };
-}
-
-type DiscordTranscriptRecord =
-  | {
-      type: "assistant";
-      text: string;
-      toolCalls: any[];
-      /** Internal: helpful for debugging adapter-side ordering issues. */
-      reason: string;
-    }
-  | {
-      type: "tool_result";
-      callId: string;
-      name: string;
-      ok: boolean;
-      result: any;
-    };
-
-type DiscordSendFn = (payload: { content: string; files?: any[] }) => Promise<void>;
-
-function formatToolCallForDiscord(call: any): string {
-  const callId = typeof call?.callId === "string" ? call.callId : "";
-  const name = typeof call?.name === "string" ? call.name : "";
-  const raw = typeof call?.args?.raw === "string" ? call.args.raw : "";
-  const approval = call?.args?.approval;
-  const needsApproval = Boolean(approval && typeof approval === "object" && (approval as any).required);
-
-  const summaryParts: string[] = [];
-  if (name) summaryParts.push(name);
-  if (callId) summaryParts.push(`(${callId})`);
-  if (needsApproval) summaryParts.push("[needs approval]");
-  const summary = summaryParts.join(" ").trim();
-
-  const argLine = raw.trim() ? "\n```json\n" + raw + "\n```" : "";
-  return `- ${summary || "tool_call"}${argLine}`;
-}
-
-function formatToolResultForDiscord(name: string, ok: boolean, result: any): string {
-  const label = name ? name : "tool";
-  const header = `**Tool result:** ${label} (${ok ? "ok" : "error"})`;
-
-  let detail = "";
-  const errMsg = typeof result?.error?.message === "string" ? result.error.message : "";
-  if (!ok && errMsg) detail = `\n${errMsg}`;
-
-  let body = "";
-  try {
-    body = JSON.stringify(result ?? null, null, 2);
-  } catch {
-    body = String(result ?? "");
-  }
-
-  // Keep the JSON block, but let the caller decide whether to attach as a file.
-  return header + detail + "\n```json\n" + body + "\n```";
-}
-
-async function sendTextOrFile(send: DiscordSendFn, text: string): Promise<void> {
-  const t = text.trim() ? text.trim() : "(empty)";
-  if (t.length <= 1900) {
-    await send({ content: t });
-    return;
-  }
-
-  const buf = Buffer.from(t, "utf8");
-  await send({
-    content: "Message too long; attached as a file.",
-    files: [{ attachment: buf, name: `eclia-${crypto.randomUUID()}.txt` }]
-  });
-}
-
-function canSendToChannel(channel: Message["channel"]): channel is Message["channel"] & { send: (payload: any) => Promise<any> } {
-  return typeof (channel as any)?.send === "function";
-}
-
-function createInteractionSendFn(interaction: ChatInputCommandInteraction): DiscordSendFn {
-  let first = true;
-  return async (payload) => {
-    if (first) {
-      first = false;
-      await interaction.editReply(payload as any);
-      return;
-    }
-    await interaction.followUp(payload as any);
-  };
-}
-
-function createMessageSendFn(message: Message): DiscordSendFn {
-  let first = true;
-  const channelCanSend = canSendToChannel(message.channel);
-  return async (payload) => {
-    if (first) {
-      first = false;
-      await message.reply(payload as any);
-      return;
-    }
-    if (channelCanSend) {
-      await message.channel.send(payload as any);
-      return;
-    }
-    await message.reply(payload as any);
-  };
 }
 
 async function registerSlashCommands(args: { token: string; appId: string; guildIds: string[]; keepGlobal?: boolean }) {
@@ -561,93 +75,22 @@ async function registerSlashCommands(args: { token: string; appId: string; guild
   const guildIds = normalizeIdList(args.guildIds);
 
   if (guildIds.length) {
-    // Guild-scoped registration is instant and preferred for development.
     for (const gid of guildIds) {
       await rest.put(Routes.applicationGuildCommands(args.appId, gid), { body: commands });
     }
 
-    // Common gotcha: if you previously registered global commands, you'll see duplicates
-    // (global + guild). Clearing global avoids that.
     if (!args.keepGlobal) {
       await rest.put(Routes.applicationCommands(args.appId), { body: [] });
     }
     return;
   }
 
-  // Global registration (slower propagation).
   await rest.put(Routes.applicationCommands(args.appId), { body: commands });
 }
 
-function originFromInteraction(interaction: ChatInputCommandInteraction): DiscordOrigin {
-  const guildId = interaction.guildId ?? undefined;
-  const guildName = interaction.guild?.name ?? undefined;
-  const channelId = interaction.channelId;
-  // Threads are channels too, but we store a separate key for clarity.
-  const channel: any = interaction.channel;
-  const isThread = Boolean(channel && typeof channel.isThread === "function" && channel.isThread());
-  const threadId = isThread ? interaction.channelId : undefined;
-  const threadName = isThread && typeof channel?.name === "string" ? channel.name : undefined;
-
-  // For a thread, prefer its parent channel name for channelName (more recognizable in lists).
-  const parentName = isThread && typeof channel?.parent?.name === "string" ? channel.parent.name : undefined;
-  const channelName =
-    !isThread && typeof channel?.name === "string" ? channel.name : parentName || (typeof channel?.name === "string" ? channel.name : undefined);
-
-  return { kind: "discord", guildId, guildName, channelId, channelName, threadId, threadName };
-}
-
-function originFromMessage(message: Message): DiscordOrigin {
-  const guildId = message.guildId ?? undefined;
-  const guildName = message.guild?.name ?? undefined;
-  const channelId = message.channelId;
-  const channel: any = message.channel;
-  const isThread = Boolean(channel && typeof channel.isThread === "function" && channel.isThread());
-  const threadId = isThread ? message.channelId : undefined;
-  const threadName = isThread && typeof channel?.name === "string" ? channel.name : undefined;
-
-  const parentName = isThread && typeof channel?.parent?.name === "string" ? channel.parent.name : undefined;
-  const channelName =
-    !isThread && typeof channel?.name === "string" ? channel.name : parentName || (typeof channel?.name === "string" ? channel.name : undefined);
-
-  return { kind: "discord", guildId, guildName, channelId, channelName, threadId, threadName };
-}
-
-function extractRefToRepoRelPath(pointer: string): { relPath: string; name: string } | null {
-  const p = String(pointer ?? "").trim();
-  if (!p) return null;
-
-  // 1) <eclia://artifact/...>
-  if (isEcliaRef(p)) {
-    const uri = uriFromRef(p);
-    const rel = tryParseArtifactUriToRepoRelPath(uri);
-    if (!rel) return null;
-    return { relPath: rel, name: path.basename(rel) || "artifact" };
-  }
-
-  // 2) eclia://artifact/...
-  if (p.startsWith("eclia://")) {
-    const rel = tryParseArtifactUriToRepoRelPath(p);
-    if (!rel) return null;
-    return { relPath: rel, name: path.basename(rel) || "artifact" };
-  }
-
-  // 3) direct repo-relative artifact path
-  if (p.startsWith(".eclia/artifacts/")) {
-    const rel = p;
-    return { relPath: rel, name: path.basename(rel) || "artifact" };
-  }
-
-  return null;
-}
-
-async function fetchArtifactBytes(gatewayUrl: string, relPath: string): Promise<Buffer> {
-  const u = new URL(`${gatewayUrl}/api/artifacts`);
-  u.searchParams.set("path", relPath);
-  const r = await fetch(u, { headers: withGatewayAuth({}) });
-  if (!r.ok) throw new Error(`artifact_fetch_failed (${r.status})`);
-  const ab = await r.arrayBuffer();
-  return Buffer.from(ab);
-}
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
 
 async function main() {
   const { config } = loadEcliaConfig(process.cwd());
@@ -688,9 +131,6 @@ async function main() {
   const streamEdits = boolEnv("ECLIA_DISCORD_STREAM");
   const streamMode: "full" | "final" = streamEdits ? "full" : "final";
 
-  // /eclia slash command: default verbose behavior when the `verbose` option is omitted.
-  // Prefer using Settings -> Adapters -> Advanced (writes adapters.discord.default_stream_mode),
-  // or override via ECLIA_DISCORD_DEFAULT_STREAM_MODE=full|final.
   const slashDefaultStreamMode: "full" | "final" =
     coerceStreamMode(env("ECLIA_DISCORD_DEFAULT_STREAM_MODE")) ?? coerceStreamMode(discordCfg.default_stream_mode) ?? "final";
   const slashDefaultVerbose = slashDefaultStreamMode === "full";
@@ -711,7 +151,6 @@ async function main() {
 
   const intents = [GatewayIntentBits.Guilds];
   if (allowPrefix) {
-    // Prefix-based chat requires message content intent.
     intents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
   }
 
@@ -724,25 +163,22 @@ async function main() {
     console.log(`[adapter-discord] Logged in as ${c.user.tag}`);
   });
 
+  // ----- Interaction handler (slash commands) -----
+
   client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
 
-    // /clear — reset this channel/thread session
+    // /clear
     if (interaction.commandName === "clear") {
       const origin = originFromInteraction(interaction);
       const sessionId = sessionIdForDiscord(origin);
-
       try {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         await resetGatewaySession(gatewayUrl, sessionId);
         await interaction.editReply("Cleared session for this channel.");
       } catch (e: any) {
         const msg = String(e?.message ?? e);
-        try {
-          await interaction.editReply(`Error: ${msg}`);
-        } catch {
-          // ignore
-        }
+        try { await interaction.editReply(`Error: ${msg}`); } catch { /* ignore */ }
       }
       return;
     }
@@ -756,7 +192,6 @@ async function main() {
     const origin = originFromInteraction(interaction);
     const sessionId = sessionIdForDiscord(origin);
 
-    // Verbose implies full gateway stream mode (and enables streamed edits even if globally disabled).
     const useRecordStream = streamEdits || verbose;
     const useStreamMode: "full" | "final" = verbose ? "full" : streamMode;
 
@@ -764,10 +199,7 @@ async function main() {
       await interaction.deferReply();
       if (useRecordStream) {
         const send = createInteractionSendFn(interaction);
-
-        // Emit a user transcript record explicitly (slash commands aren't a regular message).
         await sendTextOrFile(send, `**User**\n${prompt}`);
-
         await runGatewayChat({
           gatewayUrl,
           sessionId,
@@ -775,26 +207,7 @@ async function main() {
           streamMode: useStreamMode,
           userText: prompt,
           toolAccessMode,
-          onRecord: async (rec) => {
-            if (rec.type === "assistant") {
-              const parts: string[] = [];
-              parts.push("**Assistant**");
-              const t = String(rec.text ?? "").trim();
-              if (t) parts.push(t);
-              if (Array.isArray(rec.toolCalls) && rec.toolCalls.length) {
-                parts.push("", "**Tool calls**");
-                for (const tc of rec.toolCalls) parts.push(formatToolCallForDiscord(tc));
-              }
-              await sendTextOrFile(send, parts.join("\n"));
-              return;
-            }
-
-            if (rec.type === "tool_result") {
-              const msg = formatToolResultForDiscord(rec.name, Boolean(rec.ok), rec.result);
-              await sendTextOrFile(send, msg);
-              return;
-            }
-          }
+          onRecord: makeOnRecordHandler(send)
         });
         return;
       }
@@ -821,17 +234,16 @@ async function main() {
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       try {
-        // If we already emitted record-stream messages, avoid editing the first message.
         if (useRecordStream && (interaction as any).replied) {
           await interaction.followUp(`Error: ${msg}`);
         } else {
           await interaction.editReply(`Error: ${msg}`);
         }
-      } catch {
-        // ignore
-      }
+      } catch { /* ignore */ }
     }
   });
+
+  // ----- Prefix-based message handler -----
 
   if (allowPrefix) {
     client.on(Events.MessageCreate, async (message) => {
@@ -856,26 +268,7 @@ async function main() {
             streamMode,
             userText: prompt,
             toolAccessMode,
-            onRecord: async (rec) => {
-              if (rec.type === "assistant") {
-                const parts: string[] = [];
-                parts.push("**Assistant**");
-                const t = String(rec.text ?? "").trim();
-                if (t) parts.push(t);
-                if (Array.isArray(rec.toolCalls) && rec.toolCalls.length) {
-                  parts.push("", "**Tool calls**");
-                  for (const tc of rec.toolCalls) parts.push(formatToolCallForDiscord(tc));
-                }
-                await sendTextOrFile(send, parts.join("\n"));
-                return;
-              }
-
-              if (rec.type === "tool_result") {
-                const msg = formatToolResultForDiscord(rec.name, Boolean(rec.ok), rec.result);
-                await sendTextOrFile(send, msg);
-                return;
-              }
-            }
+            onRecord: makeOnRecordHandler(send)
           });
           return;
         }
@@ -905,7 +298,8 @@ async function main() {
     });
   }
 
-  // Outbound endpoint for `send` tool (future): gateway -> adapter -> discord
+  // ----- Outbound HTTP endpoint (gateway -> adapter -> discord) -----
+
   const port = Number(env("ECLIA_DISCORD_ADAPTER_PORT", "8790")) || 8790;
   const key = env("ECLIA_ADAPTER_KEY");
   const server = http.createServer(async (req, res) => {
@@ -937,14 +331,13 @@ async function main() {
         if (!parsed) continue;
         const buf = await fetchArtifactBytes(gatewayUrl, parsed.relPath);
         files.push({ attachment: buf, name: parsed.name });
-        // Do not send too many files in one request.
         if (files.length >= 10) break;
       }
 
-      const content = typeof body.content === "string" ? body.content : "";
+      const contentStr = typeof body.content === "string" ? body.content : "";
 
       await (channel as any).send({
-        content: content || (files.length ? "" : "(empty)"),
+        content: contentStr || (files.length ? "" : "(empty)"),
         files: files.length ? files : undefined
       });
 

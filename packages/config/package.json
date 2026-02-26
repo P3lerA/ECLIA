@@ -3,10 +3,40 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./route-key": {
+      "types": "./dist/route-key.d.ts",
+      "default": "./dist/route-key.js"
+    },
+    "./config-api-protocol": {
+      "types": "./dist/config-api-protocol.d.ts",
+      "default": "./dist/config-api-protocol.js"
+    },
+    "./provider-defaults": {
+      "types": "./dist/provider-defaults.d.ts",
+      "default": "./dist/provider-defaults.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json -w --preserveWatchOutput",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.31",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
   }
 }

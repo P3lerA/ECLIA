@@ -1,4 +1,13 @@
 import React from "react";
+import {
+  ANTHROPIC_DEFAULT_BASE_URL,
+  ANTHROPIC_DEFAULT_MODEL,
+  ANTHROPIC_DEFAULT_VERSION,
+  CODEX_OAUTH_DEFAULT_MODEL,
+  DEFAULT_PROFILE_NAME,
+  OPENAI_COMPAT_DEFAULT_BASE_URL,
+  OPENAI_COMPAT_DEFAULT_MODEL
+} from "@eclia/config/provider-defaults";
 import type { TransportId } from "../../../../core/transport/TransportRegistry";
 import { SettingsAdvancedSection } from "../../components/SettingsAdvancedSection";
 import { SettingDisclosure } from "../../components/SettingDisclosure";
@@ -336,7 +345,7 @@ export function InferenceSection(props: InferenceSectionProps) {
                     className="select"
                     value={p.baseUrl}
                     onChange={(e) => patchOpenAICompatProfile(p.id, { baseUrl: e.target.value })}
-                    placeholder="https://api.openai.com/v1"
+                    placeholder={OPENAI_COMPAT_DEFAULT_BASE_URL}
                     spellCheck={false}
                     disabled={devDisabled}
                   />
@@ -348,7 +357,7 @@ export function InferenceSection(props: InferenceSectionProps) {
                     className="select"
                     value={p.modelId}
                     onChange={(e) => patchOpenAICompatProfile(p.id, { modelId: e.target.value })}
-                    placeholder="gpt-4o-mini"
+                    placeholder={OPENAI_COMPAT_DEFAULT_MODEL}
                     spellCheck={false}
                     disabled={devDisabled}
                   />
@@ -449,7 +458,7 @@ export function InferenceSection(props: InferenceSectionProps) {
                     className="select"
                     value={p.baseUrl}
                     onChange={(e) => patchAnthropicProfile(p.id, { baseUrl: e.target.value })}
-                    placeholder="https://api.anthropic.com"
+                    placeholder={ANTHROPIC_DEFAULT_BASE_URL}
                     spellCheck={false}
                     disabled={devDisabled}
                   />
@@ -461,7 +470,7 @@ export function InferenceSection(props: InferenceSectionProps) {
                     className="select"
                     value={p.modelId}
                     onChange={(e) => patchAnthropicProfile(p.id, { modelId: e.target.value })}
-                    placeholder="claude-3-5-sonnet-latest"
+                    placeholder={ANTHROPIC_DEFAULT_MODEL}
                     spellCheck={false}
                     disabled={devDisabled}
                   />
@@ -473,7 +482,7 @@ export function InferenceSection(props: InferenceSectionProps) {
                     className="select"
                     value={p.anthropicVersion}
                     onChange={(e) => patchAnthropicProfile(p.id, { anthropicVersion: e.target.value })}
-                    placeholder="2023-06-01"
+                    placeholder={ANTHROPIC_DEFAULT_VERSION}
                     spellCheck={false}
                     disabled={devDisabled}
                   />
@@ -570,7 +579,7 @@ export function InferenceSection(props: InferenceSectionProps) {
                         className="select"
                         value={p.name}
                         onChange={(e) => patchCodexProfile(p.id, { name: e.target.value })}
-                        placeholder="Default"
+                        placeholder={DEFAULT_PROFILE_NAME}
                         spellCheck={false}
                         disabled={devDisabled}
                       />
@@ -582,7 +591,7 @@ export function InferenceSection(props: InferenceSectionProps) {
                         className="select"
                         value={p.model}
                         onChange={(e) => patchCodexProfile(p.id, { model: e.target.value })}
-                        placeholder="gpt-5.2-codex"
+                        placeholder={CODEX_OAUTH_DEFAULT_MODEL}
                         spellCheck={false}
                         disabled={devDisabled}
                       />

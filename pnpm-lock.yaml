@@ -12,6 +12,19 @@ importers:
         specifier: ^9.1.0
         version: 9.2.1
 
+  apps/adapter:
+    dependencies:
+      '@eclia/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@eclia/tool-protocol':
+        specifier: workspace:*
+        version: link:../../packages/tool-protocol
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.31
+        version: 20.19.31
+
   apps/adapter/discord:
     dependencies:
       '@eclia/config':
@@ -143,6 +156,16 @@ importers:
       '@iarna/toml':
         specifier: ^2.2.5
         version: 2.2.5
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.31
+        version: 20.19.31
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
 
   packages/tool-protocol: {}
 

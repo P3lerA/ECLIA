@@ -1,20 +1,16 @@
 import http from "node:http";
-import { loadEcliaConfig, preflightListen, writeLocalEcliaConfig, type EcliaConfigPatch } from "@eclia/config";
+import {
+  loadEcliaConfig,
+  preflightListen,
+  writeLocalEcliaConfig,
+  type ConfigApiRequestBody,
+  type EcliaConfigPatch
+} from "@eclia/config";
 
 type ChatReqBody = {
   sessionId?: string;
   model?: string;
   userText?: string;
-};
-
-type ConfigReqBody = {
-  codex_home?: string;
-  console?: { host?: string; port?: number };
-  api?: { port?: number };
-  persona?: {
-    user_preferred_name?: string;
-    assistant_name?: string;
-  };
 };
 
 function isValidPort(n: unknown): n is number {
@@ -101,7 +97,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url === "/api/config" && req.method === "PUT") {
-    const body = (await readJson(req)) as ConfigReqBody;
+    const body = (await readJson(req)) as ConfigApiRequestBody;
 
     const patch: EcliaConfigPatch = {};
 

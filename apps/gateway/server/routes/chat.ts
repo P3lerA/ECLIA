@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 
 import {
+  canonicalizeRouteKeyForConfig,
   loadEcliaConfig,
   renderSystemInstructionTemplate
 } from "@eclia/config";
@@ -265,6 +266,7 @@ export async function handleChat(
     if ((req as any).aborted || (req.socket as any)?.destroyed || res.writableEnded) return;
 
     const { config, raw, rootDir } = loadEcliaConfig(process.cwd());
+    const canonicalRouteModel = canonicalizeRouteKeyForConfig(routeModel, config);
 
     // Best-effort provenance snapshot (commit/branch/dirty).
     const git = readGitInfo(rootDir);
@@ -373,8 +375,8 @@ export async function handleChat(
         tokenLimit,
         usedTokens: args.usedTokens,
         upstream: {
-          routeKey: routeModel,
-          model: String(args.upstreamModel ?? routeModel),
+          routeKey: canonicalRouteModel,
+          model: String(args.upstreamModel ?? canonicalRouteModel),
           baseUrl
         },
         git,
@@ -386,7 +388,7 @@ export async function handleChat(
     // Resolve upstream backend (provider + credentials).
     let backend: ReturnType<typeof resolveUpstreamBackend>;
     try {
-      backend = resolveUpstreamBackend(routeModel, config);
+      backend = resolveUpstreamBackend(canonicalRouteModel, config);
     } catch (e: any) {
       const { stopKeepAlive } = beginSse(res);
       send(res, "meta", { sessionId, model: routeModel });
@@ -394,7 +396,7 @@ export async function handleChat(
       const msg = String(e?.message ?? e);
       await persistAssistantError({ store, sessionId, message: msg });
       await store.appendTurn(sessionId, buildTurnMeta({ usedTokens: 0 }), Date.now());
-      await store.updateMeta(sessionId, { ...metaPatch, updatedAt: Date.now(), lastModel: routeModel });
+      await store.updateMeta(sessionId, { ...metaPatch, updatedAt: Date.now(), lastModel: canonicalRouteModel });
 
       send(res, "error", { message: msg });
       send(res, "done", {});
@@ -422,7 +424,7 @@ export async function handleChat(
         }),
         Date.now()
       );
-      await store.updateMeta(sessionId, { ...metaPatch, updatedAt: Date.now(), lastModel: routeModel || backend.upstreamModel });
+      await store.updateMeta(sessionId, { ...metaPatch, updatedAt: Date.now(), lastModel: canonicalRouteModel || backend.upstreamModel });
 
       send(res, "error", { message: msg });
       send(res, "done", {});
@@ -603,7 +605,7 @@ export async function handleChat(
       await store.updateMeta(sessionId, {
         ...metaPatch,
         updatedAt: Date.now(),
-        lastModel: routeModel || backend.upstreamModel
+        lastModel: canonicalRouteModel || backend.upstreamModel
       });
 
       if (!res.writableEnded) {
@@ -619,7 +621,7 @@ export async function handleChat(
         await store.updateMeta(sessionId, {
           ...metaPatch,
           updatedAt: Date.now(),
-          lastModel: routeModel || backend.upstreamModel
+          lastModel: canonicalRouteModel || backend.upstreamModel
         });
         return;
       }
@@ -637,7 +639,7 @@ export async function handleChat(
         }),
         Date.now()
       );
-      await store.updateMeta(sessionId, { ...metaPatch, updatedAt: Date.now(), lastModel: routeModel || backend.upstreamModel });
+      await store.updateMeta(sessionId, { ...metaPatch, updatedAt: Date.now(), lastModel: canonicalRouteModel || backend.upstreamModel });
 
       if (!res.writableEnded) {
         send(res, "error", { message: msg });

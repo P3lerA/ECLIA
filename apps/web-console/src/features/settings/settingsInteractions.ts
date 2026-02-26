@@ -1,4 +1,4 @@
-import type { CodexOAuthProfile, CodexOAuthStatus, ConfigResponse } from "./settingsTypes";
+import type { CodexOAuthProfile, CodexOAuthStatus, ConfigRequestBody, ConfigResponse } from "./settingsTypes";
 import { apiFetch } from "../../core/api/apiFetch";
 
 async function readJsonOrNull(r: Response): Promise<any | null> {
@@ -26,7 +26,7 @@ export async function fetchDevConfig(): Promise<ConfigResponse> {
 }
 
 /** PUT /api/config (dev config service). */
-export async function saveDevConfig(body: any): Promise<ConfigResponse> {
+export async function saveDevConfig(body: ConfigRequestBody): Promise<ConfigResponse> {
   const r = await apiFetch("/api/config", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

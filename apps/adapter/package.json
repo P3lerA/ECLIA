@@ -1,0 +1,12 @@
+{
+  "name": "adapter-shared",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@eclia/config": "workspace:*",
+    "@eclia/tool-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.31"
+  }
+}

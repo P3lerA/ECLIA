@@ -1,5 +1,34 @@
 import type { CfgBase, CodexOAuthProfile, DevConfig, SettingsDraft } from "./settingsTypes";
+import {
+  ANTHROPIC_DEFAULT_AUTH_HEADER,
+  ANTHROPIC_DEFAULT_BASE_URL,
+  ANTHROPIC_DEFAULT_MODEL,
+  ANTHROPIC_DEFAULT_VERSION,
+  CODEX_OAUTH_DEFAULT_MODEL,
+  DEFAULT_PROFILE_ID,
+  DEFAULT_PROFILE_NAME,
+  DEFAULT_WEB_PROVIDER,
+  OPENAI_COMPAT_DEFAULT_AUTH_HEADER,
+  OPENAI_COMPAT_DEFAULT_BASE_URL,
+  OPENAI_COMPAT_DEFAULT_MODEL,
+  isWebProviderId
+} from "@eclia/config/provider-defaults";
 import { normalizeDiscordStreamMode, normalizeGuildIds, sameStringArray } from "./settingsUtils";
+
+const DEFAULT_OPENAI_PROFILE = {
+  base_url: OPENAI_COMPAT_DEFAULT_BASE_URL,
+  model: OPENAI_COMPAT_DEFAULT_MODEL,
+  auth_header: OPENAI_COMPAT_DEFAULT_AUTH_HEADER
+} as const;
+
+const DEFAULT_ANTHROPIC_PROFILE = {
+  base_url: ANTHROPIC_DEFAULT_BASE_URL,
+  model: ANTHROPIC_DEFAULT_MODEL,
+  auth_header: ANTHROPIC_DEFAULT_AUTH_HEADER,
+  anthropic_version: ANTHROPIC_DEFAULT_VERSION
+} as const;
+
+const DEFAULT_CODEX_MODEL = CODEX_OAUTH_DEFAULT_MODEL;
 
 /**
  * Convert raw dev config (from /api/config) into a normalized, UI-friendly base model.
@@ -28,9 +57,9 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
     seenIds.add(id);
 
     const name = String(p.name ?? "").trim() || `Profile ${i + 1}`;
-    const baseUrl = String(p.base_url ?? "https://api.openai.com/v1").trim() || "https://api.openai.com/v1";
-    const modelId = String(p.model ?? "gpt-4o-mini").trim() || "gpt-4o-mini";
-    const authHeader = String(p.auth_header ?? "Authorization").trim() || "Authorization";
+    const baseUrl = String(p.base_url ?? DEFAULT_OPENAI_PROFILE.base_url).trim() || DEFAULT_OPENAI_PROFILE.base_url;
+    const modelId = String(p.model ?? DEFAULT_OPENAI_PROFILE.model).trim() || DEFAULT_OPENAI_PROFILE.model;
+    const authHeader = String(p.auth_header ?? DEFAULT_OPENAI_PROFILE.auth_header).trim() || DEFAULT_OPENAI_PROFILE.auth_header;
     const apiKeyConfigured = Boolean(p.api_key_configured);
 
     profiles.push({ id, name, baseUrl, modelId, authHeader, apiKeyConfigured });
@@ -38,11 +67,11 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
 
   if (profiles.length === 0) {
     profiles.push({
-      id: "default",
-      name: "Default",
-      baseUrl: "https://api.openai.com/v1",
-      modelId: "gpt-4o-mini",
-      authHeader: "Authorization",
+      id: DEFAULT_PROFILE_ID,
+      name: DEFAULT_PROFILE_NAME,
+      baseUrl: DEFAULT_OPENAI_PROFILE.base_url,
+      modelId: DEFAULT_OPENAI_PROFILE.model,
+      authHeader: DEFAULT_OPENAI_PROFILE.auth_header,
       apiKeyConfigured: false
     });
   }
@@ -59,10 +88,10 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
     seenAnthropicIds.add(id);
 
     const name = String(p.name ?? "").trim() || `Profile ${i + 1}`;
-    const baseUrl = String(p.base_url ?? "https://api.anthropic.com").trim() || "https://api.anthropic.com";
-    const modelId = String(p.model ?? "claude-3-5-sonnet-latest").trim() || "claude-3-5-sonnet-latest";
-    const authHeader = String(p.auth_header ?? "x-api-key").trim() || "x-api-key";
-    const anthropicVersion = String(p.anthropic_version ?? "2023-06-01").trim() || "2023-06-01";
+    const baseUrl = String(p.base_url ?? DEFAULT_ANTHROPIC_PROFILE.base_url).trim() || DEFAULT_ANTHROPIC_PROFILE.base_url;
+    const modelId = String(p.model ?? DEFAULT_ANTHROPIC_PROFILE.model).trim() || DEFAULT_ANTHROPIC_PROFILE.model;
+    const authHeader = String(p.auth_header ?? DEFAULT_ANTHROPIC_PROFILE.auth_header).trim() || DEFAULT_ANTHROPIC_PROFILE.auth_header;
+    const anthropicVersion = String(p.anthropic_version ?? DEFAULT_ANTHROPIC_PROFILE.anthropic_version).trim() || DEFAULT_ANTHROPIC_PROFILE.anthropic_version;
     const apiKeyConfigured = Boolean(p.api_key_configured);
 
     anthropicProfiles.push({ id, name, baseUrl, modelId, authHeader, anthropicVersion, apiKeyConfigured });
@@ -70,12 +99,12 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
 
   if (anthropicProfiles.length === 0) {
     anthropicProfiles.push({
-      id: "default",
-      name: "Default",
-      baseUrl: "https://api.anthropic.com",
-      modelId: "claude-3-5-sonnet-latest",
-      authHeader: "x-api-key",
-      anthropicVersion: "2023-06-01",
+      id: DEFAULT_PROFILE_ID,
+      name: DEFAULT_PROFILE_NAME,
+      baseUrl: DEFAULT_ANTHROPIC_PROFILE.base_url,
+      modelId: DEFAULT_ANTHROPIC_PROFILE.model,
+      authHeader: DEFAULT_ANTHROPIC_PROFILE.auth_header,
+      anthropicVersion: DEFAULT_ANTHROPIC_PROFILE.anthropic_version,
       apiKeyConfigured: false
     });
   }
@@ -102,7 +131,8 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
     seenWebIds.add(id);
 
     const name = String(p.name ?? "").trim() || `Profile ${i + 1}`;
-    const provider = String(p.provider ?? "tavily").trim() || "tavily";
+    const rawProvider = String(p.provider ?? "").trim();
+    const provider = isWebProviderId(rawProvider) ? rawProvider : DEFAULT_WEB_PROVIDER;
     const projectId = String(p.project_id ?? "").trim();
     const apiKeyConfigured = Boolean(p.api_key_configured);
 
@@ -111,9 +141,9 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
 
   if (webProfiles.length === 0) {
     webProfiles.push({
-      id: "default",
-      name: "Default",
-      provider: "tavily",
+      id: DEFAULT_PROFILE_ID,
+      name: DEFAULT_PROFILE_NAME,
+      provider: DEFAULT_WEB_PROVIDER,
       projectId: "",
       apiKeyConfigured: false
     });
@@ -121,7 +151,7 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
 
   let webActiveProfileId = String((web as any).active_profile ?? "").trim() || "";
   if (!webProfiles.some((p) => p.id === webActiveProfileId)) {
-    webActiveProfileId = webProfiles[0]?.id ?? "default";
+    webActiveProfileId = webProfiles[0]?.id ?? DEFAULT_PROFILE_ID;
   }
 
   const codex = (config.inference as any)?.codex_oauth ?? {};
@@ -136,15 +166,15 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
     const model = String(p.model ?? "").trim();
     if (!model) continue;
     codexProfile = {
-      id: "default",
-      name: name || "Default",
-      model: model || "gpt-5.2-codex"
+      id: DEFAULT_PROFILE_ID,
+      name: name || DEFAULT_PROFILE_NAME,
+      model: model || DEFAULT_CODEX_MODEL
     };
     break;
   }
 
   if (!codexProfile) {
-    codexProfile = { id: "default", name: "Default", model: "gpt-5.2-codex" };
+    codexProfile = { id: DEFAULT_PROFILE_ID, name: DEFAULT_PROFILE_NAME, model: DEFAULT_CODEX_MODEL };
   }
 
   const codexProfiles: CodexOAuthProfile[] = [codexProfile];
@@ -273,7 +303,7 @@ export function buildDevConfigPatch(args: BuildDevConfigPatchArgs): any {
           name: p.name.trim(),
           base_url: p.baseUrl.trim(),
           model: p.modelId.trim(),
-          auth_header: p.authHeader.trim() || "Authorization",
+          auth_header: p.authHeader.trim() || OPENAI_COMPAT_DEFAULT_AUTH_HEADER,
           ...(p.apiKey.trim().length ? { api_key: p.apiKey.trim() } : {})
         }))
       },
@@ -283,15 +313,15 @@ export function buildDevConfigPatch(args: BuildDevConfigPatchArgs): any {
           name: p.name.trim(),
           base_url: p.baseUrl.trim(),
           model: p.modelId.trim(),
-          auth_header: p.authHeader.trim() || "x-api-key",
-          anthropic_version: p.anthropicVersion.trim() || "2023-06-01",
+          auth_header: p.authHeader.trim() || ANTHROPIC_DEFAULT_AUTH_HEADER,
+          anthropic_version: p.anthropicVersion.trim() || ANTHROPIC_DEFAULT_VERSION,
           ...(p.apiKey.trim().length ? { api_key: p.apiKey.trim() } : {})
         }))
       },
 
       codex_oauth: {
         profiles: draft.codexOAuthProfiles.slice(0, 1).map((p) => ({
-          id: "default",
+          id: DEFAULT_PROFILE_ID,
           name: p.name.trim(),
           model: p.model.trim()
         }))
@@ -329,7 +359,7 @@ export function buildDevConfigPatch(args: BuildDevConfigPatchArgs): any {
         profiles: draft.webProfiles.map((p) => ({
           id: p.id,
           name: p.name.trim(),
-          provider: p.provider.trim() || "tavily",
+          provider: p.provider,
           project_id: p.projectId.trim(),
           ...(p.apiKey.trim().length ? { api_key: p.apiKey.trim() } : {})
         }))
@@ -361,7 +391,7 @@ export function applyDevConfigPatchToCfgBase(cfgBase: CfgBase, body: any): CfgBa
           name: String(p.name),
           baseUrl: String(p.base_url),
           modelId: String(p.model),
-          authHeader: String(p.auth_header ?? "Authorization"),
+          authHeader: String(p.auth_header ?? OPENAI_COMPAT_DEFAULT_AUTH_HEADER),
           apiKeyConfigured
         };
       })
@@ -376,10 +406,10 @@ export function applyDevConfigPatchToCfgBase(cfgBase: CfgBase, body: any): CfgBa
         return {
           id: String(p.id),
           name: String(p.name ?? "").trim() || `Profile ${idx + 1}`,
-          baseUrl: String(p.base_url ?? "").trim() || "https://api.anthropic.com",
-          modelId: String(p.model ?? "").trim() || "claude-3-5-sonnet-latest",
-          authHeader: String(p.auth_header ?? "x-api-key"),
-          anthropicVersion: String(p.anthropic_version ?? "2023-06-01"),
+          baseUrl: String(p.base_url ?? "").trim() || DEFAULT_ANTHROPIC_PROFILE.base_url,
+          modelId: String(p.model ?? "").trim() || DEFAULT_ANTHROPIC_PROFILE.model,
+          authHeader: String(p.auth_header ?? DEFAULT_ANTHROPIC_PROFILE.auth_header),
+          anthropicVersion: String(p.anthropic_version ?? DEFAULT_ANTHROPIC_PROFILE.anthropic_version),
           apiKeyConfigured
         };
       })
@@ -388,9 +418,9 @@ export function applyDevConfigPatchToCfgBase(cfgBase: CfgBase, body: any): CfgBa
   const nextCodexProfiles = Array.isArray((body.inference as any)?.codex_oauth?.profiles)
     ? ((((body.inference as any).codex_oauth.profiles as any[]) ?? [])
         .map((p) => ({
-          id: "default",
-          name: String(p.name ?? "").trim() || "Default",
-          model: String(p.model ?? "").trim() || "gpt-5.2-codex"
+          id: DEFAULT_PROFILE_ID,
+          name: String(p.name ?? "").trim() || DEFAULT_PROFILE_NAME,
+          model: String(p.model ?? "").trim() || DEFAULT_CODEX_MODEL
         }))
         .slice(0, 1) as CodexOAuthProfile[])
     : cfgBase.codexOAuthProfiles;
@@ -399,11 +429,13 @@ export function applyDevConfigPatchToCfgBase(cfgBase: CfgBase, body: any): CfgBa
     ? (body.tools.web.profiles as any[]).map((p, idx) => {
         const prev = cfgBase.webProfiles.find((x) => x.id === p.id);
         const apiKeyConfigured = Boolean(String(p.api_key ?? "").trim()) || Boolean(prev?.apiKeyConfigured);
+        const rawProvider = String(p.provider ?? "").trim();
+        const provider = isWebProviderId(rawProvider) ? rawProvider : DEFAULT_WEB_PROVIDER;
 
         return {
           id: String(p.id),
           name: String(p.name ?? "").trim() || `Profile ${idx + 1}`,
-          provider: String(p.provider ?? "tavily").trim() || "tavily",
+          provider,
           projectId: String(p.project_id ?? "").trim(),
           apiKeyConfigured
         };
@@ -413,7 +445,7 @@ export function applyDevConfigPatchToCfgBase(cfgBase: CfgBase, body: any): CfgBa
   let nextWebActiveProfileId =
     typeof body.tools?.web?.active_profile === "string" ? String(body.tools.web.active_profile).trim() : cfgBase.webActiveProfileId;
   if (!nextWebProfiles.some((p) => p.id === nextWebActiveProfileId)) {
-    nextWebActiveProfileId = nextWebProfiles[0]?.id ?? "default";
+    nextWebActiveProfileId = nextWebProfiles[0]?.id ?? DEFAULT_PROFILE_ID;
   }
 
   return {

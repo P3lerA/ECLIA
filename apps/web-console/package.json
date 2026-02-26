@@ -4,13 +4,13 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "pnpm -C ../../packages/config build && vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:watch": "tsc -p tsconfig.json --noEmit -w --preserveWatchOutput",
     "preview": "vite preview",
     "dev:server": "pnpm -C ../gateway dev",
-    "dev:all": "concurrently -n WEB,API -c auto \"vite\" \"pnpm -C ../gateway dev\"",
+    "dev:all": "concurrently -n WEB,API -c auto \"pnpm dev\" \"pnpm -C ../gateway dev\"",
     "dev:mock-server": "tsx server/dev-sse-server.ts"
   },
   "dependencies": {

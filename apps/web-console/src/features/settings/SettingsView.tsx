@@ -1,4 +1,11 @@
 import React from "react";
+import {
+  CODEX_OAUTH_DEFAULT_MODEL,
+  DEFAULT_PROFILE_ID,
+  DEFAULT_PROFILE_NAME,
+  DEFAULT_WEB_PROVIDER,
+  WEB_PROVIDER_IDS
+} from "@eclia/config/provider-defaults";
 import { runtime } from "../../core/runtime";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 import { EcliaLogo } from "../common/EcliaLogo";
@@ -33,6 +40,7 @@ import { SkillsSection } from "./sections/skills/SkillsSection";
 import { ToolsSection } from "./sections/tools/ToolsSection";
 
 const ALLOWED_CONSOLE_HOSTS = new Set(["127.0.0.1", "0.0.0.0"]);
+const DEFAULT_CODEX_MODEL = CODEX_OAUTH_DEFAULT_MODEL;
 
 /**
  * Settings uses an explicit "Save" to commit changes.
@@ -107,7 +115,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         userPreferredName: cfgBase?.userPreferredName ?? prev?.userPreferredName ?? "",
         assistantName: cfgBase?.assistantName ?? prev?.assistantName ?? "",
 
-        webActiveProfileId: cfgBase?.webActiveProfileId ?? prev?.webActiveProfileId ?? "default",
+        webActiveProfileId: cfgBase?.webActiveProfileId ?? prev?.webActiveProfileId ?? DEFAULT_PROFILE_ID,
         webProfiles: cfgBase
           ? cfgBase.webProfiles.map((p) => ({
               id: p.id,
@@ -116,7 +124,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
               projectId: p.projectId,
               apiKey: ""
             }))
-          : prev?.webProfiles ?? [{ id: "default", name: "Default", provider: "tavily", apiKey: "", projectId: "" }],
+          : prev?.webProfiles ?? [{ id: DEFAULT_PROFILE_ID, name: DEFAULT_PROFILE_NAME, provider: DEFAULT_WEB_PROVIDER, apiKey: "", projectId: "" }],
 
         inferenceProfiles: cfgBase
           ? cfgBase.openaiCompatProfiles.map((p) => ({
@@ -145,8 +153,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         codexOAuthProfiles: cfgBase
           ? cfgBase.codexOAuthProfiles.map((p) => ({ ...p })).slice(0, 1)
           : prev?.codexOAuthProfiles?.length
-            ? [{ ...prev.codexOAuthProfiles[0], id: "default" }]
-            : [{ id: "default", name: "Default", model: "gpt-5.2-codex" }],
+            ? [{ ...prev.codexOAuthProfiles[0], id: DEFAULT_PROFILE_ID }]
+            : [{ id: DEFAULT_PROFILE_ID, name: DEFAULT_PROFILE_NAME, model: DEFAULT_CODEX_MODEL }],
 
         inferenceSystemInstruction: cfgBase ? cfgBase.systemInstruction : prev?.inferenceSystemInstruction ?? "",
 
@@ -369,7 +377,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const discordAppIdOk = Boolean((cfgBase?.discordAppId ?? "").trim().length) || draft.adapterDiscordAppId.trim().length > 0;
   const discordValid = !draft.adapterDiscordEnabled || (discordTokenOk && discordAppIdOk);
 
-  const webProviders = new Set(["tavily"]);
+  const webProviders = new Set(WEB_PROVIDER_IDS);
   const webIds = draft.webProfiles.map((p) => p.id);
   const webIdsUnique = new Set(webIds.map((x) => x.trim()).filter(Boolean)).size === draft.webProfiles.length;
   const webValid =

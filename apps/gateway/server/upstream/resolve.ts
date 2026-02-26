@@ -1,4 +1,8 @@
-import type { EcliaConfig } from "@eclia/config";
+import {
+  ANTHROPIC_DEFAULT_AUTH_HEADER,
+  OPENAI_COMPAT_DEFAULT_AUTH_HEADER,
+  type EcliaConfig
+} from "@eclia/config";
 import { resolveInferenceSelection } from "@eclia/config";
 
 import { createNoAuthCredential, createStaticApiKeyCredential, type CredentialProvider } from "./credentials.js";
@@ -26,7 +30,7 @@ export function resolveUpstreamBackend(routeModel: string, config: EcliaConfig):
 
     const credentials = createStaticApiKeyCredential({
       apiKey: profile.api_key ?? "",
-      headerName: profile.auth_header ?? "Authorization",
+      headerName: profile.auth_header ?? OPENAI_COMPAT_DEFAULT_AUTH_HEADER,
       treatAuthorizationAsBearer: true,
       missingMessage
     });
@@ -48,7 +52,7 @@ export function resolveUpstreamBackend(routeModel: string, config: EcliaConfig):
 
     const credentials = createStaticApiKeyCredential({
       apiKey: profile.api_key ?? "",
-      headerName: profile.auth_header ?? "x-api-key",
+      headerName: profile.auth_header ?? ANTHROPIC_DEFAULT_AUTH_HEADER,
       treatAuthorizationAsBearer: false,
       missingMessage
     });

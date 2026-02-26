@@ -1,6 +1,9 @@
 import http from "node:http";
 
 import {
+  CODEX_OAUTH_DEFAULT_MODEL,
+  DEFAULT_PROFILE_ID,
+  DEFAULT_PROFILE_NAME,
   loadEcliaConfig,
   writeLocalEcliaConfig,
   type CodexOAuthProfile,
@@ -55,9 +58,7 @@ type CodexOAuthClearResponse =
       hint?: string;
     };
 
-const DEFAULT_PROFILE_ID = "default";
-const DEFAULT_PROFILE_NAME = "Default";
-const DEFAULT_MODEL = "gpt-5.2-codex";
+const DEFAULT_MODEL = CODEX_OAUTH_DEFAULT_MODEL;
 
 // Keep the Codex app-server process alive during the browser login flow,
 // because it hosts the local callback server and persists tokens on completion.
