@@ -8,3 +8,7 @@ dist-ssr
 eclia.config.local.toml
 .eclia/
 .codex/
+
+# Skill local overrides (generated from templates)
+skills/**/SKILL.md
+skills/**/skill.md

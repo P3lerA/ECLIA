@@ -1,11 +1,19 @@
 import type { SystemInstructionPart } from "./systemInstruction.js";
 
-import { discoverSkills, readSkillsSystemBlurb } from "../skills/registry.js";
+import { discoverSkills, ensureSkillUserDoc, readSkillsSystemBlurb } from "../skills/registry.js";
 
 const PLACEHOLDER_ENABLED_SKILLS = "{{ENABLED_SKILLS}}";
 const PLACEHOLDER_ACTIVATED_SKILLS = "{{ACTIVATED_SKILLS}}";
 
 export function buildSkillsInstructionPart(rootDir: string, enabledSkillNames: string[]): SystemInstructionPart {
+  // Best-effort ensure user-editable skill docs exist for enabled skills.
+  // This keeps the on-disk skill docs ready before the model tries to read them.
+  for (const nameRaw of enabledSkillNames ?? []) {
+    const name = String(nameRaw ?? "").trim();
+    if (!name) continue;
+    ensureSkillUserDoc(rootDir, name);
+  }
+
   // NOTE: We avoid hardcoding any *boilerplate* (headings, labels) in code.
   // The only dynamic injection we do is rendering enabled skill summaries into a user-provided
   // template under skills/_system.md.

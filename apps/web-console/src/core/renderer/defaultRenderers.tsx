@@ -8,6 +8,8 @@ import { apiArtifactUrl } from "../api/artifacts";
 import { useAppState } from "../../state/AppState";
 import { tryFormatToolPayload } from "./toolPayloadFormat";
 
+const ARTIFACT_URI_PREFIX = "eclia://artifact/";
+
 function ToolNameIcon({ name }: { name: string }) {
   if (name === "exec") return <TerminalIcon />;
   if (name === "send") return <EnterIcon />;
@@ -96,6 +98,110 @@ function isSafeHref(href: string): boolean {
   return scheme === "http" || scheme === "https" || scheme === "mailto" || scheme === "tel";
 }
 
+function markdownUrlTransform(url: string): string {
+  const raw = String(url ?? "").trim();
+  if (!raw) return "";
+
+  // Preserve ECLIA artifact URIs so markdown components can resolve them into
+  // artifact cards (react-markdown's default transform strips unknown schemes).
+  if (tryParseArtifactUriToRepoRelPath(raw)) return unwrapAngleRef(raw);
+
+  if (raw.startsWith("#") || raw.startsWith("/") || raw.startsWith("./") || raw.startsWith("../")) return raw;
+
+  const m = raw.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/);
+  if (!m) return raw;
+  const scheme = m[1].toLowerCase();
+  if (scheme === "http" || scheme === "https" || scheme === "mailto" || scheme === "tel") return raw;
+  return "";
+}
+
+function normalizeRepoRelPath(p: string): string {
+  let s = String(p ?? "");
+  s = s.replace(/\\/g, "/");
+  while (s.startsWith("./")) s = s.slice(2);
+  s = s.replace(/\/+/g, "/");
+  return s;
+}
+
+function unwrapAngleRef(s: string): string {
+  const t = String(s ?? "").trim();
+  if (t.startsWith("<") && t.endsWith(">")) return t.slice(1, -1).trim();
+  return t;
+}
+
+function tryParseArtifactUriToRepoRelPath(uriLike: string): string | null {
+  const uri = unwrapAngleRef(uriLike);
+  if (!uri.startsWith(ARTIFACT_URI_PREFIX)) return null;
+
+  const encodedPath = uri.slice(ARTIFACT_URI_PREFIX.length);
+  if (!encodedPath) return null;
+
+  try {
+    const parts = encodedPath.split("/").filter(Boolean).map((p) => decodeURIComponent(p));
+    const relPath = normalizeRepoRelPath(parts.join("/"));
+    return relPath || null;
+  } catch {
+    return null;
+  }
+}
+
+function nodeText(children: React.ReactNode): string {
+  let out = "";
+  React.Children.forEach(children, (child) => {
+    if (typeof child === "string" || typeof child === "number") {
+      out += String(child);
+      return;
+    }
+    if (React.isValidElement(child)) {
+      out += nodeText((child.props as any)?.children);
+    }
+  });
+  return out;
+}
+
+function isLikelyImagePath(path: string): boolean {
+  const p = String(path ?? "").trim().split(/[?#]/, 1)[0] ?? "";
+  const lower = p.toLowerCase();
+  return (
+    lower.endsWith(".png") ||
+    lower.endsWith(".jpg") ||
+    lower.endsWith(".jpeg") ||
+    lower.endsWith(".gif") ||
+    lower.endsWith(".webp") ||
+    lower.endsWith(".bmp") ||
+    lower.endsWith(".svg") ||
+    lower.endsWith(".avif")
+  );
+}
+
+function artifactLabel(path: string, preferred?: string): string {
+  const p = String(path ?? "");
+  const label = String(preferred ?? "").trim();
+  if (label) return label;
+  return p.split("/").pop() || p;
+}
+
+function ArtifactInlineCard({ path, preferredLabel }: { path: string; preferredLabel?: string }) {
+  const url = apiArtifactUrl(path);
+  const label = artifactLabel(path, preferredLabel);
+  const isImage = isLikelyImagePath(path);
+  const kind = isImage ? "image" : "file";
+
+  return (
+    <span className="block-tool-artifacts">
+      <span className="artifact-item">
+        <span className="artifact-meta">
+          <span className="artifact-kind">{kind}</span>
+          <a href={url} target="_blank" rel="noreferrer">
+            {label}
+          </a>
+          <span className="muted">· {path}</span>
+        </span>
+      </span>
+    </span>
+  );
+}
+
 function TextBlockView({ block }: { block: TextBlock }) {
   const plainOutput = Boolean(useAppState().settings.displayPlainOutput);
 
@@ -110,6 +216,7 @@ function TextBlockView({ block }: { block: TextBlock }) {
     <div className="block-markdown">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        urlTransform={markdownUrlTransform}
         components={{
           pre({ children, node: _node, ...props }) {
             // For fenced code blocks, the language (if any) is typically encoded as a
@@ -138,6 +245,12 @@ function TextBlockView({ block }: { block: TextBlock }) {
           },
           a({ href, children, node: _node, ...props }) {
             const h = typeof href === "string" ? href : "";
+            const artifactPath = tryParseArtifactUriToRepoRelPath(h);
+            if (artifactPath) {
+              const preferredLabel = nodeText(children).trim();
+              return <ArtifactInlineCard path={artifactPath} preferredLabel={preferredLabel} />;
+            }
+
             const safe = isSafeHref(h);
             if (!safe) {
               return <span className="md-link-disabled">{children}</span>;
@@ -147,6 +260,15 @@ function TextBlockView({ block }: { block: TextBlock }) {
                 {children}
               </a>
             );
+          },
+          img({ src, alt, node: _node, ...props }) {
+            const s = typeof src === "string" ? src : "";
+            const artifactPath = tryParseArtifactUriToRepoRelPath(s);
+            if (artifactPath) {
+              return <ArtifactInlineCard path={artifactPath} preferredLabel={typeof alt === "string" ? alt : ""} />;
+            }
+
+            return <img {...props} src={s} alt={typeof alt === "string" ? alt : ""} loading="lazy" />;
           }
         }}
       >
