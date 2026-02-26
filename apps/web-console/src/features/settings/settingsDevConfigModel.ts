@@ -10,6 +10,8 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
   const host = rawHost === "0.0.0.0" ? "0.0.0.0" : "127.0.0.1";
   const port = config.console?.port ?? 5173;
   const codexHome = String((config as any).codex_home ?? "").trim();
+  const userPreferredName = String((config as any)?.persona?.user_preferred_name ?? "").trim();
+  const assistantName = String((config as any)?.persona?.assistant_name ?? "").trim();
   const debugCaptureUpstreamRequests = Boolean((config as any)?.debug?.capture_upstream_requests ?? false);
   const debugParseAssistantOutput = Boolean((config as any)?.debug?.parse_assistant_output ?? false);
   const systemInstruction = String((config.inference as any)?.system_instruction ?? "");
@@ -168,6 +170,8 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
     host,
     port,
     codexHome,
+    userPreferredName,
+    assistantName,
     debugCaptureUpstreamRequests,
     debugParseAssistantOutput,
     systemInstruction,
@@ -194,6 +198,7 @@ export type BuildDevConfigPatchArgs = {
   cfgBase: CfgBase;
 
   dirtyDevCodexHome: boolean;
+  dirtyDevPersona: boolean;
   dirtyDevHostPort: boolean;
   hostPortValid: boolean;
   dirtyDevDebug: boolean;
@@ -216,6 +221,7 @@ export function buildDevConfigPatch(args: BuildDevConfigPatchArgs): any {
     draft,
     cfgBase,
     dirtyDevCodexHome,
+    dirtyDevPersona,
     dirtyDevHostPort,
     hostPortValid,
     dirtyDevDebug,
@@ -232,6 +238,13 @@ export function buildDevConfigPatch(args: BuildDevConfigPatchArgs): any {
 
   if (dirtyDevCodexHome) {
     body.codex_home = draft.codexHomeOverrideEnabled ? draft.codexHomeOverridePath.trim() : "";
+  }
+
+  if (dirtyDevPersona) {
+    body.persona = {
+      user_preferred_name: draft.userPreferredName.trim(),
+      assistant_name: draft.assistantName.trim()
+    };
   }
 
   if (dirtyDevHostPort) {
@@ -407,6 +420,9 @@ export function applyDevConfigPatchToCfgBase(cfgBase: CfgBase, body: any): CfgBa
     host: body.console?.host ?? cfgBase.host,
     port: body.console?.port ?? cfgBase.port,
     codexHome: typeof body.codex_home === "string" ? body.codex_home : cfgBase.codexHome,
+    userPreferredName:
+      typeof body.persona?.user_preferred_name === "string" ? String(body.persona.user_preferred_name).trim() : cfgBase.userPreferredName,
+    assistantName: typeof body.persona?.assistant_name === "string" ? String(body.persona.assistant_name).trim() : cfgBase.assistantName,
     debugCaptureUpstreamRequests:
       typeof (body as any).debug?.capture_upstream_requests === "boolean"
         ? Boolean((body as any).debug.capture_upstream_requests)
@@ -448,6 +464,8 @@ export function applyDevConfigPatchToCfgBase(cfgBase: CfgBase, body: any): CfgBa
 export function draftAfterDevSave(d: SettingsDraft, nextBase: CfgBase, dirtyDevInference: boolean, dirtyDevWeb: boolean): SettingsDraft {
   return {
     ...d,
+    userPreferredName: nextBase.userPreferredName,
+    assistantName: nextBase.assistantName,
     inferenceProfiles: dirtyDevInference
       ? nextBase.openaiCompatProfiles.map((p) => ({
           id: p.id,

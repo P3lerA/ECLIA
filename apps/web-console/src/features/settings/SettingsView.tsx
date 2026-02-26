@@ -47,7 +47,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   // Dev config (TOML) is owned by the local backend (dev only).
   const [cfgLoading, setCfgLoading] = React.useState(false);
   const [cfgError, setCfgError] = React.useState<string | null>(null);
-  const [cfgSaved, setCfgSaved] = React.useState<string | null>(null);
 
   const [cfgBase, setCfgBase] = React.useState<CfgBase | null>(null);
 
@@ -58,7 +57,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     async function load() {
       setCfgLoading(true);
       setCfgError(null);
-      setCfgSaved(null);
 
       try {
         const j = await fetchDevConfig();
@@ -100,12 +98,14 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         temperature: state.settings.temperature == null ? "" : String(state.settings.temperature),
         topP: state.settings.topP == null ? "" : String(state.settings.topP),
         topK: state.settings.topK == null ? "" : String(state.settings.topK),
-        maxOutputTokens: state.settings.maxOutputTokens == null ? "-1" : String(state.settings.maxOutputTokens),
+        maxOutputTokens: state.settings.maxOutputTokens == null ? "" : String(state.settings.maxOutputTokens),
 
         webResultTruncateChars: String(state.settings.webResultTruncateChars ?? 4000),
 
         consoleHost: cfgBase?.host ?? prev?.consoleHost ?? "",
         consolePort: cfgBase ? String(cfgBase.port) : prev?.consolePort ?? "",
+        userPreferredName: cfgBase?.userPreferredName ?? prev?.userPreferredName ?? "",
+        assistantName: cfgBase?.assistantName ?? prev?.assistantName ?? "",
 
         webActiveProfileId: cfgBase?.webActiveProfileId ?? prev?.webActiveProfileId ?? "default",
         webProfiles: cfgBase
@@ -203,6 +203,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         ? d.consoleHost.trim() !== cfgBase.host || portNumber(d.consolePort) !== cfgBase.port
         : false;
 
+      const dirtyDevPersona = cfgBase
+        ? d.userPreferredName.trim() !== cfgBase.userPreferredName || d.assistantName.trim() !== cfgBase.assistantName
+        : false;
+
       const dirtyDevDebug = cfgBase ?
     d.debugCaptureUpstreamRequests !== cfgBase.debugCaptureUpstreamRequests ||
     d.debugParseAssistantOutput !== cfgBase.debugParseAssistantOutput
@@ -240,6 +244,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       return (
         dirtyUi ||
         dirtyDevHostPort ||
+        dirtyDevPersona ||
         dirtyDevDebug ||
         dirtyDevInference ||
         dirtyDevCodexHome ||
@@ -291,6 +296,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     ? draft.consoleHost.trim() !== cfgBase.host || portNumber(draft.consolePort) !== cfgBase.port
     : false;
 
+  const dirtyDevPersona = cfgBase
+    ? draft.userPreferredName.trim() !== cfgBase.userPreferredName || draft.assistantName.trim() !== cfgBase.assistantName
+    : false;
+
   const dirtyDevDebug = cfgBase ?
     draft.debugCaptureUpstreamRequests !== cfgBase.debugCaptureUpstreamRequests ||
     draft.debugParseAssistantOutput !== cfgBase.debugParseAssistantOutput
@@ -326,7 +335,14 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const dirtyDevSkills = cfgBase ? !sameStringArray(draft.skillsEnabled, cfgBase.skillsEnabled) : false;
 
   const dirtyDev =
-    dirtyDevHostPort || dirtyDevDebug || dirtyDevInference || dirtyDevCodexHome || dirtyDevDiscord || dirtyDevWeb || dirtyDevSkills;
+    dirtyDevHostPort ||
+    dirtyDevPersona ||
+    dirtyDevDebug ||
+    dirtyDevInference ||
+    dirtyDevCodexHome ||
+    dirtyDevDiscord ||
+    dirtyDevWeb ||
+    dirtyDevSkills;
 
   const [saving, setSaving] = React.useState(false);
 
@@ -377,7 +393,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const discard = () => {
     discardDraft();
     setCfgError(null);
-    setCfgSaved(null);
   };
 
   const save = async () => {
@@ -385,7 +400,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
     setSaving(true);
     setCfgError(null);
-    setCfgSaved(null);
 
     try {
       let nextCfgBase = cfgBase;
@@ -398,6 +412,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           draft,
           cfgBase,
           dirtyDevCodexHome,
+          dirtyDevPersona,
           dirtyDevHostPort,
           hostPortValid,
           dirtyDevDebug,
@@ -422,16 +437,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
           // Clear secret inputs after a successful save so the form becomes clean.
           setDraft((d) => draftAfterDevSave(d, nextBase, dirtyDevInference, dirtyDevWeb));
-
-          setCfgSaved(
-            dirtyDevHostPort
-              ? "Saved to eclia.config.local.toml. Restart required to apply host/port changes."
-              : dirtyDevDiscord
-                ? "Saved to eclia.config.local.toml. Restart required to apply adapter changes."
-                : dirtyDevCodexHome
-                  ? "Saved to eclia.config.local.toml. Restart required to apply Codex home changes."
-                : "Saved to eclia.config.local.toml."
-          );
         } finally {
           setCfgLoading(false);
         }
@@ -596,7 +601,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                 cfgLoading={cfgLoading}
                 cfgBaseAvailable={!!cfgBase}
                 cfgError={cfgError}
-                cfgSaved={cfgSaved}
                 dirtyDevHostPort={dirtyDevHostPort}
                 hostPortValid={hostPortValid}
               />

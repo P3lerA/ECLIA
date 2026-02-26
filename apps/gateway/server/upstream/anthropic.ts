@@ -122,7 +122,7 @@ export async function streamAnthropicTurn(args: {
 
   const requestBodyBase: any = {
     model: args.model,
-    max_tokens: maxOut && maxOut > 0 ? maxOut : 1024,
+    max_tokens: maxOut && maxOut > 0 ? maxOut : 2048,
     stream: true,
     messages: args.messages
   };

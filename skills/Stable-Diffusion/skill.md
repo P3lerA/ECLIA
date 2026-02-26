@@ -11,8 +11,8 @@ Usage:
 - --out <path> / --out-dir <dir> (optional): output path or directory.
 
 Default output directory is:
+- $ECLIA_ARTIFACT_DIR
 - --out-dir if provided
-- $ECLIA_ARTIFACT_DIR if set
 
 Examples:
 ``` bash

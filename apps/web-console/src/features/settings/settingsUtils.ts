@@ -90,7 +90,7 @@ export function parseTopK(s: string): number | null {
  * Parse optional max output tokens.
  *
  * - Empty string => null (omit from request; provider default)
- * - -1 / 0 / any non-positive number => null (treat as "unlimited")
+ * - Any non-positive number => null (legacy compatibility; treated as "unlimited")
  * - Otherwise => clamp to [1, 200000]
  */
 export function parseMaxOutputTokens(s: string): number | null {
@@ -101,7 +101,7 @@ export function parseMaxOutputTokens(s: string): number | null {
   if (!Number.isFinite(n)) return null;
 
   const i = Math.trunc(n);
-  // Convention: -1 means "unlimited".
+  // Legacy compatibility: non-positive values mean "unlimited / omitted".
   if (i <= 0) return null;
   if (i > 200000) return 200000;
   return i;

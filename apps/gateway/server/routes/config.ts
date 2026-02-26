@@ -10,6 +10,10 @@ type ConfigReqBody = {
   codex_home?: string;
   console?: { host?: string; port?: number };
   api?: { port?: number };
+  persona?: {
+    user_preferred_name?: string;
+    assistant_name?: string;
+  };
   debug?: {
     capture_upstream_requests?: boolean;
     parse_assistant_output?: boolean;
@@ -134,6 +138,10 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
         console: config.console,
         api: config.api,
         debug: config.debug,
+        persona: {
+          user_preferred_name: String((config.persona as any)?.user_preferred_name ?? ""),
+          assistant_name: String((config.persona as any)?.assistant_name ?? "")
+        },
         skills: {
           enabled: config.skills.enabled,
           available: availableSkills.map((s) => ({ name: s.name, summary: s.summary }))
@@ -199,6 +207,19 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
     if (typeof body.codex_home === "string") {
       // Empty string means "unset" (use default).
       patch.codex_home = body.codex_home.trim();
+    }
+    if (body.persona && typeof body.persona === "object") {
+      const personaPatch: any = {};
+      if (Object.prototype.hasOwnProperty.call(body.persona, "user_preferred_name")) {
+        personaPatch.user_preferred_name =
+          typeof body.persona.user_preferred_name === "string" ? body.persona.user_preferred_name.trim() : "";
+      }
+      if (Object.prototype.hasOwnProperty.call(body.persona, "assistant_name")) {
+        personaPatch.assistant_name = typeof body.persona.assistant_name === "string" ? body.persona.assistant_name.trim() : "";
+      }
+      if (Object.keys(personaPatch).length) {
+        patch.persona = personaPatch;
+      }
     }
     if (body.console) patch.console = body.console;
     if (body.api) patch.api = body.api;

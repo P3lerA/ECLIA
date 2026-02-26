@@ -307,10 +307,10 @@ export class SessionStore {
           ? (runtimeIn as any).topK
           : null;
 
-      // -1 means "unlimited / omitted".
       const maxRaw = (runtimeIn as any).maxOutputTokens;
-      const maxOutputTokens =
-        typeof maxRaw === "number" && Number.isFinite(maxRaw) ? Math.trunc(maxRaw) : -1;
+      const maxOutputTokensTrunc =
+        typeof maxRaw === "number" && Number.isFinite(maxRaw) ? Math.trunc(maxRaw) : null;
+      const maxOutputTokens = maxOutputTokensTrunc != null && maxOutputTokensTrunc > 0 ? maxOutputTokensTrunc : null;
 
       runtime = { temperature, topP, topK, maxOutputTokens };
     }

@@ -227,7 +227,7 @@ export async function streamOpenAICompatTurn(args: {
   let maxOut: number | null = null;
   if (typeof args.maxOutputTokens === "number" && Number.isFinite(args.maxOutputTokens)) {
     const i = Math.trunc(args.maxOutputTokens);
-    // Allow -1/0 as a sentinel meaning "unlimited" (omit from request).
+    // Backward compatibility: non-positive values are treated as omitted.
     if (i > 0) maxOut = Math.max(1, Math.min(200_000, i));
   }
   if (maxOut !== null) requestBody.max_tokens = maxOut;

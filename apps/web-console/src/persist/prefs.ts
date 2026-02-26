@@ -150,7 +150,7 @@ export function readStoredPrefs(): StoredPrefsV1 {
 
     if (typeof (parsed as any).maxOutputTokens === "number" && Number.isFinite((parsed as any).maxOutputTokens)) {
       const i = Math.trunc((parsed as any).maxOutputTokens);
-      // Convention: -1/0 means "unlimited" (omit).
+      // Backward compatibility: non-positive values are treated as omitted.
       if (i > 0) out.maxOutputTokens = Math.max(1, Math.min(200_000, i));
     }
 

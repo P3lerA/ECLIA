@@ -36,7 +36,7 @@ export type SettingsDraft = {
   topK: string;
 
   // Output limit override (runtime; persisted locally).
-  // Empty string (or -1) => omit from request (use provider defaults / unlimited).
+  // Empty string => omit from request (use provider defaults / unlimited).
   maxOutputTokens: string;
 
   // Web tool: UI-only rendering preference.
@@ -56,6 +56,10 @@ export type SettingsDraft = {
   // Dev-only (written to eclia.config.local.toml via the local backend).
   consoleHost: string;
   consolePort: string; // keep as string for input UX
+
+  // Dev-only persona placeholders used by _system.local.md template rendering.
+  userPreferredName: string;
+  assistantName: string;
 
   // Inference (OpenAI-compatible).
   // Secrets are stored in local TOML; keys are never read back.
@@ -128,6 +132,8 @@ export type CfgBase = {
   host: string;
   port: number;
   codexHome: string;
+  userPreferredName: string;
+  assistantName: string;
   debugCaptureUpstreamRequests: boolean;
   debugParseAssistantOutput: boolean;
   systemInstruction: string;
@@ -158,6 +164,10 @@ export type DevConfig = {
   codex_home?: string;
   console: { host: string; port: number };
   api?: { port: number };
+  persona?: {
+    user_preferred_name?: string;
+    assistant_name?: string;
+  };
   debug?: { capture_upstream_requests?: boolean; parse_assistant_output?: boolean };
   skills?: {
     enabled?: string[];

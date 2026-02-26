@@ -3,7 +3,8 @@ import crypto from "node:crypto";
 import path from "node:path";
 
 import {
-  loadEcliaConfig
+  loadEcliaConfig,
+  renderSystemInstructionTemplate
 } from "@eclia/config";
 
 import { SessionStore } from "../sessionStore.js";
@@ -132,10 +133,10 @@ function clampOptionalInt(v: unknown, min: number, max: number): number | null {
 }
 
 /**
- * Clamp an optional int, but treat non-positive values (0, -1, ...) as "unset".
+ * Clamp an optional int, but treat non-positive values as "unset".
  *
- * This is primarily used for max output tokens where -1 is commonly used as
- * a sentinel for "unlimited".
+ * Non-positive values are accepted for backward compatibility and normalized
+ * to null ("omit from upstream request").
  */
 function clampOptionalPositiveInt(v: unknown, min: number, max: number): number | null {
   if (v === null || v === undefined) return null;
@@ -268,13 +269,20 @@ export async function handleChat(
     // Best-effort provenance snapshot (commit/branch/dirty).
     const git = readGitInfo(rootDir);
 
-    // Global system instruction (from TOML). Injected as the ONLY role=system message for all providers.
+    // Global system instruction (from _system.local.md, fallback _system.md).
+    // Injected as the ONLY role=system message for all providers.
     const { text: systemInstruction } = composeSystemInstruction([
       {
-        id: "toml",
-        source: "toml",
+        id: "system_file",
+        source: "system_file",
         priority: 100,
-        content: typeof (config.inference as any)?.system_instruction === "string" ? String((config.inference as any).system_instruction) : ""
+        content: renderSystemInstructionTemplate(
+          typeof (config.inference as any)?.system_instruction === "string" ? String((config.inference as any).system_instruction) : "",
+          {
+            userPreferredName: (config as any)?.persona?.user_preferred_name,
+            assistantName: (config as any)?.persona?.assistant_name
+          }
+        )
       },
 
       // Optional: skills system blurb (from skills/_system.md). No code-generated boilerplate.
@@ -354,8 +362,8 @@ export async function handleChat(
       temperature,
       topP,
       topK,
-      // -1 means "unlimited / omitted".
-      maxOutputTokens: maxOutputTokens ?? -1
+      // null means "unlimited / omitted" (provider default).
+      maxOutputTokens: maxOutputTokens ?? null
     };
 
     const buildTurnMeta = (args: { usedTokens: number; upstreamModel?: string; upstreamBaseUrl?: string }) => {

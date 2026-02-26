@@ -11,14 +11,13 @@ export type GeneralSectionProps = {
   cfgLoading: boolean;
   cfgBaseAvailable: boolean;
   cfgError: string | null;
-  cfgSaved: string | null;
 
   dirtyDevHostPort: boolean;
   hostPortValid: boolean;
 };
 
 export function GeneralSection(props: GeneralSectionProps) {
-  const { draft, setDraft, cfgLoading, cfgBaseAvailable, cfgError, cfgSaved, dirtyDevHostPort, hostPortValid } = props;
+  const { draft, setDraft, cfgLoading, cfgBaseAvailable, cfgError, dirtyDevHostPort, hostPortValid } = props;
 
   const devDisabled = cfgLoading || !cfgBaseAvailable;
   const [exposeWarnOpen, setExposeWarnOpen] = React.useState(false);
@@ -39,6 +38,37 @@ export function GeneralSection(props: GeneralSectionProps) {
 
   return (
     <>
+      <div className="card">
+        <div className="card-title">Identity</div>
+
+        <div className="grid2">
+          <label className="field">
+            <div className="field-label">How would you like ECLIA call you?</div>
+            <input
+              className="select"
+              value={draft.userPreferredName}
+              onChange={(e) => setDraft((d) => ({ ...d, userPreferredName: e.target.value }))}
+              placeholder="User"
+              spellCheck={false}
+              disabled={devDisabled}
+            />
+          </label>
+
+          <label className="field">
+            <div className="field-label">What should be ECLIA's name?</div>
+            <input
+              className="select"
+              value={draft.assistantName}
+              onChange={(e) => setDraft((d) => ({ ...d, assistantName: e.target.value }))}
+              placeholder="ALyCE"
+              spellCheck={false}
+              disabled={devDisabled}
+            />
+          </label>
+        </div>
+
+      </div>
+
       <div className="card">
         <div className="card-title">Development</div>
 
@@ -94,7 +124,6 @@ export function GeneralSection(props: GeneralSectionProps) {
           <div className="devNoteText muted">Invalid host or port. Port must be 1–65535.</div>
         ) : null}
 
-        {cfgSaved ? <div className="devNoteText muted">{cfgSaved}</div> : null}
       </div>
 
       {exposeWarnOpen ? (

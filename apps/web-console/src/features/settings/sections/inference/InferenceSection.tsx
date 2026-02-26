@@ -193,7 +193,6 @@ export function InferenceSection(props: InferenceSectionProps) {
               onChange={(e) => setDraft((d) => ({ ...d, temperature: e.target.value }))}
               placeholder="default"
             />
-            <div className="field-sub muted">Blank = provider default.</div>
           </label>
 
           <label className="field">
@@ -209,7 +208,6 @@ export function InferenceSection(props: InferenceSectionProps) {
               onChange={(e) => setDraft((d) => ({ ...d, topP: e.target.value }))}
               placeholder="default"
             />
-            <div className="field-sub muted">Blank = provider default.</div>
           </label>
 
           <label className="field">
@@ -225,7 +223,7 @@ export function InferenceSection(props: InferenceSectionProps) {
               onChange={(e) => setDraft((d) => ({ ...d, topK: e.target.value }))}
               placeholder="default"
             />
-            <div className="field-sub muted">Blank = provider default. Sent only when supported.</div>
+            <div className="field-sub muted">Sent only when supported.</div>
           </label>
 
           <label className="field">
@@ -234,14 +232,14 @@ export function InferenceSection(props: InferenceSectionProps) {
               className="select"
               inputMode="numeric"
               type="number"
-              min={-1}
+              min={1}
               max={200000}
               step={64}
               value={draft.maxOutputTokens}
               onChange={(e) => setDraft((d) => ({ ...d, maxOutputTokens: e.target.value }))}
-              placeholder="-1"
+              placeholder="default"
             />
-            <div className="field-sub muted">-1 (or blank) = unlimited (omit from request).</div>
+            <div className="field-sub muted">Default is unlimited, Anthropic requests override with 2048.</div>
           </label>
 
           <div className="field" style={{ gridColumn: "1 / -1" }}>
@@ -510,11 +508,6 @@ export function InferenceSection(props: InferenceSectionProps) {
       <div className="card">
         <div className="card-title">Codex OAuth</div>
 
-        <div className="devNoteText muted" style={{ marginBottom: 12 }}>
-          Browser login is handled by <code>codex app-server</code> and the resulting session is stored by Codex itself. ECLIA only persists profile metadata (name/model) in{" "}
-          <code>eclia.config.local.toml</code>.
-        </div>
-
         <div className="row" style={{ marginBottom: 12 }}>
           <div className="row-left">
             <div className="row-main">Availability</div>
@@ -648,7 +641,7 @@ export function InferenceSection(props: InferenceSectionProps) {
             disabled={devDisabled}
           />
           <div className="field-sub muted">
-            Injected as the only <code>system</code> message (role=system) for all providers. Saved to <code>eclia.config.local.toml</code>.
+            Injected as system instruction. Saved to /_system.local.md.
           </div>
         </label>
 

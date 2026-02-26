@@ -83,8 +83,8 @@ export type TranscriptTurnV1 = {
     temperature: number | null;
     topP: number | null;
     topK: number | null;
-    /** -1 means "unlimited / omitted" (provider default). */
-    maxOutputTokens: number;
+    /** null means "unlimited / omitted" (provider default). */
+    maxOutputTokens: number | null;
   };
 
   /** Redundant tool access mode snapshot (useful for debugging). */

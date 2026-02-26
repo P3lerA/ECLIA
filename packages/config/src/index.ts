@@ -69,9 +69,24 @@ export type EcliaConfig = {
     enabled: string[];
   };
 
+  /**
+   * Optional display names used by system-instruction template placeholders.
+   */
+  persona: {
+    /**
+     * Replaces {{USER_PREFERRED_NAME}} in _system.local.md / _system.md.
+     */
+    user_preferred_name?: string;
+
+    /**
+     * Replaces {{ASSISTANT_NAME}} in _system.local.md / _system.md.
+     */
+    assistant_name?: string;
+  };
+
   inference: {
     /**
-     * Optional system instruction injected as the ONLY role=system message for all providers.
+     * Effective system instruction (resolved from _system.local.md -> _system.md).
      */
     system_instruction?: string;
 
@@ -213,6 +228,7 @@ export type EcliaConfigPatch = Partial<{
   api: Partial<EcliaConfig["api"]>;
   debug: Partial<EcliaConfig["debug"]>;
   skills: Partial<EcliaConfig["skills"]>;
+  persona: Partial<EcliaConfig["persona"]>;
   inference: Partial<{
     system_instruction: string;
     provider: EcliaConfig["inference"]["provider"];
@@ -250,6 +266,7 @@ export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
   skills: {
     enabled: []
   },
+  persona: {},
   inference: {
     provider: "openai_compat",
     openai_compat: {
@@ -398,6 +415,7 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
   const apiRaw = isRecord(raw.api) ? raw.api : {};
   const debugRaw = isRecord((raw as any).debug) ? ((raw as any).debug as any) : {};
   const skillsRaw = isRecord((raw as any).skills) ? ((raw as any).skills as any) : {};
+  const personaRaw = isRecord((raw as any).persona) ? ((raw as any).persona as any) : {};
   const infRaw = isRecord(raw.inference) ? raw.inference : {};
 
   const openaiRaw = isRecord((infRaw as any).openai_compat) ? (infRaw as any).openai_compat : {};
@@ -416,6 +434,8 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
       : base.inference.provider;
 
   const system_instruction = coerceOptionalString((infRaw as any).system_instruction);
+  const user_preferred_name = coerceOptionalString((personaRaw as any).user_preferred_name);
+  const assistant_name = coerceOptionalString((personaRaw as any).assistant_name);
 
   // Profiles (new schema). If missing/empty, fall back to legacy keys on [inference.openai_compat].
   const rawProfiles = Array.isArray((openaiRaw as any).profiles) ? ((openaiRaw as any).profiles as any[]) : null;
@@ -548,6 +568,10 @@ function coerceConfig(raw: Record<string, any>): EcliaConfig {
     skills: {
       enabled: coerceStringArray((skillsRaw as any).enabled, base.skills.enabled ?? [])
     },
+    persona: {
+      ...(user_preferred_name ? { user_preferred_name } : {}),
+      ...(assistant_name ? { assistant_name } : {})
+    },
     inference: {
       ...(system_instruction ? { system_instruction } : {}),
       provider,
@@ -613,6 +637,105 @@ function tryReadToml(filePath: string): Record<string, any> {
   }
 }
 
+const SYSTEM_INSTRUCTION_FILE = "_system.md";
+const SYSTEM_INSTRUCTION_LOCAL_FILE = "_system.local.md";
+const DEFAULT_SYSTEM_INSTRUCTION_FILE_CONTENT = `You are running as a coding agent in the **ECLIA** on user's computer.`;
+const SYSTEM_PLACEHOLDER_USER_PREFERRED_NAME = "{{USER_PREFERRED_NAME}}";
+const SYSTEM_PLACEHOLDER_ASSISTANT_NAME = "{{ASSISTANT_NAME}}";
+
+function tryReadText(filePath: string): string | null {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const st = fs.statSync(filePath);
+    if (!st.isFile()) return null;
+    return fs.readFileSync(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ensure root-level system instruction files exist:
+ * - _system.md (committed default)
+ * - _system.local.md (gitignored local override, initialized from _system.md)
+ */
+export function ensureSystemInstructionFiles(rootDir: string = findProjectRoot(process.cwd())): {
+  rootDir: string;
+  systemPath: string;
+  localPath: string;
+  createdSystem: boolean;
+  createdLocal: boolean;
+} {
+  const systemPath = path.join(rootDir, SYSTEM_INSTRUCTION_FILE);
+  const localPath = path.join(rootDir, SYSTEM_INSTRUCTION_LOCAL_FILE);
+  let createdSystem = false;
+  let createdLocal = false;
+
+  if (!fs.existsSync(systemPath)) {
+    try {
+      fs.writeFileSync(systemPath, DEFAULT_SYSTEM_INSTRUCTION_FILE_CONTENT + "\n", {
+        encoding: "utf-8",
+        flag: "wx"
+      });
+      createdSystem = true;
+    } catch {
+      // best-effort
+    }
+  }
+
+  if (!fs.existsSync(localPath)) {
+    try {
+      const base = tryReadText(systemPath) ?? "";
+      fs.writeFileSync(localPath, base, { encoding: "utf-8", flag: "wx" });
+      createdLocal = true;
+    } catch {
+      // best-effort
+    }
+  }
+
+  return { rootDir, systemPath, localPath, createdSystem, createdLocal };
+}
+
+export function readSystemInstruction(rootDir: string = findProjectRoot(process.cwd())): {
+  rootDir: string;
+  systemPath: string;
+  localPath: string;
+  text: string;
+  source: "local" | "base" | "none";
+} {
+  const systemPath = path.join(rootDir, SYSTEM_INSTRUCTION_FILE);
+  const localPath = path.join(rootDir, SYSTEM_INSTRUCTION_LOCAL_FILE);
+
+  const localText = tryReadText(localPath);
+  if (localText !== null) return { rootDir, systemPath, localPath, text: localText, source: "local" };
+
+  const baseText = tryReadText(systemPath);
+  if (baseText !== null) return { rootDir, systemPath, localPath, text: baseText, source: "base" };
+
+  return { rootDir, systemPath, localPath, text: "", source: "none" };
+}
+
+function writeSystemInstructionLocal(rootDir: string, text: string): void {
+  const { localPath } = ensureSystemInstructionFiles(rootDir);
+  try {
+    fs.writeFileSync(localPath, String(text ?? ""), "utf-8");
+  } catch {
+    // best-effort
+  }
+}
+
+export function renderSystemInstructionTemplate(
+  template: string,
+  vars: { userPreferredName?: string; assistantName?: string }
+): string {
+  const userPreferredName = String(vars.userPreferredName ?? "").trim() || "User";
+  const assistantName = String(vars.assistantName ?? "").trim() || "ALyCE";
+
+  return String(template ?? "")
+    .replaceAll(SYSTEM_PLACEHOLDER_USER_PREFERRED_NAME, userPreferredName)
+    .replaceAll(SYSTEM_PLACEHOLDER_ASSISTANT_NAME, assistantName);
+}
+
 /**
  * Ensure eclia.config.local.toml exists.
  * This is intentionally best-effort: failures should not crash dev startup.
@@ -647,12 +770,15 @@ export function loadEcliaConfig(startDir: string = process.cwd()): {
 
   // best-effort create local overrides file
   ensureLocalConfig(rootDir);
+  ensureSystemInstructionFiles(rootDir);
 
   const base = tryReadToml(configPath);
   const local = tryReadToml(localPath);
 
   const merged = deepMerge(base, local);
   const config = coerceConfig(merged);
+  const systemInstruction = readSystemInstruction(rootDir);
+  (config.inference as any).system_instruction = systemInstruction.text;
 
   return { rootDir, configPath, localPath, config, raw: merged };
 }
@@ -672,6 +798,20 @@ export function writeLocalEcliaConfig(
   const localPath = path.join(rootDir, "eclia.config.local.toml");
 
   ensureLocalConfig(rootDir);
+  ensureSystemInstructionFiles(rootDir);
+
+  let patchSystemInstruction: string | undefined;
+  if (patch.inference && Object.prototype.hasOwnProperty.call(patch.inference, "system_instruction")) {
+    const raw = (patch.inference as any).system_instruction;
+    if (typeof raw === "string") patchSystemInstruction = raw;
+
+    const nextInferencePatch: Record<string, any> = { ...(patch.inference as any) };
+    delete nextInferencePatch.system_instruction;
+    patch = {
+      ...patch,
+      inference: nextInferencePatch as any
+    };
+  }
 
   const currentLocal = tryReadToml(localPath);
 
@@ -830,6 +970,11 @@ export function writeLocalEcliaConfig(
       ...(isRecord((nextLocal as any).skills) ? (nextLocal as any).skills : {}),
       enabled: normalized.skills.enabled
     },
+    persona: {
+      ...(isRecord((nextLocal as any).persona) ? (nextLocal as any).persona : {}),
+      ...(normalized.persona.user_preferred_name ? { user_preferred_name: normalized.persona.user_preferred_name } : {}),
+      ...(normalized.persona.assistant_name ? { assistant_name: normalized.persona.assistant_name } : {})
+    },
     inference: {
       ...(isRecord(nextLocal.inference) ? nextLocal.inference : {}),
       provider: normalized.inference.provider,
@@ -874,6 +1019,19 @@ export function writeLocalEcliaConfig(
     }
   }
 
+  // persona.*: omit the whole [persona] table when it would be empty and it has no other keys.
+  {
+    const rawPersona = isRecord((nextLocal as any).persona) ? ((nextLocal as any).persona as Record<string, any>) : null;
+    const hasOtherKeys = rawPersona
+      ? Object.keys(rawPersona).some((k) => k !== "user_preferred_name" && k !== "assistant_name")
+      : false;
+    const hasUserPreferredName = Boolean(normalized.persona.user_preferred_name);
+    const hasAssistantName = Boolean(normalized.persona.assistant_name);
+    if (!hasOtherKeys && !hasUserPreferredName && !hasAssistantName) {
+      delete (toWrite as any).persona;
+    }
+  }
+
   // debug.capture_upstream_requests: omit the whole [debug] table when it would be default (false)
   // AND it doesn't contain any other user-defined keys.
   {
@@ -885,9 +1043,8 @@ export function writeLocalEcliaConfig(
     }
   }
 
-  // inference.system_instruction: write only when non-empty; otherwise remove from TOML.
-  if (normalized.inference.system_instruction) (toWrite as any).inference.system_instruction = normalized.inference.system_instruction;
-  else delete (toWrite as any).inference.system_instruction;
+  // System instruction now lives in _system.local.md (with _system.md fallback), not TOML.
+  delete (toWrite as any).inference.system_instruction;
 
   // codex_home: write only if configured; otherwise omit from TOML.
   const codexHome = coerceOptionalString((nextLocal as any).codex_home);
@@ -953,6 +1110,9 @@ export function writeLocalEcliaConfig(
   }
 
   fs.writeFileSync(localPath, TOML.stringify(toWrite), "utf-8");
+  if (patchSystemInstruction !== undefined) {
+    writeSystemInstructionLocal(rootDir, patchSystemInstruction);
+  }
 
   const { config } = loadEcliaConfig(rootDir);
   return { rootDir, localPath, config };

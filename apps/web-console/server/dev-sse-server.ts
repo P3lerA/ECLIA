@@ -8,8 +8,13 @@ type ChatReqBody = {
 };
 
 type ConfigReqBody = {
+  codex_home?: string;
   console?: { host?: string; port?: number };
   api?: { port?: number };
+  persona?: {
+    user_preferred_name?: string;
+    assistant_name?: string;
+  };
 };
 
 function isValidPort(n: unknown): n is number {
@@ -100,6 +105,24 @@ const server = http.createServer(async (req, res) => {
 
     const patch: EcliaConfigPatch = {};
 
+    if (typeof body.codex_home === "string") {
+      patch.codex_home = body.codex_home.trim();
+    }
+
+    if (body.persona && typeof body.persona === "object") {
+      const personaPatch: any = {};
+      if (Object.prototype.hasOwnProperty.call(body.persona, "user_preferred_name")) {
+        personaPatch.user_preferred_name =
+          typeof body.persona.user_preferred_name === "string" ? body.persona.user_preferred_name.trim() : "";
+      }
+      if (Object.prototype.hasOwnProperty.call(body.persona, "assistant_name")) {
+        personaPatch.assistant_name = typeof body.persona.assistant_name === "string" ? body.persona.assistant_name.trim() : "";
+      }
+      if (Object.keys(personaPatch).length) {
+        patch.persona = personaPatch;
+      }
+    }
+
     // Validate + normalize console host/port.
     if (body.console?.host !== undefined) {
       const h = cleanHost(body.console.host);
@@ -128,7 +151,7 @@ const server = http.createServer(async (req, res) => {
       patch.api = { ...(patch.api ?? {}), port: Math.trunc(p) };
     }
 
-    if (!patch.console && !patch.api) {
+    if (!patch.console && !patch.api && !patch.persona && typeof patch.codex_home !== "string") {
       json(res, 400, { ok: false, error: "empty_patch", hint: "Nothing to update." });
       return;
     }

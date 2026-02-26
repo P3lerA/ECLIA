@@ -91,7 +91,7 @@ type TranscriptTurn = {
   usedTokens: number;
   upstream?: { routeKey: string; model: string; baseUrl: string };
   git?: { commit: string | null; branch: string | null; dirty: boolean | null };
-  runtime?: { temperature: number | null; topP: number | null; topK: number | null; maxOutputTokens: number };
+  runtime?: { temperature: number | null; topP: number | null; topK: number | null; maxOutputTokens: number | null };
   toolAccessMode?: "full" | "safe";
 };
 
