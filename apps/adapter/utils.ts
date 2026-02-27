@@ -70,3 +70,27 @@ export function explainFetchError(e: any): string {
   }
   return msg;
 }
+
+// ---------------------------------------------------------------------------
+// Logging
+// ---------------------------------------------------------------------------
+
+const ADAPTER_LOG_LABEL_PAD = 16;
+
+function adapterLogPrefix(name: string): string {
+  const label = `adapter:${String(name ?? "").trim().toLowerCase() || "unknown"}`;
+  return `[${label.padEnd(ADAPTER_LOG_LABEL_PAD, " ")}]`;
+}
+
+export function makeAdapterLogger(name: string): {
+  info: (...args: any[]) => void;
+  warn: (...args: any[]) => void;
+  error: (...args: any[]) => void;
+} {
+  const prefix = adapterLogPrefix(name);
+  return {
+    info: (...args: any[]) => console.log(prefix, ...args),
+    warn: (...args: any[]) => console.warn(prefix, ...args),
+    error: (...args: any[]) => console.error(prefix, ...args)
+  };
+}

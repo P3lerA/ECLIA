@@ -114,10 +114,24 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
   const discordEnabled = Boolean((disc as any).enabled ?? false);
   const discordAppId = String((disc as any).app_id ?? "").trim();
   const discordTokenConfigured = Boolean((disc as any).bot_token_configured);
-  const discordGuildIds = Array.isArray((disc as any).guild_ids)
+  const discordGuildWhitelist = Array.isArray((disc as any).guild_ids)
     ? (disc as any).guild_ids.map((x: any) => String(x).trim()).filter(Boolean)
     : [];
+  const discordUserWhitelist = Array.isArray((disc as any).user_whitelist)
+    ? (disc as any).user_whitelist.map((x: any) => String(x).trim()).filter(Boolean)
+    : [];
+  const discordForceGlobalCommands = Boolean((disc as any).force_global_commands ?? false);
   const discordDefaultStreamMode = normalizeDiscordStreamMode((disc as any).default_stream_mode);
+
+  const tg = (config.adapters as any)?.telegram ?? {};
+  const telegramEnabled = Boolean((tg as any).enabled ?? false);
+  const telegramTokenConfigured = Boolean((tg as any).bot_token_configured);
+  const telegramUserWhitelist = Array.isArray((tg as any).user_whitelist)
+    ? (tg as any).user_whitelist.map((x: any) => String(x).trim()).filter(Boolean)
+    : [];
+  const telegramGroupWhitelist = Array.isArray((tg as any).group_whitelist)
+    ? (tg as any).group_whitelist.map((x: any) => String(x).trim()).filter(Boolean)
+    : [];
 
   const web = (config as any)?.tools?.web ?? {};
   const rawWebProfiles = Array.isArray((web as any).profiles) ? ((web as any).profiles as any[]) : [];
@@ -212,8 +226,15 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
     discordEnabled,
     discordAppId,
     discordTokenConfigured,
-    discordGuildIds,
+    discordGuildWhitelist,
+    discordUserWhitelist,
+    discordForceGlobalCommands,
     discordDefaultStreamMode,
+
+    telegramEnabled,
+    telegramTokenConfigured,
+    telegramUserWhitelist,
+    telegramGroupWhitelist,
 
     webActiveProfileId,
     webProfiles,
@@ -237,6 +258,9 @@ export type BuildDevConfigPatchArgs = {
   dirtyDevDiscord: boolean;
   discordValid: boolean;
 
+  dirtyDevTelegram: boolean;
+  telegramValid: boolean;
+
   dirtyDevWeb: boolean;
   webValid: boolean;
   dirtyDevSkills: boolean;
@@ -259,6 +283,8 @@ export function buildDevConfigPatch(args: BuildDevConfigPatchArgs): any {
     inferenceValid,
     dirtyDevDiscord,
     discordValid,
+    dirtyDevTelegram,
+    telegramValid,
     dirtyDevWeb,
     webValid,
     dirtyDevSkills
@@ -334,8 +360,11 @@ export function buildDevConfigPatch(args: BuildDevConfigPatchArgs): any {
   if (dirtyDevDiscord) {
     if (!discordValid) throw new Error("Discord adapter enabled but missing bot token or Application ID.");
     const appId = draft.adapterDiscordAppId.trim();
-    const guildIds = normalizeGuildIds(draft.adapterDiscordGuildIds);
-    const guildIdsDirty = !sameStringArray(guildIds, cfgBase.discordGuildIds);
+    const guildWhitelist = normalizeGuildIds(draft.adapterDiscordGuildWhitelist);
+    const guildWhitelistDirty = !sameStringArray(guildWhitelist, cfgBase.discordGuildWhitelist);
+    const userWhitelist = normalizeGuildIds(draft.adapterDiscordUserWhitelist);
+    const userWhitelistDirty = !sameStringArray(userWhitelist, cfgBase.discordUserWhitelist);
+    const forceGlobalCommandsDirty = draft.adapterDiscordForceGlobalCommands !== cfgBase.discordForceGlobalCommands;
     const streamModeDirty = draft.adapterDiscordDefaultStreamMode !== cfgBase.discordDefaultStreamMode;
     body.adapters = {
       discord: {
@@ -344,8 +373,28 @@ export function buildDevConfigPatch(args: BuildDevConfigPatchArgs): any {
         ...(appId.length && appId !== cfgBase.discordAppId ? { app_id: appId } : {}),
         // bot_token is optional; empty means unchanged.
         ...(draft.adapterDiscordBotToken.trim().length ? { bot_token: draft.adapterDiscordBotToken.trim() } : {}),
-        ...(guildIdsDirty ? { guild_ids: guildIds } : {}),
+        ...(guildWhitelistDirty ? { guild_ids: guildWhitelist } : {}),
+        ...(userWhitelistDirty ? { user_whitelist: userWhitelist } : {}),
+        ...(forceGlobalCommandsDirty ? { force_global_commands: Boolean(draft.adapterDiscordForceGlobalCommands) } : {}),
         ...(streamModeDirty ? { default_stream_mode: draft.adapterDiscordDefaultStreamMode } : {})
+      }
+    };
+  }
+
+  if (dirtyDevTelegram) {
+    if (!telegramValid) throw new Error("Telegram adapter enabled but missing bot token or user whitelist.");
+    const userWhitelist = normalizeGuildIds(draft.adapterTelegramUserWhitelist);
+    const userWhitelistDirty = !sameStringArray(userWhitelist, cfgBase.telegramUserWhitelist);
+    const groupWhitelist = normalizeGuildIds(draft.adapterTelegramGroupWhitelist);
+    const groupWhitelistDirty = !sameStringArray(groupWhitelist, cfgBase.telegramGroupWhitelist);
+
+    body.adapters = {
+      ...(body.adapters ?? {}),
+      telegram: {
+        enabled: Boolean(draft.adapterTelegramEnabled),
+        ...(draft.adapterTelegramBotToken.trim().length ? { bot_token: draft.adapterTelegramBotToken.trim() } : {}),
+        ...(userWhitelistDirty ? { user_whitelist: userWhitelist } : {}),
+        ...(groupWhitelistDirty ? { group_whitelist: groupWhitelist } : {})
       }
     };
   }
@@ -473,8 +522,18 @@ export function applyDevConfigPatchToCfgBase(cfgBase: CfgBase, body: any): CfgBa
     discordEnabled: body.adapters?.discord?.enabled ?? cfgBase.discordEnabled,
     discordAppId: body.adapters?.discord?.app_id ?? cfgBase.discordAppId,
     discordTokenConfigured: cfgBase.discordTokenConfigured || Boolean(body.adapters?.discord?.bot_token),
-    discordGuildIds: body.adapters?.discord?.guild_ids ?? cfgBase.discordGuildIds,
+    discordGuildWhitelist: body.adapters?.discord?.guild_ids ?? cfgBase.discordGuildWhitelist,
+    discordUserWhitelist: body.adapters?.discord?.user_whitelist ?? cfgBase.discordUserWhitelist,
+    discordForceGlobalCommands:
+      typeof body.adapters?.discord?.force_global_commands === "boolean"
+        ? Boolean(body.adapters.discord.force_global_commands)
+        : cfgBase.discordForceGlobalCommands,
     discordDefaultStreamMode: normalizeDiscordStreamMode(body.adapters?.discord?.default_stream_mode ?? cfgBase.discordDefaultStreamMode),
+
+    telegramEnabled: body.adapters?.telegram?.enabled ?? cfgBase.telegramEnabled,
+    telegramTokenConfigured: cfgBase.telegramTokenConfigured || Boolean(body.adapters?.telegram?.bot_token),
+    telegramUserWhitelist: body.adapters?.telegram?.user_whitelist ?? cfgBase.telegramUserWhitelist,
+    telegramGroupWhitelist: body.adapters?.telegram?.group_whitelist ?? cfgBase.telegramGroupWhitelist,
 
     webActiveProfileId: nextWebActiveProfileId,
     webProfiles: nextWebProfiles,
@@ -524,8 +583,14 @@ export function draftAfterDevSave(d: SettingsDraft, nextBase: CfgBase, dirtyDevI
     codexHomeOverrideEnabled: Boolean(nextBase.codexHome.trim().length),
     codexHomeOverridePath: nextBase.codexHome,
     adapterDiscordBotToken: "",
-    adapterDiscordGuildIds: nextBase.discordGuildIds.join("\n"),
+    adapterDiscordGuildWhitelist: nextBase.discordGuildWhitelist.join("\n"),
+    adapterDiscordUserWhitelist: nextBase.discordUserWhitelist.join("\n"),
+    adapterDiscordForceGlobalCommands: nextBase.discordForceGlobalCommands,
     adapterDiscordDefaultStreamMode: nextBase.discordDefaultStreamMode,
+
+    adapterTelegramBotToken: "",
+    adapterTelegramUserWhitelist: nextBase.telegramUserWhitelist.join("\n"),
+    adapterTelegramGroupWhitelist: nextBase.telegramGroupWhitelist.join("\n"),
 
     webActiveProfileId: dirtyDevWeb ? nextBase.webActiveProfileId : d.webActiveProfileId,
     webProfiles: dirtyDevWeb

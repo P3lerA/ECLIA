@@ -114,7 +114,9 @@ export type EcliaConfig = {
       enabled: boolean;
       app_id?: string; // non-secret (application id / client id)
       bot_token?: string; // secret (prefer local overrides)
-      guild_ids?: string[]; // optional: register slash commands as guild-scoped
+      guild_ids?: string[]; // guild whitelist used by registration/runtime filtering
+      user_whitelist?: string[]; // allowed Discord user ids for slash/plain-message handling
+      force_global_commands?: boolean; // register only global commands (and filter guild replies by whitelist)
 
       /**
        * Default stream mode for the /eclia slash command when `verbose` is omitted.
@@ -122,6 +124,15 @@ export type EcliaConfig = {
        * - full: stream intermediate output (tools/deltas)
        */
       default_stream_mode?: "full" | "final";
+    };
+
+    telegram: {
+      enabled: boolean;
+      bot_token?: string; // secret (prefer local overrides)
+      /** Allowed Telegram user ids (applies to both private and group chats). */
+      user_whitelist?: string[];
+      /** Allowed Telegram group/supergroup chat ids (bot replies only when chat.id is in this list). */
+      group_whitelist?: string[];
     };
   };
 };
@@ -261,6 +272,7 @@ export type EcliaConfigPatch = Partial<{
   }>;
   adapters: Partial<{
     discord: Partial<EcliaConfig["adapters"]["discord"]>;
+    telegram: Partial<EcliaConfig["adapters"]["telegram"]>;
   }>;
 }>;
 
@@ -315,7 +327,14 @@ export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
     discord: {
       enabled: false,
       guild_ids: [],
+      user_whitelist: [],
+      force_global_commands: false,
       default_stream_mode: "final"
+    },
+    telegram: {
+      enabled: false,
+      user_whitelist: [],
+      group_whitelist: []
     }
   }
 };

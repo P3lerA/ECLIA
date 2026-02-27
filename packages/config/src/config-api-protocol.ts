@@ -59,7 +59,16 @@ export type ConfigApiRequestBody = {
       app_id?: string;
       bot_token?: string;
       guild_ids?: string[];
+      user_whitelist?: string[];
+      force_global_commands?: boolean;
       default_stream_mode?: string;
+    };
+
+    telegram?: {
+      enabled?: boolean;
+      bot_token?: string;
+      user_whitelist?: string[];
+      group_whitelist?: string[];
     };
   };
   tools?: {
@@ -133,8 +142,17 @@ export type ConfigApiConfig = {
       enabled?: boolean;
       app_id?: string;
       guild_ids?: string[];
+      user_whitelist?: string[];
+      force_global_commands?: boolean;
       default_stream_mode?: string;
       app_id_configured?: boolean;
+      bot_token_configured?: boolean;
+    };
+
+    telegram?: {
+      enabled?: boolean;
+      user_whitelist?: string[];
+      group_whitelist?: string[];
       bot_token_configured?: boolean;
     };
   };

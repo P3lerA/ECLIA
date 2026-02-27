@@ -35,7 +35,8 @@ function normalizeStringList(input: unknown): string[] {
 export type SendDestination =
   | { kind: "origin" }
   | { kind: "web" }
-  | { kind: "discord" };
+  | { kind: "discord" }
+  | { kind: "telegram" };
 
 export type NormalizedSendToolArgs = {
   destination?: SendDestination;
@@ -56,17 +57,17 @@ export const SEND_TOOL_SCHEMA: any = {
   properties: {
     destination: {
       description:
-        "Where to send the message. Default is {kind:'origin'} (the request source). For {kind:'discord'}, the channel/thread is always derived from the session/request origin (not model-specified).",
+        "Where to send the message. Default is {kind:'origin'} (the request source). For {kind:'discord'} / {kind:'telegram'}, the channel/chat is always derived from the session/request origin (not model-specified).",
       anyOf: [
         {
           type: "object",
           additionalProperties: false,
           properties: {
-            kind: { type: "string", enum: ["origin", "web", "discord"] }
+            kind: { type: "string", enum: ["origin", "web", "discord", "telegram"] }
           },
           required: ["kind"]
         },
-        { type: "string", enum: ["origin", "web", "discord"] }
+        { type: "string", enum: ["origin", "web", "discord", "telegram"] }
       ]
     },
     content: { type: "string", description: "Text/markdown content to send." },
@@ -121,6 +122,7 @@ function normalizeDestination(input: unknown): SendDestination | undefined {
     const k = input.trim();
     if (k === "origin" || k === "web") return { kind: k };
     if (k === "discord" || k === "dc") return { kind: "discord" };
+    if (k === "telegram" || k === "tg") return { kind: "telegram" };
     return undefined;
   }
 
@@ -129,6 +131,7 @@ function normalizeDestination(input: unknown): SendDestination | undefined {
 
   if (kind === "origin" || kind === "web") return { kind };
   if (kind === "discord" || kind === "dc") return { kind: "discord" };
+  if (kind === "telegram" || kind === "tg") return { kind: "telegram" };
 
   return undefined;
 }

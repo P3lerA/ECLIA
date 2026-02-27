@@ -18,6 +18,8 @@ export type DiscordOrigin = {
   channelName?: string;
   threadId?: string;
   threadName?: string;
+  userId?: string;
+  userName?: string;
 };
 
 export type SendRequest = {
@@ -63,8 +65,10 @@ export function originFromInteraction(interaction: ChatInputCommandInteraction):
   const isThread = Boolean(channel && typeof channel.isThread === "function" && channel.isThread());
   const threadId = isThread ? interaction.channelId : undefined;
   const { threadName, channelName } = extractOriginFields(channel, isThread);
+  const userId = interaction.user?.id ?? undefined;
+  const userName = interaction.user?.username ?? undefined;
 
-  return { kind: "discord", guildId, guildName, channelId, channelName, threadId, threadName };
+  return { kind: "discord", guildId, guildName, channelId, channelName, threadId, threadName, userId, userName };
 }
 
 export function originFromMessage(message: Message): DiscordOrigin {
@@ -75,8 +79,10 @@ export function originFromMessage(message: Message): DiscordOrigin {
   const isThread = Boolean(channel && typeof channel.isThread === "function" && channel.isThread());
   const threadId = isThread ? message.channelId : undefined;
   const { threadName, channelName } = extractOriginFields(channel, isThread);
+  const userId = message.author?.id ?? undefined;
+  const userName = message.author?.username ?? undefined;
 
-  return { kind: "discord", guildId, guildName, channelId, channelName, threadId, threadName };
+  return { kind: "discord", guildId, guildName, channelId, channelName, threadId, threadName, userId, userName };
 }
 
 // ---------------------------------------------------------------------------
@@ -118,12 +124,29 @@ export function formatToolResultForDiscord(name: string, ok: boolean, result: an
   return header + detail + "\n```json\n" + body + "\n```";
 }
 
+export function formatDiscordOutboundText(raw: string): string {
+  const s = String(raw ?? "");
+  if (!s) return "";
+
+  const withClosedThinkBlocks = s.replace(/<think>([\s\S]*?)<\/think>/gi, (_m, inner: string) => {
+    const body = String(inner ?? "").trim();
+    if (!body) return "> ";
+    const quoted = body
+      .split(/\r?\n/)
+      .map((line) => `> ${line}`)
+      .join("\n");
+    return quoted;
+  });
+  return withClosedThinkBlocks.replace(/<\/?think>/gi, "");
+}
+
 // ---------------------------------------------------------------------------
 // Send helpers
 // ---------------------------------------------------------------------------
 
 export async function sendTextOrFile(send: DiscordSendFn, text: string): Promise<void> {
-  const t = text.trim() ? text.trim() : "(empty)";
+  const outgoing = formatDiscordOutboundText(text);
+  const t = outgoing.trim() ? outgoing.trim() : "(empty)";
   if (t.length <= 1900) {
     await send({ content: t });
     return;

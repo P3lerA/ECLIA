@@ -164,8 +164,16 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         adapterDiscordEnabled: cfgBase?.discordEnabled ?? prev?.adapterDiscordEnabled ?? false,
         adapterDiscordAppId: cfgBase?.discordAppId ?? prev?.adapterDiscordAppId ?? "",
         adapterDiscordBotToken: "",
-        adapterDiscordGuildIds: cfgBase ? cfgBase.discordGuildIds.join("\n") : prev?.adapterDiscordGuildIds ?? "",
+        adapterDiscordGuildWhitelist: cfgBase ? cfgBase.discordGuildWhitelist.join("\n") : prev?.adapterDiscordGuildWhitelist ?? "",
+        adapterDiscordUserWhitelist: cfgBase ? cfgBase.discordUserWhitelist.join("\n") : prev?.adapterDiscordUserWhitelist ?? "",
+        adapterDiscordForceGlobalCommands:
+          cfgBase?.discordForceGlobalCommands ?? prev?.adapterDiscordForceGlobalCommands ?? false,
         adapterDiscordDefaultStreamMode: cfgBase?.discordDefaultStreamMode ?? prev?.adapterDiscordDefaultStreamMode ?? "final",
+
+        adapterTelegramEnabled: cfgBase?.telegramEnabled ?? prev?.adapterTelegramEnabled ?? false,
+        adapterTelegramBotToken: "",
+        adapterTelegramUserWhitelist: cfgBase ? cfgBase.telegramUserWhitelist.join("\n") : prev?.adapterTelegramUserWhitelist ?? "",
+        adapterTelegramGroupWhitelist: cfgBase ? cfgBase.telegramGroupWhitelist.join("\n") : prev?.adapterTelegramGroupWhitelist ?? "",
 
         skillsEnabled: cfgBase ? [...cfgBase.skillsEnabled] : prev?.skillsEnabled ?? []
       };
@@ -237,8 +245,17 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         ? d.adapterDiscordEnabled !== cfgBase.discordEnabled ||
           d.adapterDiscordAppId.trim() !== cfgBase.discordAppId ||
           d.adapterDiscordBotToken.trim().length > 0 ||
-          !sameStringArray(normalizeGuildIds(d.adapterDiscordGuildIds), cfgBase.discordGuildIds) ||
+          !sameStringArray(normalizeGuildIds(d.adapterDiscordGuildWhitelist), cfgBase.discordGuildWhitelist) ||
+          !sameStringArray(normalizeGuildIds(d.adapterDiscordUserWhitelist), cfgBase.discordUserWhitelist) ||
+          d.adapterDiscordForceGlobalCommands !== cfgBase.discordForceGlobalCommands ||
           d.adapterDiscordDefaultStreamMode !== cfgBase.discordDefaultStreamMode
+        : false;
+
+      const dirtyDevTelegram = cfgBase
+        ? d.adapterTelegramEnabled !== cfgBase.telegramEnabled ||
+          d.adapterTelegramBotToken.trim().length > 0 ||
+          !sameStringArray(normalizeGuildIds(d.adapterTelegramUserWhitelist), cfgBase.telegramUserWhitelist) ||
+          !sameStringArray(normalizeGuildIds(d.adapterTelegramGroupWhitelist), cfgBase.telegramGroupWhitelist)
         : false;
 
       const dirtyDevSkills = cfgBase ? !sameStringArray(d.skillsEnabled, cfgBase.skillsEnabled) : false;
@@ -257,6 +274,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         dirtyDevInference ||
         dirtyDevCodexHome ||
         dirtyDevDiscord ||
+        dirtyDevTelegram ||
         dirtyDevWeb ||
         dirtyDevSkills
       );
@@ -330,8 +348,17 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     ? draft.adapterDiscordEnabled !== cfgBase.discordEnabled ||
       draft.adapterDiscordAppId.trim() !== cfgBase.discordAppId ||
       draft.adapterDiscordBotToken.trim().length > 0 ||
-      !sameStringArray(normalizeGuildIds(draft.adapterDiscordGuildIds), cfgBase.discordGuildIds) ||
+      !sameStringArray(normalizeGuildIds(draft.adapterDiscordGuildWhitelist), cfgBase.discordGuildWhitelist) ||
+      !sameStringArray(normalizeGuildIds(draft.adapterDiscordUserWhitelist), cfgBase.discordUserWhitelist) ||
+      draft.adapterDiscordForceGlobalCommands !== cfgBase.discordForceGlobalCommands ||
       draft.adapterDiscordDefaultStreamMode !== cfgBase.discordDefaultStreamMode
+    : false;
+
+  const dirtyDevTelegram = cfgBase
+    ? draft.adapterTelegramEnabled !== cfgBase.telegramEnabled ||
+      draft.adapterTelegramBotToken.trim().length > 0 ||
+      !sameStringArray(normalizeGuildIds(draft.adapterTelegramUserWhitelist), cfgBase.telegramUserWhitelist) ||
+      !sameStringArray(normalizeGuildIds(draft.adapterTelegramGroupWhitelist), cfgBase.telegramGroupWhitelist)
     : false;
 
   const dirtyDevWeb = cfgBase
@@ -349,6 +376,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     dirtyDevInference ||
     dirtyDevCodexHome ||
     dirtyDevDiscord ||
+    dirtyDevTelegram ||
     dirtyDevWeb ||
     dirtyDevSkills;
 
@@ -377,6 +405,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const discordAppIdOk = Boolean((cfgBase?.discordAppId ?? "").trim().length) || draft.adapterDiscordAppId.trim().length > 0;
   const discordValid = !draft.adapterDiscordEnabled || (discordTokenOk && discordAppIdOk);
 
+  const telegramTokenOk = Boolean(cfgBase?.telegramTokenConfigured) || draft.adapterTelegramBotToken.trim().length > 0;
+  const telegramWhitelistOk = normalizeGuildIds(draft.adapterTelegramUserWhitelist).length > 0;
+  const telegramValid = !draft.adapterTelegramEnabled || (telegramTokenOk && telegramWhitelistOk);
+
   const webProviders = new Set(WEB_PROVIDER_IDS);
   const webIds = draft.webProfiles.map((p) => p.id);
   const webIdsUnique = new Set(webIds.map((x) => x.trim()).filter(Boolean)).size === draft.webProfiles.length;
@@ -396,6 +428,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         (!dirtyDevInference || inferenceValid) &&
         (!dirtyDevCodexHome || codexHomeValid) &&
         (!dirtyDevDiscord || discordValid) &&
+        (!dirtyDevTelegram || telegramValid) &&
         (!dirtyDevWeb || webValid)));
 
   const discard = () => {
@@ -428,6 +461,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           inferenceValid,
           dirtyDevDiscord,
           discordValid,
+          dirtyDevTelegram,
+          telegramValid,
           dirtyDevWeb,
           webValid,
           dirtyDevSkills
@@ -657,6 +692,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                 discordTokenConfigured={Boolean(cfgBase?.discordTokenConfigured)}
                 dirtyDevDiscord={dirtyDevDiscord}
                 discordValid={discordValid}
+
+                telegramTokenConfigured={Boolean(cfgBase?.telegramTokenConfigured)}
+                dirtyDevTelegram={dirtyDevTelegram}
+                telegramValid={telegramValid}
               />
             ) : null}
 

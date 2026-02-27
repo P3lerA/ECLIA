@@ -394,6 +394,21 @@ export function writeLocalEcliaConfig(
     (toWrite as any).adapters.discord.guild_ids = normalized.adapters.discord.guild_ids ?? [];
   }
 
+  // adapters.discord.user_whitelist: write if present in patch OR already present in file
+  const hasDiscordUserWhitelist = Array.isArray((nextLocal as any)?.adapters?.discord?.user_whitelist);
+  if (hasDiscordUserWhitelist) {
+    (toWrite as any).adapters.discord.user_whitelist = (normalized.adapters.discord as any).user_whitelist ?? [];
+  }
+
+  // adapters.discord.force_global_commands: write if present in patch OR already present in file
+  const hasDiscordForceGlobalCommands = Object.prototype.hasOwnProperty.call(
+    ((nextLocal as any)?.adapters?.discord ?? {}) as Record<string, unknown>,
+    "force_global_commands"
+  );
+  if (hasDiscordForceGlobalCommands) {
+    (toWrite as any).adapters.discord.force_global_commands = Boolean((normalized.adapters.discord as any).force_global_commands ?? false);
+  }
+
   fs.writeFileSync(localPath, TOML.stringify(toWrite), "utf-8");
   if (patchSystemInstruction !== undefined) {
     writeSystemInstructionLocal(rootDir, patchSystemInstruction);

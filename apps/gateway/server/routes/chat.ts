@@ -30,7 +30,6 @@ import {
   deriveTitle,
   deriveTitleFromOrigin,
   extractRequestedOrigin,
-  firstUserTextInTranscript,
   transcriptRecordsToMessages
 } from "../chat/sessionUtils.js";
 import { runToolCalls } from "../chat/toolExecutor.js";
@@ -334,19 +333,14 @@ export async function handleChat(
 
     // Session titling strategy:
     // - Default behavior: first user message.
-    // - Discord behavior: prefer guild/channel/thread names (if provided in origin).
-    // - Migration: if an older discord session was titled by the first prompt, retitle it.
-    const originTitle = deriveTitleFromOrigin(requestedOrigin);
+    // - Adapter origin behavior: prefer adapter-provided title formatting.
+    const titleOrigin = requestedOrigin ?? priorMeta.origin;
+    const originTitle = deriveTitleFromOrigin(titleOrigin);
     const hasDefaultTitle = priorMeta.title === "New session" || !priorMeta.title.trim();
 
     if (priorMessages.length === 0 && hasDefaultTitle) {
       metaPatch.title = originTitle ?? deriveTitle(userText);
-    } else if (originTitle) {
-      const firstUserText = firstUserTextInTranscript(priorMessages);
-      const legacyTitle = firstUserText ? deriveTitle(firstUserText) : null;
-      if (legacyTitle && priorMeta.title === legacyTitle) metaPatch.title = originTitle;
-      else if (hasDefaultTitle) metaPatch.title = originTitle;
-    }
+    } else if (originTitle && hasDefaultTitle) metaPatch.title = originTitle;
 
     // Persist the user message first (so the session survives even if upstream fails).
     const userTs = Date.now();

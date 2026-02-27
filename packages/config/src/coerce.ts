@@ -123,6 +123,7 @@ export function coerceConfig(raw: Record<string, any>): EcliaConfig {
 
   const adaptersRaw = isRecord(raw.adapters) ? raw.adapters : {};
   const discordRaw = isRecord((adaptersRaw as any).discord) ? (adaptersRaw as any).discord : {};
+  const telegramRaw = isRecord((adaptersRaw as any).telegram) ? (adaptersRaw as any).telegram : {};
 
   const providerRaw = typeof (infRaw as any).provider === "string" ? String((infRaw as any).provider).trim() : "";
   const provider = isInferenceProviderId(providerRaw) ? providerRaw : base.inference.provider;
@@ -289,10 +290,22 @@ export function coerceConfig(raw: Record<string, any>): EcliaConfig {
             : undefined,
         bot_token: typeof discordRaw.bot_token === "string" ? discordRaw.bot_token : undefined,
         guild_ids: coerceStringArray((discordRaw as any).guild_ids, base.adapters.discord.guild_ids ?? []),
+        user_whitelist: coerceStringArray((discordRaw as any).user_whitelist, (base.adapters.discord as any).user_whitelist ?? []),
+        force_global_commands: coerceBool(
+          (discordRaw as any).force_global_commands,
+          Boolean((base.adapters.discord as any).force_global_commands ?? false)
+        ),
         default_stream_mode: coerceDiscordStreamMode(
           (discordRaw as any).default_stream_mode,
           (base.adapters.discord.default_stream_mode ?? "final") as any
         )
+      },
+
+      telegram: {
+        enabled: coerceBool((telegramRaw as any).enabled, base.adapters.telegram.enabled),
+        bot_token: typeof (telegramRaw as any).bot_token === "string" ? (telegramRaw as any).bot_token : undefined,
+        user_whitelist: coerceStringArray((telegramRaw as any).user_whitelist, (base.adapters.telegram as any).user_whitelist ?? []),
+        group_whitelist: coerceStringArray((telegramRaw as any).group_whitelist, (base.adapters.telegram as any).group_whitelist ?? [])
       }
     }
   };

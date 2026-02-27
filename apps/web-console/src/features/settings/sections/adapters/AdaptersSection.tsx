@@ -16,6 +16,10 @@ export type AdaptersSectionProps = {
 
   dirtyDevDiscord: boolean;
   discordValid: boolean;
+
+  telegramTokenConfigured: boolean;
+  dirtyDevTelegram: boolean;
+  telegramValid: boolean;
 };
 
 export function AdaptersSection(props: AdaptersSectionProps) {
@@ -27,7 +31,10 @@ export function AdaptersSection(props: AdaptersSectionProps) {
     discordAppIdConfigured,
     discordTokenConfigured,
     dirtyDevDiscord,
-    discordValid
+    discordValid,
+    telegramTokenConfigured,
+    dirtyDevTelegram,
+    telegramValid
   } = props;
 
   const devDisabled = cfgLoading || !cfgBaseAvailable;
@@ -41,7 +48,7 @@ export function AdaptersSection(props: AdaptersSectionProps) {
       <div>
         <AdapterSettingItem
           label="Discord"
-          summary="Enables the Discord bot adapter."
+          summary="I'm so sorry these logics are such a mess."
           enabled={draft.adapterDiscordEnabled}
           onEnabledChange={(enabled) => setDraft((d) => ({ ...d, adapterDiscordEnabled: enabled }))}
           disabled={devDisabled}
@@ -57,9 +64,6 @@ export function AdaptersSection(props: AdaptersSectionProps) {
                 spellCheck={false}
                 disabled={devDisabled}
               />
-              <div className="field-sub muted">
-                Required for registering slash commands. Find it in the Discord Developer Portal (Application/Client ID).
-              </div>
             </label>
 
             <label className="field">
@@ -73,32 +77,118 @@ export function AdaptersSection(props: AdaptersSectionProps) {
                 spellCheck={false}
                 disabled={devDisabled}
               />
-              <div className="field-sub muted">
-                Stored in <code>eclia.config.local.toml</code>. Token is never shown after saving.
-              </div>
             </label>
           </div>
 
           <div className="grid2 stack-gap">
-            <label className="field" style={{ gridColumn: "1 / -1" }}>
-              <div className="field-label">Guild IDs (optional)</div>
+            <label className="field">
+              <div className="field-label">Guild Whitelist</div>
               <textarea
                 className="select"
                 rows={3}
-                value={draft.adapterDiscordGuildIds}
-                onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordGuildIds: e.target.value }))}
-                placeholder={"123456789012345678\n987654321098765432"}
+                value={draft.adapterDiscordGuildWhitelist}
+                onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordGuildWhitelist: e.target.value }))}
+                placeholder={"Enable Developer Mode in Discord to Copy Your Guild ID."}
                 spellCheck={false}
                 disabled={devDisabled}
               />
-              <div className="field-sub muted">
-                If set, slash commands will be registered as <strong>guild</strong> commands for faster iteration. Leave blank for global registration.
-              </div>
             </label>
+
+            <label className="field">
+              <div className="field-label">User Whitelist</div>
+              <textarea
+                className="select"
+                rows={3}
+                value={draft.adapterDiscordUserWhitelist}
+                onChange={(e) => setDraft((d) => ({ ...d, adapterDiscordUserWhitelist: e.target.value }))}
+                placeholder={"Enable Developer Mode in Discord to Copy Your User ID."}
+                spellCheck={false}
+                disabled={devDisabled}
+              />
+            </label>
+
+            <div className="field-sub muted" style={{ gridColumn: "1 / -1" }}>
+              Only Users/Guilds in these lists will be replied. Slashcommands are also registered only in whitelisted guilds when force global command registration is not enabled.
+            </div>
           </div>
+
+          <SettingsToggleRow
+            className="stack-gap"
+            title="Force global command registration"
+            description={
+              <>
+                Not recommended, because registering global command can be stiky. However, this is the only option if you want to use slashcommand in DMs.
+              </>
+            }
+            checked={draft.adapterDiscordForceGlobalCommands}
+            onCheckedChange={(checked) => setDraft((d) => ({ ...d, adapterDiscordForceGlobalCommands: checked }))}
+            ariaLabel="Force global command registration"
+            disabled={devDisabled}
+          />
 
           {dirtyDevDiscord && !discordValid ? (
             <div className="devNoteText muted">Discord adapter enabled but missing bot token or Application ID.</div>
+          ) : null}
+        </AdapterSettingItem>
+      </div>
+
+      <div>
+        <AdapterSettingItem
+          label="Telegram"
+          summary="The Telegram Adapter. Still struggling with Markdown rendering."
+          enabled={draft.adapterTelegramEnabled}
+          onEnabledChange={(enabled) => setDraft((d) => ({ ...d, adapterTelegramEnabled: enabled }))}
+          disabled={devDisabled}
+        >
+          <div className="grid2 stack-gap">
+            <label className="field">
+              <div className="field-label">Bot token (local)</div>
+              <input
+                className="select"
+                type="password"
+                value={draft.adapterTelegramBotToken}
+                onChange={(e) => setDraft((d) => ({ ...d, adapterTelegramBotToken: e.target.value }))}
+                placeholder={telegramTokenConfigured ? "configured (leave blank to keep)" : "not set"}
+                spellCheck={false}
+                disabled={devDisabled}
+              />
+            </label>
+          </div>
+
+          <div className="grid2 stack-gap">
+            <label className="field">
+              <div className="field-label">User Whitelist</div>
+              <textarea
+                className="select"
+                rows={3}
+                value={draft.adapterTelegramUserWhitelist}
+                onChange={(e) => setDraft((d) => ({ ...d, adapterTelegramUserWhitelist: e.target.value }))}
+                placeholder={"Find your user id using any dedicated bot."}
+                spellCheck={false}
+                disabled={devDisabled}
+              />
+            </label>
+
+            <label className="field">
+              <div className="field-label">Group Whitelist</div>
+              <textarea
+                className="select"
+                rows={3}
+                value={draft.adapterTelegramGroupWhitelist}
+                onChange={(e) => setDraft((d) => ({ ...d, adapterTelegramGroupWhitelist: e.target.value }))}
+                placeholder={"One per line. Should be negative."}
+                spellCheck={false}
+                disabled={devDisabled}
+              />
+            </label>
+
+            <div className="field-sub muted" style={{ gridColumn: "1 / -1" }}>
+              Only Users/Groups in these lists will be replied. 
+            </div>
+          </div>
+
+          {dirtyDevTelegram && !telegramValid ? (
+            <div className="devNoteText muted">Telegram adapter enabled but missing bot token or user whitelist.</div>
           ) : null}
         </AdapterSettingItem>
       </div>

@@ -101,10 +101,18 @@ export type SettingsDraft = {
   adapterDiscordEnabled: boolean;
   adapterDiscordAppId: string; // application id / client id (non-secret)
   adapterDiscordBotToken: string; // input only; empty = unchanged
-  adapterDiscordGuildIds: string; // UI input only; newline/comma separated; persisted as adapters.discord.guild_ids
+  adapterDiscordGuildWhitelist: string; // UI input only; newline/comma separated; persisted as adapters.discord.guild_ids
+  adapterDiscordUserWhitelist: string; // UI input only; newline/comma separated; persisted as adapters.discord.user_whitelist
+  adapterDiscordForceGlobalCommands: boolean; // persisted as adapters.discord.force_global_commands
 
   // Adapters (Discord advanced)
   adapterDiscordDefaultStreamMode: "full" | "final"; // default for /eclia verbose when omitted
+
+  // Adapters (Telegram). Secrets stored in local TOML; token is never read back.
+  adapterTelegramEnabled: boolean;
+  adapterTelegramBotToken: string; // input only; empty = unchanged
+  adapterTelegramUserWhitelist: string; // UI input only; newline/comma separated; persisted as adapters.telegram.user_whitelist
+  adapterTelegramGroupWhitelist: string; // UI input only; newline/comma separated; persisted as adapters.telegram.group_whitelist
 
   // Skills (dev-only; stored in eclia.config.local.toml)
   skillsEnabled: string[];
@@ -145,8 +153,15 @@ export type CfgBase = {
   discordEnabled: boolean;
   discordAppId: string;
   discordTokenConfigured: boolean;
-  discordGuildIds: string[];
+  discordGuildWhitelist: string[];
+  discordUserWhitelist: string[];
+  discordForceGlobalCommands: boolean;
   discordDefaultStreamMode: "full" | "final";
+
+  telegramEnabled: boolean;
+  telegramTokenConfigured: boolean;
+  telegramUserWhitelist: string[];
+  telegramGroupWhitelist: string[];
 
   // Web tool
   webActiveProfileId: string;

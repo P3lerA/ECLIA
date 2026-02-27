@@ -123,9 +123,18 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
             enabled: Boolean(config.adapters.discord.enabled),
             app_id: String(config.adapters.discord.app_id ?? ""),
             guild_ids: Array.isArray((config.adapters.discord as any).guild_ids) ? (config.adapters.discord as any).guild_ids : [],
+            user_whitelist: Array.isArray((config.adapters.discord as any).user_whitelist) ? (config.adapters.discord as any).user_whitelist : [],
+            force_global_commands: Boolean((config.adapters.discord as any).force_global_commands ?? false),
             default_stream_mode: config.adapters.discord.default_stream_mode,
             app_id_configured: Boolean(config.adapters.discord.app_id && config.adapters.discord.app_id.trim()),
             bot_token_configured: Boolean(config.adapters.discord.bot_token && config.adapters.discord.bot_token.trim())
+          },
+
+          telegram: {
+            enabled: Boolean((config.adapters as any).telegram?.enabled ?? false),
+            user_whitelist: Array.isArray((config.adapters as any).telegram?.user_whitelist) ? (config.adapters as any).telegram.user_whitelist : [],
+            group_whitelist: Array.isArray((config.adapters as any).telegram?.group_whitelist) ? (config.adapters as any).telegram.group_whitelist : [],
+            bot_token_configured: Boolean((config.adapters as any).telegram?.bot_token && String((config.adapters as any).telegram.bot_token).trim())
           }
         },
         tools: {
@@ -278,6 +287,8 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
         app_id?: string;
         bot_token?: string;
         guild_ids?: string[];
+        user_whitelist?: string[];
+        force_global_commands?: boolean;
         default_stream_mode?: "full" | "final";
       }> = {};
 
@@ -285,6 +296,8 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
       if (typeof d.app_id === "string") discord.app_id = d.app_id;
       if (typeof d.bot_token === "string") discord.bot_token = d.bot_token;
       if (Array.isArray(d.guild_ids)) discord.guild_ids = d.guild_ids;
+      if (Array.isArray((d as any).user_whitelist)) discord.user_whitelist = (d as any).user_whitelist;
+      if (typeof (d as any).force_global_commands === "boolean") discord.force_global_commands = Boolean((d as any).force_global_commands);
 
       // adapters.discord.default_stream_mode: validate and normalize.
       if (typeof d.default_stream_mode === "string") {
@@ -301,7 +314,25 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
         }
       }
 
-      patch.adapters = { discord };
+      patch.adapters = { ...(patch.adapters ?? {}), discord };
+    }
+
+    if ((body.adapters as any)?.telegram) {
+      const t = (body.adapters as any).telegram;
+
+      const telegram: Partial<{
+        enabled: boolean;
+        bot_token?: string;
+        user_whitelist?: string[];
+        group_whitelist?: string[];
+      }> = {};
+
+      if (typeof t.enabled === "boolean") telegram.enabled = t.enabled;
+      if (typeof t.bot_token === "string") telegram.bot_token = t.bot_token;
+      if (Array.isArray(t.user_whitelist)) telegram.user_whitelist = t.user_whitelist;
+      if (Array.isArray(t.group_whitelist)) telegram.group_whitelist = t.group_whitelist;
+
+      patch.adapters = { ...(patch.adapters ?? {}), telegram };
     }
 
     if (body.tools?.web) {
@@ -367,6 +398,11 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
       if (!patch.adapters.discord.bot_token.trim()) delete patch.adapters.discord.bot_token;
     }
 
+    // Optional: if user sends telegram bot_token="", treat as "do not change".
+    if ((patch.adapters as any)?.telegram && typeof (patch.adapters as any).telegram.bot_token === "string") {
+      if (!(patch.adapters as any).telegram.bot_token.trim()) delete (patch.adapters as any).telegram.bot_token;
+    }
+
     // Optional: if user sends app_id="", treat as "do not change".
     if (patch.adapters?.discord && typeof patch.adapters.discord.app_id === "string") {
       if (!patch.adapters.discord.app_id.trim()) delete patch.adapters.discord.app_id;
@@ -385,6 +421,51 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
         out.push(s);
       }
       (patch.adapters.discord as any).guild_ids = out;
+    }
+
+    // Optional: normalize user_whitelist (trim, drop empties, de-dup). Empty list means "allow nobody".
+    if (patch.adapters?.discord && Array.isArray((patch.adapters.discord as any).user_whitelist)) {
+      const raw = (patch.adapters.discord as any).user_whitelist as any[];
+      const out: string[] = [];
+      const seen = new Set<string>();
+      for (const x of raw) {
+        const s = typeof x === "string" ? x.trim() : typeof x === "number" ? String(x) : "";
+        if (!s) continue;
+        if (seen.has(s)) continue;
+        seen.add(s);
+        out.push(s);
+      }
+      (patch.adapters.discord as any).user_whitelist = out;
+    }
+
+    // Optional: normalize adapters.telegram.user_whitelist (trim, drop empties, de-dup). Empty list means "allow nobody".
+    if ((patch.adapters as any)?.telegram && Array.isArray((patch.adapters as any).telegram.user_whitelist)) {
+      const raw = (patch.adapters as any).telegram.user_whitelist as any[];
+      const out: string[] = [];
+      const seen = new Set<string>();
+      for (const x of raw) {
+        const s = typeof x === "string" ? x.trim() : typeof x === "number" ? String(x) : "";
+        if (!s) continue;
+        if (seen.has(s)) continue;
+        seen.add(s);
+        out.push(s);
+      }
+      (patch.adapters as any).telegram.user_whitelist = out;
+    }
+
+    // Optional: normalize adapters.telegram.group_whitelist (trim, drop empties, de-dup).
+    if ((patch.adapters as any)?.telegram && Array.isArray((patch.adapters as any).telegram.group_whitelist)) {
+      const raw = (patch.adapters as any).telegram.group_whitelist as any[];
+      const out: string[] = [];
+      const seen = new Set<string>();
+      for (const x of raw) {
+        const s = typeof x === "string" ? x.trim() : typeof x === "number" ? String(x) : "";
+        if (!s) continue;
+        if (seen.has(s)) continue;
+        seen.add(s);
+        out.push(s);
+      }
+      (patch.adapters as any).telegram.group_whitelist = out;
     }
 
     // Preflight host/port bind if console is being changed (avoid writing broken config).

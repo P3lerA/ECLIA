@@ -16,17 +16,27 @@ Required (env or local TOML):
 
 Recommended (for fast command iteration):
 
-- `DISCORD_GUILD_ID` – legacy single guild id. If set, registers slash commands to that guild (updates instantly).
-- `DISCORD_GUILD_IDS` – comma/newline/space separated list of guild ids (multi-guild).
-- `adapters.discord.guild_ids` in `eclia.config.local.toml` – TOML array form (multi-guild), e.g.
+- `DISCORD_GUILD_WHITELIST` – preferred guild whitelist env (comma/newline/space separated list).
+- `DISCORD_GUILD_ID` – legacy single guild id (fallback).
+- `DISCORD_GUILD_IDS` – legacy multi-guild list (fallback).
+- `adapters.discord.guild_ids` in `eclia.config.local.toml` – TOML array form used as guild whitelist, e.g.
+- `DISCORD_USER_WHITELIST` – preferred user whitelist env (comma/newline/space separated list).
+- `DISCORD_USER_ID` – legacy single-user fallback.
+- `adapters.discord.user_whitelist` in `eclia.config.local.toml` – TOML array of allowed Discord user ids:
 
   ```toml
   [adapters.discord]
   guild_ids = ["123456789012345678", "987654321098765432"]
+  user_whitelist = ["111111111111111111", "222222222222222222"]
+  force_global_commands = false
   ```
 
-  When guild ids are set, the adapter will (by default) clear global slash commands to avoid duplicate command listings.
-  If you want to keep global commands, set `ECLIA_DISCORD_KEEP_GLOBAL_COMMANDS=1`.
+  Registration behavior:
+  - `force_global_commands = false` (default): register slash commands only in `guild_ids`, and clear global commands.
+  - `force_global_commands = true`: register slash commands as global only, skip guild registration, and enforce guild whitelist at runtime (DM allowed).
+  Input behavior:
+  - Slash commands and message chat only respond to users in `user_whitelist`.
+  - Message chat accepts plain text by default (prefix optional).
 
 Gateway connection:
 
@@ -37,7 +47,10 @@ Optional:
 - `ECLIA_DISCORD_STREAM=1` – periodically edits the reply while the gateway streams.
 - `ECLIA_DISCORD_DEFAULT_STREAM_MODE=full|final` – default stream mode for the `/eclia` slash command when `verbose` is omitted.
   - Prefer configuring `adapters.discord.default_stream_mode` in `eclia.config.local.toml` (Settings -> Adapters -> Advanced).
-- `ECLIA_DISCORD_ALLOW_MESSAGE_PREFIX=1` – also enable prefix-style chat (`!eclia ...`).
+- `ECLIA_DISCORD_FORCE_GLOBAL_COMMANDS=1` – env override for `adapters.discord.force_global_commands`.
+  - Back-compat: `ECLIA_DISCORD_KEEP_GLOBAL_COMMANDS=1` is treated the same way.
+- `ECLIA_DISCORD_REQUIRE_PREFIX=1` – require `!eclia`-style prefix for message chat.
+  - Back-compat: `ECLIA_DISCORD_ALLOW_MESSAGE_PREFIX=1` is treated as prefix-required mode.
   - Requires Message Content privileged intent.
 - `ECLIA_DISCORD_PREFIX` – default `!eclia`.
 

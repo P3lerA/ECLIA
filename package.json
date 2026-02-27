@@ -6,6 +6,7 @@
     "dev:api": "pnpm -C apps/gateway dev",
     "dev:all": "node scripts/dev-all.mjs",
     "dev:discord": "pnpm -C apps/adapter/discord dev",
+    "dev:telegram": "pnpm -C apps/adapter/telegram dev",
     "build:web": "pnpm -C apps/web-console build",
     "dev:gateway": "pnpm -C apps/gateway dev",
     "typecheck": "pnpm -r --if-present run typecheck",

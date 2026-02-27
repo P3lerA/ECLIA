@@ -12,7 +12,7 @@ import {
   MessageFlags
 } from "discord.js";
 
-import { env, hasEnv, boolEnv, normalizeIdList, json, readJson } from "../../utils.js";
+import { env, hasEnv, boolEnv, normalizeIdList, json, readJson, makeAdapterLogger } from "../../utils.js";
 import {
   guessGatewayUrl,
   getGatewayToken,
@@ -26,6 +26,7 @@ import {
   sessionIdForDiscord,
   originFromInteraction,
   originFromMessage,
+  formatDiscordOutboundText,
   sendTextOrFile,
   createInteractionSendFn,
   createMessageSendFn,
@@ -33,18 +34,47 @@ import {
   makeOnRecordHandler
 } from "./discord-format.js";
 
+const log = makeAdapterLogger("discord");
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function guildIdsFromEnv(): string[] {
+  const whitelist = env("DISCORD_GUILD_WHITELIST");
   const single = env("DISCORD_GUILD_ID");
   const multi = env("DISCORD_GUILD_IDS");
-  const src = multi || single;
+  const src = whitelist || multi || single;
   return normalizeIdList(src);
 }
 
-async function registerSlashCommands(args: { token: string; appId: string; guildIds: string[]; keepGlobal?: boolean }) {
+function userIdsFromEnv(): string[] {
+  const whitelist = env("DISCORD_USER_WHITELIST");
+  const single = env("DISCORD_USER_ID");
+  const src = whitelist || single;
+  return normalizeIdList(src);
+}
+
+function forceGlobalCommandsFromEnv(fallback: boolean): boolean {
+  // Back-compat: ECLIA_DISCORD_KEEP_GLOBAL_COMMANDS previously meant "also keep global".
+  // New behavior treats either env var as "force global registration only".
+  if (hasEnv("ECLIA_DISCORD_FORCE_GLOBAL_COMMANDS")) return boolEnv("ECLIA_DISCORD_FORCE_GLOBAL_COMMANDS");
+  if (hasEnv("ECLIA_DISCORD_KEEP_GLOBAL_COMMANDS")) return boolEnv("ECLIA_DISCORD_KEEP_GLOBAL_COMMANDS");
+  return fallback;
+}
+
+function requirePrefixFromEnv(): boolean {
+  if (hasEnv("ECLIA_DISCORD_REQUIRE_PREFIX")) return boolEnv("ECLIA_DISCORD_REQUIRE_PREFIX");
+  // Back-compat: this flag previously enabled prefix mode.
+  return boolEnv("ECLIA_DISCORD_ALLOW_MESSAGE_PREFIX");
+}
+
+type SlashRegistrationOutcome =
+  | { mode: "global" }
+  | { mode: "guild"; guildIds: string[] }
+  | { mode: "none" };
+
+async function registerSlashCommands(args: { token: string; appId: string; guildIds: string[]; forceGlobalCommands: boolean }): Promise<SlashRegistrationOutcome> {
   const rest = new REST({ version: "10" }).setToken(args.token);
 
   const commands = [
@@ -74,18 +104,22 @@ async function registerSlashCommands(args: { token: string; appId: string; guild
 
   const guildIds = normalizeIdList(args.guildIds);
 
-  if (guildIds.length) {
-    for (const gid of guildIds) {
-      await rest.put(Routes.applicationGuildCommands(args.appId, gid), { body: commands });
-    }
-
-    if (!args.keepGlobal) {
-      await rest.put(Routes.applicationCommands(args.appId), { body: [] });
-    }
-    return;
+  if (args.forceGlobalCommands) {
+    await rest.put(Routes.applicationCommands(args.appId), { body: commands });
+    return { mode: "global" };
   }
 
-  await rest.put(Routes.applicationCommands(args.appId), { body: commands });
+  if (!guildIds.length) {
+    // Explicitly clear global commands so force-global=off is deterministic.
+    await rest.put(Routes.applicationCommands(args.appId), { body: [] });
+    return { mode: "none" };
+  }
+
+  for (const gid of guildIds) {
+    await rest.put(Routes.applicationGuildCommands(args.appId, gid), { body: commands });
+  }
+  await rest.put(Routes.applicationCommands(args.appId), { body: [] });
+  return { mode: "guild", guildIds };
 }
 
 // ---------------------------------------------------------------------------
@@ -98,7 +132,7 @@ async function main() {
 
   const enabled = hasEnv("ECLIA_DISCORD_ENABLED") ? boolEnv("ECLIA_DISCORD_ENABLED") : Boolean(discordCfg.enabled);
   if (!enabled) {
-    console.log("[adapter-discord] disabled (set adapters.discord.enabled=true in eclia.config.local.toml)");
+    log.info("disabled (set adapters.discord.enabled=true in eclia.config.local.toml)");
     process.exit(0);
   }
 
@@ -106,16 +140,21 @@ async function main() {
   const appId = env("DISCORD_APP_ID") || String(discordCfg.app_id ?? "").trim();
   const envGuildIds = guildIdsFromEnv();
   const cfgGuildIds = normalizeIdList((discordCfg as any).guild_ids);
-  const guildIds = envGuildIds.length ? envGuildIds : cfgGuildIds;
-  const keepGlobalCommands = boolEnv("ECLIA_DISCORD_KEEP_GLOBAL_COMMANDS");
+  const guildWhitelist = envGuildIds.length ? envGuildIds : cfgGuildIds;
+  const guildWhitelistSet = new Set(guildWhitelist);
+  const envUserIds = userIdsFromEnv();
+  const cfgUserIds = normalizeIdList((discordCfg as any).user_whitelist);
+  const userWhitelist = envUserIds.length ? envUserIds : cfgUserIds;
+  const userWhitelistSet = new Set(userWhitelist);
+  const forceGlobalCommands = forceGlobalCommandsFromEnv(Boolean((discordCfg as any).force_global_commands ?? false));
 
   if (!token) {
-    console.error("[adapter-discord] Missing Discord bot token. Set it in Settings -> Adapters -> Discord (local TOML), or DISCORD_BOT_TOKEN.");
+    log.error("Missing Discord bot token. Set it in Settings -> Adapters -> Discord (local TOML), or DISCORD_BOT_TOKEN.");
     process.exit(1);
   }
   if (!appId) {
-    console.error(
-      "[adapter-discord] Missing Discord Application ID (DISCORD_APP_ID / adapters.discord.app_id). " +
+    log.error(
+      "Missing Discord Application ID (DISCORD_APP_ID / adapters.discord.app_id). " +
         "It is required to register slash commands. Set it in Settings -> Adapters -> Discord, or DISCORD_APP_ID env."
     );
     process.exit(1);
@@ -123,8 +162,8 @@ async function main() {
 
   const gatewayUrl = guessGatewayUrl();
   if (!getGatewayToken()) {
-    console.warn(
-      "[adapter-discord] warning: gateway token not found. Start the gateway once (it creates .eclia/gateway.token), " +
+    log.warn(
+      "gateway token not found. Start the gateway once (it creates .eclia/gateway.token), " +
         "or set ECLIA_GATEWAY_TOKEN. Gateway requests will fail with 401 until a token is configured."
     );
   }
@@ -134,25 +173,26 @@ async function main() {
   const slashDefaultStreamMode: "full" | "final" =
     coerceStreamMode(env("ECLIA_DISCORD_DEFAULT_STREAM_MODE")) ?? coerceStreamMode(discordCfg.default_stream_mode) ?? "final";
   const slashDefaultVerbose = slashDefaultStreamMode === "full";
-  const allowPrefix = boolEnv("ECLIA_DISCORD_ALLOW_MESSAGE_PREFIX");
+  const requirePrefix = requirePrefixFromEnv();
   const prefix = env("ECLIA_DISCORD_PREFIX", "!eclia");
   const toolAccessMode = (env("ECLIA_DISCORD_TOOL_ACCESS_MODE", "full") as any) === "safe" ? "safe" : "full";
 
-  console.log(`[adapter-discord] gateway: ${gatewayUrl}`);
+  log.info(`gateway: ${gatewayUrl}`);
+  if (!userWhitelist.length) {
+    log.warn("user whitelist is empty; slash/plain-message inputs will be ignored.");
+  }
 
-  console.log("[adapter-discord] Registering slash commands...");
-  await registerSlashCommands({ token, appId, guildIds, keepGlobal: keepGlobalCommands });
-  if (guildIds.length) {
-    const suffix = keepGlobalCommands ? "(guild; keeping global)" : "(guild; cleared global)";
-    console.log(`[adapter-discord] Slash commands registered for guild(s): ${guildIds.join(", ")} ${suffix}`);
+  log.info("Registering slash commands...");
+  const registration = await registerSlashCommands({ token, appId, guildIds: guildWhitelist, forceGlobalCommands });
+  if (registration.mode === "global") {
+    log.info("Slash commands registered (global)");
+  } else if (registration.mode === "guild") {
+    log.info(`Slash commands registered for guild whitelist: ${registration.guildIds.join(", ")} (global cleared)`);
   } else {
-    console.log("[adapter-discord] Slash commands registered (global)");
+    log.warn("Force-global is OFF but guild whitelist is empty. Slash commands are not registered anywhere.");
   }
 
-  const intents = [GatewayIntentBits.Guilds];
-  if (allowPrefix) {
-    intents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
-  }
+  const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages, GatewayIntentBits.MessageContent];
 
   const client = new Client({
     intents,
@@ -160,13 +200,41 @@ async function main() {
   });
 
   client.once(Events.ClientReady, (c) => {
-    console.log(`[adapter-discord] Logged in as ${c.user.tag}`);
+    log.info(`Logged in as ${c.user.tag}`);
   });
 
   // ----- Interaction handler (slash commands) -----
 
   client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
+    const userId = String(interaction.user?.id ?? "").trim();
+    if (!userId || !userWhitelistSet.has(userId)) {
+      try {
+        await interaction.reply({
+          content: "You are not in the Discord user whitelist.",
+          flags: MessageFlags.Ephemeral
+        });
+      } catch {
+        // ignore permission/race errors
+      }
+      return;
+    }
+
+    if (forceGlobalCommands) {
+      const guildId = String(interaction.guildId ?? "").trim();
+      const isDm = !guildId;
+      if (!isDm && !guildWhitelistSet.has(guildId)) {
+        try {
+          await interaction.reply({
+            content: "This guild is not in the Discord guild whitelist.",
+            flags: MessageFlags.Ephemeral
+          });
+        } catch {
+          // ignore permission/race errors
+        }
+        return;
+      }
+    }
 
     // /clear
     if (interaction.commandName === "clear") {
@@ -221,7 +289,7 @@ async function main() {
         toolAccessMode
       });
 
-      const text = out.text || "(empty)";
+      const text = formatDiscordOutboundText(out.text || "(empty)");
       if (text.length <= 1900) {
         await interaction.editReply(text);
       } else {
@@ -243,60 +311,71 @@ async function main() {
     }
   });
 
-  // ----- Prefix-based message handler -----
+  // ----- Message handler (plain text by default; optional required prefix) -----
 
-  if (allowPrefix) {
-    client.on(Events.MessageCreate, async (message) => {
-      if (!message.content) return;
-      if (message.author?.bot) return;
-      const content = message.content.trim();
+  client.on(Events.MessageCreate, async (message) => {
+    if (!message.content) return;
+    if (message.author?.bot) return;
+    const userId = String(message.author?.id ?? "").trim();
+    if (!userId || !userWhitelistSet.has(userId)) return;
+    if (forceGlobalCommands) {
+      const guildId = String(message.guildId ?? "").trim();
+      const isDm = !guildId;
+      if (!isDm && !guildWhitelistSet.has(guildId)) return;
+    }
+    const content = message.content.trim();
+    if (!content) return;
+
+    let prompt = content;
+    if (requirePrefix) {
       if (!content.startsWith(prefix)) return;
+      prompt = content.slice(prefix.length).trim();
+    } else if (content.startsWith(prefix)) {
+      prompt = content.slice(prefix.length).trim();
+    }
+    if (!prompt) return;
 
-      const prompt = content.slice(prefix.length).trim();
-      if (!prompt) return;
+    const origin = originFromMessage(message);
+    const sessionId = sessionIdForDiscord(origin);
 
-      const origin = originFromMessage(message);
-      const sessionId = sessionIdForDiscord(origin);
-
-      try {
-        if (streamEdits) {
-          const send = createMessageSendFn(message);
-          await runGatewayChat({
-            gatewayUrl,
-            sessionId,
-            origin,
-            streamMode,
-            userText: prompt,
-            toolAccessMode,
-            onRecord: makeOnRecordHandler(send)
-          });
-          return;
-        }
-
-        const reply = await message.reply("…");
-
-        const out = await runGatewayChat({
+    try {
+      if (streamEdits) {
+        const send = createMessageSendFn(message);
+        await runGatewayChat({
           gatewayUrl,
           sessionId,
           origin,
           streamMode,
           userText: prompt,
-          toolAccessMode
+          toolAccessMode,
+          onRecord: makeOnRecordHandler(send)
         });
-
-        const text = out.text || "(empty)";
-        if (text.length <= 1900) {
-          await reply.edit(text);
-        } else {
-          const buf = Buffer.from(text, "utf8");
-          await reply.edit({ content: "Response too long; attached as a file." });
-          await message.channel.send({ files: [{ attachment: buf, name: `eclia-${crypto.randomUUID()}.txt` }] });
-        }
-      } catch (e: any) {
-        await message.reply(`Error: ${String(e?.message ?? e)}`);
+        return;
       }
-    });
-  }
+
+      const reply = await message.reply("thinking...");
+
+      const out = await runGatewayChat({
+        gatewayUrl,
+        sessionId,
+        origin,
+        streamMode,
+        userText: prompt,
+        toolAccessMode
+      });
+
+      const text = formatDiscordOutboundText(out.text || "The model said nothing.");
+      if (text.length <= 1900) {
+        await reply.edit(text);
+      } else {
+        const buf = Buffer.from(text, "utf8");
+        await reply.edit({ content: "Response too long; attached as a file." });
+        await message.channel.send({ files: [{ attachment: buf, name: `eclia-${crypto.randomUUID()}.txt` }] });
+      }
+    } catch (e: any) {
+      await message.reply(`Error: ${String(e?.message ?? e)}`);
+    }
+  });
 
   // ----- Outbound HTTP endpoint (gateway -> adapter -> discord) -----
 
@@ -334,7 +413,7 @@ async function main() {
         if (files.length >= 10) break;
       }
 
-      const contentStr = typeof body.content === "string" ? body.content : "";
+      const contentStr = formatDiscordOutboundText(typeof body.content === "string" ? body.content : "");
 
       await (channel as any).send({
         content: contentStr || (files.length ? "" : "(empty)"),
@@ -348,13 +427,13 @@ async function main() {
   });
 
   server.listen(port, "127.0.0.1", () => {
-    console.log(`[adapter-discord] outbound endpoint: http://127.0.0.1:${port}`);
+    log.info(`outbound endpoint: http://127.0.0.1:${port}`);
   });
 
   await client.login(token);
 }
 
 main().catch((e) => {
-  console.error("[adapter-discord] fatal", e);
+  log.error("fatal", e);
   process.exit(1);
 });

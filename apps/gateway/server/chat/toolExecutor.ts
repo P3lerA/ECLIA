@@ -32,6 +32,7 @@ import { safeJsonStringify } from "../httpUtils.js";
 import { sanitizeExecResultForUiAndModel } from "../tools/execResultSanitize.js";
 
 import { guessDiscordAdapterBaseUrl, postDiscordAdapterSend } from "./discordAdapter.js";
+import { guessTelegramAdapterBaseUrl, postTelegramAdapterSend } from "./telegramAdapter.js";
 
 function defaultNoop() {
   // intentionally empty
@@ -319,6 +320,17 @@ export async function runToolCalls(args: {
                     : null;
 
             destination = discordOrigin ?? undefined;
+          } else if (requestedDestinationKind === "telegram") {
+            const telegramOrigin =
+              (args.requestedOrigin as any)?.kind === "telegram"
+                ? (args.requestedOrigin as any)
+                : (args.patchedOrigin as any)?.kind === "telegram"
+                  ? (args.patchedOrigin as any)
+                  : (args.storedOrigin as any)?.kind === "telegram"
+                    ? (args.storedOrigin as any)
+                    : null;
+
+            destination = telegramOrigin ?? undefined;
           }
 
           if (!destination || typeof destination !== "object") {
@@ -332,6 +344,8 @@ export async function runToolCalls(args: {
                   message:
                     requestedDestinationKind === "discord"
                       ? "discord destination requires an existing discord origin (requested/patch/stored)"
+                      : requestedDestinationKind === "telegram"
+                        ? "telegram destination requires an existing telegram origin (requested/patch/stored)"
                       : "Destination is missing or invalid"
                 },
                 args: sendArgs
@@ -340,7 +354,7 @@ export async function runToolCalls(args: {
           }
 
           const destKind = typeof destination.kind === "string" ? destination.kind : "";
-          if (destKind !== "web" && destKind !== "discord") {
+          if (destKind !== "web" && destKind !== "discord" && destKind !== "telegram") {
             return {
               ok: false,
               result: {
@@ -399,6 +413,60 @@ export async function runToolCalls(args: {
               adapterBaseUrl: guessDiscordAdapterBaseUrl(),
               adapterKey: process.env.ECLIA_ADAPTER_KEY,
               origin: { ...destination, kind: "discord", channelId },
+              content: typeof sendArgs.content === "string" ? sendArgs.content : "",
+              refs: prep.value.refs
+            });
+
+            if (!r.ok) {
+              return {
+                ok: false,
+                result: {
+                  type: "send_result",
+                  ok: false,
+                  error: r.error,
+                  destination,
+                  args: sendArgs,
+                  artifacts: prep.value.artifacts,
+                  refs: prep.value.refs
+                }
+              };
+            }
+          }
+
+          if (destKind === "telegram") {
+            if (!(args.config.adapters as any).telegram?.enabled) {
+              return {
+                ok: false,
+                result: {
+                  type: "send_result",
+                  ok: false,
+                  error: { code: "adapter_disabled", message: "Telegram adapter is disabled" },
+                  destination,
+                  args: sendArgs,
+                  artifacts: prep.value.artifacts,
+                  refs: prep.value.refs
+                }
+              };
+            }
+
+            const chatId = typeof (destination as any).chatId === "string" ? (destination as any).chatId.trim() : "";
+            if (!chatId) {
+              return {
+                ok: false,
+                result: {
+                  type: "send_result",
+                  ok: false,
+                  error: { code: "invalid_destination", message: "telegram destination requires chatId" },
+                  destination,
+                  args: sendArgs
+                }
+              };
+            }
+
+            const r = await postTelegramAdapterSend({
+              adapterBaseUrl: guessTelegramAdapterBaseUrl(),
+              adapterKey: process.env.ECLIA_ADAPTER_KEY,
+              origin: { ...(destination as any), kind: "telegram", chatId },
               content: typeof sendArgs.content === "string" ? sendArgs.content : "",
               refs: prep.value.refs
             });

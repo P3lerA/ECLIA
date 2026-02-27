@@ -71,3 +71,18 @@ enabled = false
 # If omitted or empty, commands are registered globally (slower propagation).
 # guild_ids = ["123456789012345678", "987654321098765432"]
 
+[adapters.telegram]
+# Telegram adapter (optional).
+# Private chats: reply only to users in user_whitelist.
+# Groups/supergroups: reply only in chats in group_whitelist, and only when invoked via /eclia.
+enabled = false
+
+# Secrets belong in eclia.config.local.toml:
+# bot_token = "..."
+
+# Allowed Telegram user ids (numbers) as strings.
+# user_whitelist = ["123456789"]
+
+# Allowed Telegram group/supergroup chat ids (numbers, usually negative) as strings.
+# group_whitelist = ["-1001234567890"]
+
