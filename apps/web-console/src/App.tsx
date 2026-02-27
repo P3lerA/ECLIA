@@ -83,7 +83,7 @@ function AppInner() {
   const [authEpoch, setAuthEpoch] = React.useState(0);
   const authCheckedRef = React.useRef(false);
 
-  const containerWide = location.pathname.startsWith("/settings");
+  const containerWide = location.pathname.startsWith("/settings") || location.pathname.startsWith("/plugins");
 
   const sessionsRef = React.useRef(state.sessions);
 

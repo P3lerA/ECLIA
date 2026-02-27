@@ -16,6 +16,59 @@ function coerceDiscordStreamMode(v: unknown, fallback: "full" | "final"): "full"
   return fallback;
 }
 
+function coerceEmailListenerTarget(v: unknown): any {
+  if (!isRecord(v)) return null;
+  const kind = typeof (v as any).kind === "string" ? String((v as any).kind).trim().toLowerCase() : "";
+  if (kind === "discord") {
+    const channel_id = coerceOptionalString((v as any).channel_id ?? (v as any).channelId);
+    return channel_id ? { kind: "discord", channel_id } : null;
+  }
+  if (kind === "telegram") {
+    const chat_id = coerceOptionalString((v as any).chat_id ?? (v as any).chatId);
+    return chat_id ? { kind: "telegram", chat_id } : null;
+  }
+  return null;
+}
+
+function coerceEmailListenerAccounts(v: unknown): any[] {
+  if (!Array.isArray(v)) return [];
+  const out: any[] = [];
+
+  for (let i = 0; i < v.length; i++) {
+    const raw = v[i];
+    if (!isRecord(raw)) continue;
+    const id = coerceProfileId((raw as any).id, `account_${i + 1}`);
+    const host = coerceOptionalString((raw as any).host) ?? "";
+    const port = clampPort((raw as any).port, 993);
+    const secure = coerceBool((raw as any).secure, true);
+    const user = coerceOptionalString((raw as any).user) ?? "";
+    const pass = coerceOptionalString((raw as any).pass);
+    const mailbox = coerceOptionalString((raw as any).mailbox) ?? undefined;
+    const criterion = typeof (raw as any).criterion === "string" ? String((raw as any).criterion) : "";
+    const model = coerceOptionalString((raw as any).model);
+    const notify = coerceEmailListenerTarget((raw as any).notify);
+    const start_from = "now";
+    const max_body_chars = typeof (raw as any).max_body_chars === "number" ? Math.max(0, Math.trunc((raw as any).max_body_chars)) : undefined;
+
+    if (!host || !user || !notify) continue;
+    out.push({
+      id,
+      host,
+      port,
+      secure,
+      user,
+      ...(pass ? { pass } : {}),
+      ...(mailbox ? { mailbox } : {}),
+      criterion,
+      ...(model ? { model } : {}),
+      notify,
+      start_from,
+      ...(typeof max_body_chars === "number" ? { max_body_chars } : {})
+    });
+  }
+  return out;
+}
+
 export function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
@@ -124,6 +177,11 @@ export function coerceConfig(raw: Record<string, any>): EcliaConfig {
   const adaptersRaw = isRecord(raw.adapters) ? raw.adapters : {};
   const discordRaw = isRecord((adaptersRaw as any).discord) ? (adaptersRaw as any).discord : {};
   const telegramRaw = isRecord((adaptersRaw as any).telegram) ? (adaptersRaw as any).telegram : {};
+
+  const pluginsRaw = isRecord((raw as any).plugins) ? ((raw as any).plugins as any) : {};
+  const listenerRaw = isRecord((pluginsRaw as any).listener) ? (pluginsRaw as any).listener : {};
+  const emailListenerRaw = isRecord((listenerRaw as any).email) ? (listenerRaw as any).email : {};
+  const emailListener = emailListenerRaw;
 
   const providerRaw = typeof (infRaw as any).provider === "string" ? String((infRaw as any).provider).trim() : "";
   const provider = isInferenceProviderId(providerRaw) ? providerRaw : base.inference.provider;
@@ -306,6 +364,15 @@ export function coerceConfig(raw: Record<string, any>): EcliaConfig {
         bot_token: typeof (telegramRaw as any).bot_token === "string" ? (telegramRaw as any).bot_token : undefined,
         user_whitelist: coerceStringArray((telegramRaw as any).user_whitelist, (base.adapters.telegram as any).user_whitelist ?? []),
         group_whitelist: coerceStringArray((telegramRaw as any).group_whitelist, (base.adapters.telegram as any).group_whitelist ?? [])
+      }
+    },
+    plugins: {
+      listener: {
+        email: {
+          enabled: coerceBool((emailListener as any).enabled, base.plugins.listener.email.enabled),
+          ...(coerceOptionalString((emailListener as any).triage_prompt) ? { triage_prompt: String((emailListener as any).triage_prompt) } : {}),
+          accounts: coerceEmailListenerAccounts((emailListener as any).accounts)
+        }
       }
     }
   };

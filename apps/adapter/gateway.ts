@@ -134,7 +134,11 @@ export async function runGatewayChat(args: {
   model?: string;
   toolAccessMode?: "safe" | "full";
   streamMode?: "full" | "final";
+  /** Optional list of tool names to expose to the model for this request (e.g. ["send"]). */
+  enabledTools?: string[];
   origin?: any;
+  /** When false, gateway will not include prior session history in upstream context. */
+  includeHistory?: boolean;
   onRecord?: (record: TranscriptRecord) => Promise<void>;
 }): Promise<{ text: string; meta?: any }> {
   let resp: Response;
@@ -148,6 +152,8 @@ export async function runGatewayChat(args: {
         model: args.model,
         toolAccessMode: args.toolAccessMode ?? "full",
         streamMode: args.streamMode ?? (args.onRecord ? "full" : "final"),
+        ...(Array.isArray(args.enabledTools) ? { enabledTools: args.enabledTools } : {}),
+        ...(typeof args.includeHistory === "boolean" ? { includeHistory: args.includeHistory } : {}),
         origin: args.origin
       })
     });

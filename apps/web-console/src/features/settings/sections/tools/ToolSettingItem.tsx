@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { ToolDef, ToolName } from "../../../../core/tools/ToolRegistry";
+import { ToolNameIcon } from "../../../../core/tools/ToolNameIcon";
 import { SettingDisclosure } from "../../components/SettingDisclosure";
 
 export type ToolSettingItemProps = {
@@ -23,6 +24,7 @@ export function ToolSettingItem(props: ToolSettingItemProps) {
   return (
     <SettingDisclosure
       title={tool.label}
+      icon={<ToolNameIcon name={tool.name} />}
       ariaLabel={`Tool settings: ${tool.label}`}
       right={
         <input

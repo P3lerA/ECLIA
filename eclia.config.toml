@@ -86,3 +86,33 @@ enabled = false
 # Allowed Telegram group/supergroup chat ids (numbers, usually negative) as strings.
 # group_whitelist = ["-1001234567890"]
 
+[plugins.listener.email]
+# Email triage daemon (optional).
+#
+# Watches IMAP mailboxes via ImapFlow (IDLE) and asks the model (no context) to decide
+# whether an email is worth notifying the user about. If it is, the model will use
+# the `send` tool to send an alert to the configured destination.
+enabled = false
+
+# Configure one or more IMAP accounts.
+#
+# Secrets belong in eclia.config.local.toml:
+#   pass = "..."
+#
+# Example:
+#
+# [[plugins.listener.email.accounts]]
+# id = "work"
+# host = "imap.example.com"
+# port = 993
+# secure = true
+# user = "me@example.com"
+# pass = "..."          # put this in local overrides
+# mailbox = "INBOX"      # optional
+# criterion = "Notify me when the email is from my manager, or contains URGENT, or needs action within 24h."
+# model = "openai_compat:default"  # optional route key
+# max_body_chars = 12000  # optional
+#
+# [plugins.listener.email.accounts.notify]
+# kind = "discord"       # discord|telegram
+# channel_id = "123456789012345678"

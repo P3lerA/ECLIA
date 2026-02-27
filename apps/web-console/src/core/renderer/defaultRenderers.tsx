@@ -7,63 +7,9 @@ import { apiApproveTool, type ToolApprovalDecision } from "../api/tools";
 import { apiArtifactUrl } from "../api/artifacts";
 import { useAppState } from "../../state/AppState";
 import { tryFormatToolPayload } from "./toolPayloadFormat";
+import { ToolNameIcon } from "../tools/ToolNameIcon";
 
 const ARTIFACT_URI_PREFIX = "eclia://artifact/";
-
-function ToolNameIcon({ name }: { name: string }) {
-  if (name === "exec") return <TerminalIcon />;
-  if (name === "send") return <EnterIcon />;
-  if (name === "web") return <GlobeIcon />;
-  return null;
-}
-
-function iconProps() {
-  // Keep icons tiny and styleable via currentColor.
-  return {
-    className: "tool-icon",
-    width: 14,
-    height: 14,
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    // Slightly thicker strokes so the icon reads as the tool block "title".
-    strokeWidth: 2.5,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    "aria-hidden": true,
-    focusable: false
-  };
-}
-
-function TerminalIcon() {
-  return (
-    <svg {...iconProps()}>
-      <polyline points="4 17 10 11 4 5" />
-      <line x1="12" y1="19" x2="20" y2="19" />
-    </svg>
-  );
-}
-
-function EnterIcon() {
-  // Resembles a return/enter arrow.
-  return (
-    <svg {...iconProps()}>
-      <polyline points="9 10 4 15 9 20" />
-      <path d="M20 4v7a4 4 0 0 1-4 4H4" />
-    </svg>
-  );
-}
-
-function GlobeIcon() {
-  return (
-    <svg {...iconProps()}>
-      <circle cx="12" cy="12" r="10" />
-      <path d="M2 12h20" />
-      <path d="M12 2a15 15 0 0 1 0 20" />
-      <path d="M12 2a15 15 0 0 0 0 20" />
-    </svg>
-  );
-}
 
 export function registerDefaultBlockRenderers(registry: BlockRendererRegistry) {
   registry.register("text", (b: TextBlock) => <TextBlockView block={b} />);
@@ -345,7 +291,7 @@ function ToolBlockView({ block }: { block: ToolBlock }) {
   return (
     <div className="block-tool" data-tool={block.name} data-status={block.status}>
       <div className="block-tool-head">
-        <ToolNameIcon name={block.name} /> <span className="k">{block.name}</span> <span className="muted">· {block.status}</span>
+        <ToolNameIcon name={block.name} className="tool-icon" /> <span className="k">{block.name}</span> <span className="muted">· {block.status}</span>
       </div>
 
       {approvalRequired ? (

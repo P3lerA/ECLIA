@@ -9,11 +9,12 @@ import {
   OPENAI_COMPAT_DEFAULT_MODEL
 } from "@eclia/config/provider-defaults";
 import type { TransportId } from "../../../../core/transport/TransportRegistry";
+import { ModelRouteSelect } from "../../components/ModelRouteSelect";
 import { SettingsAdvancedSection } from "../../components/SettingsAdvancedSection";
 import { SettingDisclosure } from "../../components/SettingDisclosure";
 import { SettingsToggleRow } from "../../components/SettingsToggleRow";
 import type { CodexOAuthProfile, CodexOAuthStatus, SettingsDraft } from "../../settingsTypes";
-import { anthropicProfileRoute, codexProfileRoute, openaiProfileRoute } from "../../settingsUtils";
+import { anthropicProfileRoute, buildModelRouteOptions, codexProfileRoute, openaiProfileRoute } from "../../settingsUtils";
 
 export type InferenceSectionProps = {
   draft: SettingsDraft;
@@ -122,6 +123,13 @@ export function InferenceSection(props: InferenceSectionProps) {
         p.anthropicVersion.trim().length > 0
     );
 
+  const modelOptions = React.useMemo(
+    () => buildModelRouteOptions(draft.inferenceProfiles, draft.anthropicProfiles, codexProfiles),
+    [draft.inferenceProfiles, draft.anthropicProfiles, codexProfiles]
+  );
+  const hasAnyModelOptions = modelOptions.length > 0;
+  const providerValue = String(draft.model ?? "").trim() || "openai-compatible";
+
   return (
     <>
       <div className="card">
@@ -145,48 +153,13 @@ export function InferenceSection(props: InferenceSectionProps) {
 
           <label className="field">
             <div className="field-label">Provider</div>
-            <select
-              className="select"
-              value={draft.model}
-              onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value }))}
-              disabled={!draft.inferenceProfiles.length && !draft.anthropicProfiles.length && !codexProfiles.length}
-            >
-              {draft.inferenceProfiles.length || draft.anthropicProfiles.length || codexProfiles.length ? (
-                <>
-                  {draft.inferenceProfiles.length ? (
-                    <optgroup label="OpenAI-compatible">
-                      {draft.inferenceProfiles.map((p) => (
-                        <option key={p.id} value={openaiProfileRoute(p.id)}>
-                          {p.name.trim() || "Untitled"}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ) : null}
-
-                  {draft.anthropicProfiles.length ? (
-                    <optgroup label="Anthropic-compatible">
-                      {draft.anthropicProfiles.map((p) => (
-                        <option key={p.id} value={anthropicProfileRoute(p.id)}>
-                          {p.name.trim() || "Untitled"}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ) : null}
-
-                  {codexProfiles.length ? (
-                    <optgroup label="Codex OAuth">
-                      {codexProfiles.map((p) => (
-                        <option key={p.id} value={codexProfileRoute(p.id)}>
-                          {p.name.trim() || "Untitled"}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ) : null}
-                </>
-              ) : (
-                <option value={draft.model || "openai-compatible"}>{draft.model || "openai-compatible"}</option>
-              )}
-            </select>
+            <ModelRouteSelect
+              value={providerValue}
+              onChange={(nextModel) => setDraft((d) => ({ ...d, model: nextModel }))}
+              options={modelOptions}
+              includeDefaultOption={false}
+              disabled={!hasAnyModelOptions}
+            />
           </label>
 
           <label className="field">
@@ -294,6 +267,7 @@ export function InferenceSection(props: InferenceSectionProps) {
           return (
             <SettingDisclosure
               key={p.id}
+              iconName="simple-icons:openai"
               title={p.name.trim() || "Untitled"}
               open={isExpanded}
               onOpenChange={(next) => setExpandedOpenAICompatProfileId(next ? p.id : null)}
@@ -407,6 +381,7 @@ export function InferenceSection(props: InferenceSectionProps) {
           return (
             <SettingDisclosure
               key={p.id}
+              iconName="simple-icons:anthropic"
               title={p.name.trim() || "Untitled"}
               open={isExpanded}
               onOpenChange={(next) => setExpandedAnthropicProfileId(next ? p.id : null)}

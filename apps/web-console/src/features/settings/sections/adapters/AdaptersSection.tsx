@@ -48,6 +48,7 @@ export function AdaptersSection(props: AdaptersSectionProps) {
       <div>
         <AdapterSettingItem
           label="Discord"
+          iconName="simple-icons:discord"
           summary="I'm so sorry these logics are such a mess."
           enabled={draft.adapterDiscordEnabled}
           onEnabledChange={(enabled) => setDraft((d) => ({ ...d, adapterDiscordEnabled: enabled }))}
@@ -135,6 +136,7 @@ export function AdaptersSection(props: AdaptersSectionProps) {
       <div>
         <AdapterSettingItem
           label="Telegram"
+          iconName="simple-icons:telegram"
           summary="The Telegram Adapter. Still struggling with Markdown rendering."
           enabled={draft.adapterTelegramEnabled}
           onEnabledChange={(enabled) => setDraft((d) => ({ ...d, adapterTelegramEnabled: enabled }))}

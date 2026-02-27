@@ -68,6 +68,12 @@ function scanTelegramEnabled(tomlText) {
   return raw === null ? null : parseBoolLike(raw);
 }
 
+function scanEmailListenerEnabled(tomlText) {
+  const raw = scanTomlKey(tomlText, "plugins.listener.email", "enabled");
+  return raw === null ? null : parseBoolLike(raw);
+}
+
+
 function scanApiPort(tomlText) {
   const raw = scanTomlKey(tomlText, "api", "port");
   return raw === null ? null : parsePortLike(raw);
@@ -89,6 +95,16 @@ function detectTelegramEnabled(rootDir) {
 
   const localVal = scanTelegramEnabled(local);
   const baseVal = scanTelegramEnabled(base);
+
+  return (localVal ?? baseVal ?? false) === true;
+}
+
+function detectEmailListenerEnabled(rootDir) {
+  const local = readFileMaybe(path.join(rootDir, "eclia.config.local.toml"));
+  const base = readFileMaybe(path.join(rootDir, "eclia.config.toml"));
+
+  const localVal = scanEmailListenerEnabled(local);
+  const baseVal = scanEmailListenerEnabled(base);
 
   return (localVal ?? baseVal ?? false) === true;
 }
@@ -129,7 +145,7 @@ function wirePrefix(stream, out, prefix) {
   });
 }
 
-const TAG_PAD = 8; // keeps [API], [WEB], [DISCORD], [TELEGRAM] nicely aligned
+const TAG_PAD = 14; // keeps [API], [WEB], [DISCORD], [TELEGRAM], [LISTENER-EMAIL] aligned
 function formatTag(tag) {
   return `[${String(tag ?? "").padEnd(TAG_PAD, " ")}]`;
 }
@@ -153,6 +169,7 @@ function spawnDev(tag, args) {
 const rootDir = process.cwd();
 const discordEnabled = detectDiscordEnabled(rootDir);
 const telegramEnabled = detectTelegramEnabled(rootDir);
+const listenerEmailEnabled = detectEmailListenerEnabled(rootDir);
 const apiPort = detectApiPort(rootDir);
 const gatewayHealthUrl = `http://127.0.0.1:${apiPort}/api/health`;
 
@@ -160,6 +177,7 @@ console.log(`[DEV] root: ${rootDir}`);
 console.log(`[DEV] api port: ${apiPort}`);
 console.log(`[DEV] discord adapter: ${discordEnabled ? "enabled" : "disabled"}`);
 console.log(`[DEV] telegram adapter: ${telegramEnabled ? "enabled" : "disabled"}`);
+console.log(`[DEV] listener-email plugin: ${listenerEmailEnabled ? "enabled" : "disabled"}`);
 
 const children = [];
 let shuttingDown = false;
@@ -263,6 +281,11 @@ async function main() {
   if (telegramEnabled) {
     console.log("[DEV] gateway ready; starting TELEGRAM");
     spawnRegistered("TELEGRAM", ["-C", "apps/adapter/telegram", "dev"]);
+  }
+
+  if (listenerEmailEnabled) {
+    console.log("[DEV] gateway ready; starting LISTENER-EMAIL");
+    spawnRegistered("LISTENER-EMAIL", ["-C", "plugins/listener/email", "dev"]);
   }
 }
 

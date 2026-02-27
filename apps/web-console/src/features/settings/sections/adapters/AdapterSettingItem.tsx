@@ -4,6 +4,7 @@ import { SettingDisclosure } from "../../components/SettingDisclosure";
 export type AdapterSettingItemProps = {
   label: string;
   summary?: React.ReactNode;
+  iconName?: string;
 
   enabled: boolean;
   onEnabledChange: (enabled: boolean) => void;
@@ -24,11 +25,12 @@ export type AdapterSettingItemProps = {
  * Expanded: unified block with summary + configuration.
  */
 export function AdapterSettingItem(props: AdapterSettingItemProps) {
-  const { label, summary, enabled, onEnabledChange, disabled, children } = props;
+  const { label, summary, iconName, enabled, onEnabledChange, disabled, children } = props;
 
   return (
     <SettingDisclosure
       title={label}
+      iconName={iconName}
       ariaLabel={`Adapter settings: ${label}`}
       right={
         <input

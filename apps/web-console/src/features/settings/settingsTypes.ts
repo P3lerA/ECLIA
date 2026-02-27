@@ -114,6 +114,25 @@ export type SettingsDraft = {
   adapterTelegramUserWhitelist: string; // UI input only; newline/comma separated; persisted as adapters.telegram.user_whitelist
   adapterTelegramGroupWhitelist: string; // UI input only; newline/comma separated; persisted as adapters.telegram.group_whitelist
 
+  // Plugins (Email listener). Secrets stored in local TOML; pass is never read back.
+  pluginEmailListenerEnabled: boolean;
+  pluginEmailListenerTriagePrompt: string; // full triage prompt template; saved to plugins/listener/email/_triage.local.md
+  pluginEmailListenerAccounts: Array<{
+    id: string;
+    host: string;
+    port: string; // keep as string for input UX
+    secure: boolean;
+    user: string;
+    pass: string; // input only; empty = unchanged
+    mailbox: string;
+    criterion: string;
+    model: string;
+    notifyKind: "discord" | "telegram";
+    notifyId: string;
+    startFrom: "now" | "all";
+    maxBodyChars: string; // keep as string for input UX
+  }>;
+
   // Skills (dev-only; stored in eclia.config.local.toml)
   skillsEnabled: string[];
 };
@@ -162,6 +181,25 @@ export type CfgBase = {
   telegramTokenConfigured: boolean;
   telegramUserWhitelist: string[];
   telegramGroupWhitelist: string[];
+
+  // Plugins (Email listener)
+  emailListenerEnabled: boolean;
+  emailListenerTriagePrompt: string;
+  emailListenerAccounts: Array<{
+    id: string;
+    host: string;
+    port: number;
+    secure: boolean;
+    user: string;
+    mailbox: string;
+    criterion: string;
+    model: string;
+    notifyKind: "discord" | "telegram";
+    notifyId: string;
+    startFrom: "now" | "all";
+    maxBodyChars: number;
+    passConfigured: boolean;
+  }>;
 
   // Web tool
   webActiveProfileId: string;

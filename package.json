@@ -7,6 +7,7 @@
     "dev:all": "node scripts/dev-all.mjs",
     "dev:discord": "pnpm -C apps/adapter/discord dev",
     "dev:telegram": "pnpm -C apps/adapter/telegram dev",
+    "dev:listener-email": "pnpm -C plugins/listener/email dev",
     "build:web": "pnpm -C apps/web-console build",
     "dev:gateway": "pnpm -C apps/gateway dev",
     "typecheck": "pnpm -r --if-present run typecheck",
@@ -16,4 +17,3 @@
     "concurrently": "^9.1.0"
   }
 }
-

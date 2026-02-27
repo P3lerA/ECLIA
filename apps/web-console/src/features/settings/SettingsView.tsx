@@ -28,6 +28,7 @@ import {
   sameCodexOAuthProfiles,
   sameOpenAICompatProfiles,
   sameAnthropicProfiles,
+  sameEmailListenerAccounts,
   sameWebProfiles,
   sameStringArray
 } from "./settingsUtils";
@@ -175,6 +176,26 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         adapterTelegramUserWhitelist: cfgBase ? cfgBase.telegramUserWhitelist.join("\n") : prev?.adapterTelegramUserWhitelist ?? "",
         adapterTelegramGroupWhitelist: cfgBase ? cfgBase.telegramGroupWhitelist.join("\n") : prev?.adapterTelegramGroupWhitelist ?? "",
 
+        pluginEmailListenerEnabled: cfgBase?.emailListenerEnabled ?? prev?.pluginEmailListenerEnabled ?? false,
+        pluginEmailListenerTriagePrompt: cfgBase?.emailListenerTriagePrompt ?? prev?.pluginEmailListenerTriagePrompt ?? "",
+        pluginEmailListenerAccounts: cfgBase
+          ? cfgBase.emailListenerAccounts.map((a) => ({
+              id: a.id,
+              host: a.host,
+              port: String(a.port),
+              secure: a.secure,
+              user: a.user,
+              pass: "",
+              mailbox: a.mailbox,
+              criterion: a.criterion,
+              model: a.model,
+              notifyKind: a.notifyKind,
+              notifyId: a.notifyId,
+              startFrom: a.startFrom,
+              maxBodyChars: String(a.maxBodyChars)
+            }))
+          : prev?.pluginEmailListenerAccounts ?? [],
+
         skillsEnabled: cfgBase ? [...cfgBase.skillsEnabled] : prev?.skillsEnabled ?? []
       };
     },
@@ -258,6 +279,13 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           !sameStringArray(normalizeGuildIds(d.adapterTelegramGroupWhitelist), cfgBase.telegramGroupWhitelist)
         : false;
 
+      const dirtyDevEmailListener = cfgBase
+        ? d.pluginEmailListenerEnabled !== cfgBase.emailListenerEnabled ||
+          d.pluginEmailListenerTriagePrompt !== cfgBase.emailListenerTriagePrompt ||
+          !sameEmailListenerAccounts(d.pluginEmailListenerAccounts, cfgBase.emailListenerAccounts) ||
+          d.pluginEmailListenerAccounts.some((a) => a.pass.trim().length > 0)
+        : false;
+
       const dirtyDevSkills = cfgBase ? !sameStringArray(d.skillsEnabled, cfgBase.skillsEnabled) : false;
 
       const dirtyDevWeb = cfgBase
@@ -275,6 +303,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         dirtyDevCodexHome ||
         dirtyDevDiscord ||
         dirtyDevTelegram ||
+        dirtyDevEmailListener ||
         dirtyDevWeb ||
         dirtyDevSkills
       );
@@ -361,6 +390,13 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       !sameStringArray(normalizeGuildIds(draft.adapterTelegramGroupWhitelist), cfgBase.telegramGroupWhitelist)
     : false;
 
+  const dirtyDevEmailListener = cfgBase
+    ? draft.pluginEmailListenerEnabled !== cfgBase.emailListenerEnabled ||
+      draft.pluginEmailListenerTriagePrompt !== cfgBase.emailListenerTriagePrompt ||
+      !sameEmailListenerAccounts(draft.pluginEmailListenerAccounts, cfgBase.emailListenerAccounts) ||
+      draft.pluginEmailListenerAccounts.some((a) => a.pass.trim().length > 0)
+    : false;
+
   const dirtyDevWeb = cfgBase
     ? draft.webActiveProfileId !== cfgBase.webActiveProfileId ||
       !sameWebProfiles(draft.webProfiles, cfgBase.webProfiles) ||
@@ -377,6 +413,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     dirtyDevCodexHome ||
     dirtyDevDiscord ||
     dirtyDevTelegram ||
+    dirtyDevEmailListener ||
     dirtyDevWeb ||
     dirtyDevSkills;
 
@@ -409,6 +446,32 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const telegramWhitelistOk = normalizeGuildIds(draft.adapterTelegramUserWhitelist).length > 0;
   const telegramValid = !draft.adapterTelegramEnabled || (telegramTokenOk && telegramWhitelistOk);
 
+  const emailPassConfiguredById = new Map<string, boolean>();
+  for (const a of cfgBase?.emailListenerAccounts ?? []) emailPassConfiguredById.set(a.id, Boolean(a.passConfigured));
+
+  const emailIds = draft.pluginEmailListenerAccounts.map((a) => a.id.trim());
+  const emailIdsUnique = new Set(emailIds.filter(Boolean)).size === draft.pluginEmailListenerAccounts.length && emailIds.every(Boolean);
+  const emailAccountsValid =
+    draft.pluginEmailListenerAccounts.length === 0 ||
+    (emailIdsUnique &&
+      draft.pluginEmailListenerAccounts.every((a) => {
+        const id = a.id.trim();
+        const hostOk = a.host.trim().length > 0;
+        const portOk = isValidPort(a.port);
+        const userOk = a.user.trim().length > 0;
+        const notifyOk = a.notifyId.trim().length > 0;
+
+        const maxBodyOk =
+          a.maxBodyChars.trim().length === 0 || (Number.isFinite(Number(a.maxBodyChars)) && Number(a.maxBodyChars) >= 0);
+
+        const passConfigured = emailPassConfiguredById.get(id) === true;
+        const passOk = !draft.pluginEmailListenerEnabled || passConfigured || a.pass.trim().length > 0;
+
+        return hostOk && portOk && userOk && notifyOk && maxBodyOk && passOk;
+      }));
+
+  const emailListenerValid = emailAccountsValid && (!draft.pluginEmailListenerEnabled || draft.pluginEmailListenerAccounts.length > 0);
+
   const webProviders = new Set(WEB_PROVIDER_IDS);
   const webIds = draft.webProfiles.map((p) => p.id);
   const webIdsUnique = new Set(webIds.map((x) => x.trim()).filter(Boolean)).size === draft.webProfiles.length;
@@ -429,6 +492,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         (!dirtyDevCodexHome || codexHomeValid) &&
         (!dirtyDevDiscord || discordValid) &&
         (!dirtyDevTelegram || telegramValid) &&
+        (!dirtyDevEmailListener || emailListenerValid) &&
         (!dirtyDevWeb || webValid)));
 
   const discard = () => {
@@ -463,6 +527,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           discordValid,
           dirtyDevTelegram,
           telegramValid,
+          dirtyDevEmailListener,
+          emailListenerValid,
           dirtyDevWeb,
           webValid,
           dirtyDevSkills
@@ -699,7 +765,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
               />
             ) : null}
 
-            {activeSection === "skills" ? (
+                        {activeSection === "skills" ? (
               <SkillsSection
                 draft={draft}
                 setDraft={setDraft}

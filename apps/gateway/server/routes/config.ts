@@ -142,6 +142,29 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
             active_profile: toolsWebActiveProfile,
             profiles: toolsWebProfiles
           }
+        },
+        plugins: {
+          listener: {
+            email: {
+              enabled: Boolean((config as any)?.plugins?.listener?.email?.enabled ?? false),
+              triage_prompt: String((config as any)?.plugins?.listener?.email?.triage_prompt ?? ""),
+              accounts:
+                ((config as any)?.plugins?.listener?.email?.accounts ?? []).map((a: any) => ({
+                  id: String(a?.id ?? ""),
+                  host: String(a?.host ?? ""),
+                  port: Number(a?.port ?? 993),
+                  secure: Boolean(a?.secure ?? true),
+                  user: String(a?.user ?? ""),
+                  mailbox: String(a?.mailbox ?? "INBOX"),
+                  criterion: String(a?.criterion ?? ""),
+                  model: typeof a?.model === "string" ? a.model : undefined,
+                  notify: a?.notify,
+                  start_from: "now",
+                  max_body_chars: typeof a?.max_body_chars === "number" ? a.max_body_chars : undefined,
+                  pass_configured: Boolean(a?.pass && String(a.pass).trim())
+                })) ?? []
+            }
+          }
         }
       }
     });
@@ -393,6 +416,117 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
       (patch as any).tools = { web };
     }
 
+    if ((body as any)?.plugins?.listener?.email) {
+      const e = (body as any).plugins.listener.email;
+      const email: any = {};
+
+      if (typeof e.enabled === "boolean") email.enabled = e.enabled;
+      if (typeof e.triage_prompt === "string") email.triage_prompt = e.triage_prompt;
+
+      if (Array.isArray(e.accounts)) {
+        const raw = e.accounts as any[];
+        const out: any[] = [];
+        const seen = new Set<string>();
+
+        for (let i = 0; i < raw.length; i++) {
+          const row = raw[i];
+          const id = String(row?.id ?? "").trim();
+          if (!id) {
+            return json(res, 400, {
+              ok: false,
+              error: "bad_request",
+              hint: `plugins.listener.email.accounts[${i}].id is required.`
+            });
+          }
+          if (seen.has(id)) {
+            return json(res, 400, {
+              ok: false,
+              error: "bad_request",
+              hint: `plugins.listener.email.accounts[].id must be unique (duplicate: '${id}').`
+            });
+          }
+          seen.add(id);
+
+          const host = typeof row?.host === "string" ? row.host.trim() : "";
+          const user = typeof row?.user === "string" ? row.user.trim() : "";
+          if (!host || !user) {
+            return json(res, 400, {
+              ok: false,
+              error: "bad_request",
+              hint: `plugins.listener.email.accounts[${i}] must include host and user.`
+            });
+          }
+
+          const port = Number(row?.port ?? 993);
+          const portNum = Number.isFinite(port) ? Math.trunc(port) : 993;
+          if (portNum < 1 || portNum > 65535) {
+            return json(res, 400, {
+              ok: false,
+              error: "bad_request",
+              hint: `plugins.listener.email.accounts[${i}].port must be in [1, 65535].`
+            });
+          }
+
+          const secure = typeof row?.secure === "boolean" ? row.secure : true;
+
+          const mailbox = typeof row?.mailbox === "string" && row.mailbox.trim() ? row.mailbox.trim() : undefined;
+          const criterion = typeof row?.criterion === "string" ? row.criterion : "";
+          const model = typeof row?.model === "string" && row.model.trim() ? row.model.trim() : undefined;
+
+          const start_from = "now";
+
+          const max_body_chars =
+            typeof row?.max_body_chars === "number" && Number.isFinite(row.max_body_chars) ? Math.max(0, Math.trunc(row.max_body_chars)) : undefined;
+
+          const notifyKind = typeof row?.notify?.kind === "string" ? row.notify.kind.trim().toLowerCase() : "";
+          let notify: any = null;
+          if (notifyKind === "discord") {
+            const channel_id = typeof row?.notify?.channel_id === "string" ? row.notify.channel_id.trim() : "";
+            if (channel_id) notify = { kind: "discord", channel_id };
+          } else if (notifyKind === "telegram") {
+            const chat_id = typeof row?.notify?.chat_id === "string" ? row.notify.chat_id.trim() : "";
+            if (chat_id) notify = { kind: "telegram", chat_id };
+          }
+
+          if (!notify) {
+            return json(res, 400, {
+              ok: false,
+              error: "bad_request",
+              hint: `plugins.listener.email.accounts[${i}].notify must be configured (discord.channel_id or telegram.chat_id).`
+            });
+          }
+
+          const next: any = { id, host, port: portNum, secure, user, criterion, notify, start_from };
+          if (typeof row?.pass === "string" && row.pass.trim()) next.pass = row.pass.trim();
+          if (mailbox) next.mailbox = mailbox;
+          if (model) next.model = model;
+          if (typeof max_body_chars === "number") next.max_body_chars = max_body_chars;
+
+          out.push(next);
+        }
+
+        email.accounts = out;
+      }
+
+      patch.plugins = { ...(patch.plugins ?? {}), listener: { ...((patch.plugins as any)?.listener ?? {}), email } };
+
+      const nextEnabled =
+        typeof (email as any).enabled === "boolean" ? (email as any).enabled : Boolean((config as any)?.plugins?.listener?.email?.enabled ?? false);
+      const nextAccounts = Array.isArray((email as any).accounts)
+        ? ((email as any).accounts as any[])
+        : Array.isArray((config as any)?.plugins?.listener?.email?.accounts)
+          ? (((config as any).plugins.listener.email.accounts as any[]) ?? [])
+          : [];
+
+      if (nextEnabled && nextAccounts.length === 0) {
+        return json(res, 400, {
+          ok: false,
+          error: "bad_request",
+          hint: "plugins.listener.email.enabled=true requires at least one account under plugins.listener.email.accounts."
+        });
+      }
+    }
+
     // Optional: if user sends bot_token="", treat as "do not change".
     if (patch.adapters?.discord && typeof patch.adapters.discord.bot_token === "string") {
       if (!patch.adapters.discord.bot_token.trim()) delete patch.adapters.discord.bot_token;
@@ -401,6 +535,14 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
     // Optional: if user sends telegram bot_token="", treat as "do not change".
     if ((patch.adapters as any)?.telegram && typeof (patch.adapters as any).telegram.bot_token === "string") {
       if (!(patch.adapters as any).telegram.bot_token.trim()) delete (patch.adapters as any).telegram.bot_token;
+    }
+
+    // Optional: if user sends plugins.listener.email.accounts[].pass="", treat as "do not change".
+    if ((patch as any)?.plugins?.listener?.email && Array.isArray((patch as any).plugins.listener.email.accounts)) {
+      for (const acc of (patch as any).plugins.listener.email.accounts as any[]) {
+        if (!acc || typeof acc !== "object") continue;
+        if (typeof (acc as any).pass === "string" && !(acc as any).pass.trim()) delete (acc as any).pass;
+      }
     }
 
     // Optional: if user sends app_id="", treat as "do not change".

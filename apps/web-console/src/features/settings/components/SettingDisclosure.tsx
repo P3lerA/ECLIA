@@ -1,8 +1,11 @@
 import React from "react";
+import { Icon } from "@iconify/react";
 import { usePresence } from "../../motion/usePresence";
 
 export type SettingDisclosureProps = {
   title: React.ReactNode;
+  icon?: React.ReactNode;
+  iconName?: string;
   right?: React.ReactNode;
   children: React.ReactNode;
 
@@ -36,7 +39,7 @@ export type SettingDisclosureProps = {
  * - Uses a native <button> for keyboard accessibility.
  */
 export function SettingDisclosure(props: SettingDisclosureProps) {
-  const { title, right, children, open, defaultOpen, onOpenChange, disabled, className, ariaLabel } = props;
+  const { title, icon, iconName, right, children, open, defaultOpen, onOpenChange, disabled, className, ariaLabel } = props;
 
   const isControlled = typeof open === "boolean";
   const [internalOpen, setInternalOpen] = React.useState(Boolean(defaultOpen));
@@ -74,7 +77,7 @@ export function SettingDisclosure(props: SettingDisclosureProps) {
         >
           <span className="settingDisclosureTitle">
             <span className="disclosureIcon" aria-hidden="true">
-              {isOpen ? "▾" : "▸"}
+              {icon ?? (iconName ? <Icon icon={iconName} width={14} height={14} fallback={isOpen ? "▾" : "▸"} /> : isOpen ? "▾" : "▸")}
             </span>
             {title}
           </span>

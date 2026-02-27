@@ -83,6 +83,33 @@ export type ConfigApiRequestBody = {
       }>;
     };
   };
+
+  plugins?: {
+    listener?: {
+      email?: {
+        enabled?: boolean;
+        triage_prompt?: string;
+        accounts?: Array<{
+          id: string;
+          host?: string;
+          port?: number;
+          secure?: boolean;
+          user?: string;
+          pass?: string;
+          mailbox?: string;
+          criterion?: string;
+          model?: string;
+          notify?: {
+            kind?: string;
+            channel_id?: string;
+            chat_id?: string;
+          };
+          start_from?: string;
+          max_body_chars?: number;
+        }>;
+      };
+    };
+  };
 };
 
 /**
@@ -166,6 +193,33 @@ export type ConfigApiConfig = {
         project_id?: string;
         api_key_configured?: boolean;
       }>;
+    };
+  };
+
+  plugins?: {
+    listener?: {
+      email?: {
+        enabled?: boolean;
+        triage_prompt?: string;
+        accounts?: Array<{
+          id: string;
+          host?: string;
+          port?: number;
+          secure?: boolean;
+          user?: string;
+          mailbox?: string;
+          criterion?: string;
+          model?: string;
+          notify?: {
+            kind?: string;
+            channel_id?: string;
+            chat_id?: string;
+          };
+          start_from?: string;
+          max_body_chars?: number;
+          pass_configured?: boolean;
+        }>;
+      };
     };
   };
 };

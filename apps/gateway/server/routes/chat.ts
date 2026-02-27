@@ -98,6 +98,16 @@ type ChatReqBody = {
   streamMode?: "full" | "final";
 
   /**
+   * Whether to include prior session history in the upstream context.
+   *
+   * Default: true.
+   * When false, the gateway will still persist transcript records to the session,
+   * but will build context using ONLY the current user message (system instruction
+   * is still injected).
+   */
+  includeHistory?: boolean;
+
+  /**
    * Optional session origin metadata.
    * If the session has no origin yet, the gateway will persist it.
    */
@@ -238,6 +248,7 @@ export async function handleChat(
 
   const toolAccessMode: ToolAccessMode = body.toolAccessMode === "safe" ? "safe" : "full";
   const streamMode: "full" | "final" = body.streamMode === "final" ? "final" : "full";
+  const includeHistory = body.includeHistory !== false;
   const requestedOrigin = extractRequestedOrigin(body);
 
   const enabledToolsRaw = Array.isArray(body.enabledTools) ? body.enabledTools : null;
@@ -427,7 +438,7 @@ export async function handleChat(
       return;
     }
 
-    const historyBase = [...priorMessages, userMsg].filter((m) => m && m.role !== "system");
+    const historyBase = (includeHistory ? [...priorMessages, userMsg] : [userMsg]).filter((m) => m && m.role !== "system");
 
     // Inject system instruction as the only system message (when configured).
     const historyForContext = systemInstruction.trim().length

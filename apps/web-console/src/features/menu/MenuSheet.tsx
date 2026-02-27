@@ -365,7 +365,6 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
                     }}
                   >
                     <div className="menu-item-main">Settings</div>
-                    <div className="menu-item-sub">Appearance · Runtime</div>
                   </button>
 
                   <button
@@ -376,7 +375,6 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
                     }}
                   >
                     <div className="menu-item-main">Plugins</div>
-                    <div className="menu-item-sub">(empty for now)</div>
                   </button>
                 </div>
               </section>

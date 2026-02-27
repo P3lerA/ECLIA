@@ -133,6 +133,48 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
     ? (tg as any).group_whitelist.map((x: any) => String(x).trim()).filter(Boolean)
     : [];
 
+  const emailListenerEnabled = Boolean((config as any)?.plugins?.listener?.email?.enabled ?? false);
+  const emailListenerTriagePrompt = String((config as any)?.plugins?.listener?.email?.triage_prompt ?? "");
+  const emailAccountsRaw = Array.isArray((config as any)?.plugins?.listener?.email?.accounts)
+    ? (((config as any).plugins.listener.email.accounts as any[]) ?? [])
+    : [];
+
+  const emailListenerAccounts = emailAccountsRaw
+    .map((a) => {
+      const id = String(a?.id ?? "").trim();
+      if (!id) return null;
+
+      const notifyKindRaw = String(a?.notify?.kind ?? "").trim().toLowerCase();
+      const notifyKind: "discord" | "telegram" = notifyKindRaw === "telegram" ? "telegram" : "discord";
+      const notifyId =
+        notifyKind === "telegram" ? String(a?.notify?.chat_id ?? "").trim() : String(a?.notify?.channel_id ?? "").trim();
+
+      const portNum = Number(a?.port);
+      const port = Number.isFinite(portNum) ? Math.trunc(portNum) : 993;
+
+      const maxBodyNum = Number(a?.max_body_chars);
+      const maxBodyChars = Number.isFinite(maxBodyNum) ? Math.max(0, Math.trunc(maxBodyNum)) : 12_000;
+
+      const startFrom: "now" = "now";
+
+      return {
+        id,
+        host: String(a?.host ?? "").trim(),
+        port,
+        secure: Boolean(a?.secure ?? true),
+        user: String(a?.user ?? "").trim(),
+        mailbox: String(a?.mailbox ?? "INBOX").trim() || "INBOX",
+        criterion: String(a?.criterion ?? ""),
+        model: typeof a?.model === "string" ? String(a.model) : "",
+        notifyKind,
+        notifyId,
+        startFrom,
+        maxBodyChars,
+        passConfigured: Boolean(a?.pass_configured ?? false)
+      };
+    })
+    .filter(Boolean) as CfgBase["emailListenerAccounts"];
+
   const web = (config as any)?.tools?.web ?? {};
   const rawWebProfiles = Array.isArray((web as any).profiles) ? ((web as any).profiles as any[]) : [];
   const webProfiles: CfgBase["webProfiles"] = [];
@@ -236,6 +278,10 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
     telegramUserWhitelist,
     telegramGroupWhitelist,
 
+    emailListenerEnabled,
+    emailListenerTriagePrompt,
+    emailListenerAccounts,
+
     webActiveProfileId,
     webProfiles,
 
@@ -261,6 +307,9 @@ export type BuildDevConfigPatchArgs = {
   dirtyDevTelegram: boolean;
   telegramValid: boolean;
 
+  dirtyDevEmailListener: boolean;
+  emailListenerValid: boolean;
+
   dirtyDevWeb: boolean;
   webValid: boolean;
   dirtyDevSkills: boolean;
@@ -285,6 +334,8 @@ export function buildDevConfigPatch(args: BuildDevConfigPatchArgs): any {
     discordValid,
     dirtyDevTelegram,
     telegramValid,
+    dirtyDevEmailListener,
+    emailListenerValid,
     dirtyDevWeb,
     webValid,
     dirtyDevSkills
@@ -399,6 +450,45 @@ export function buildDevConfigPatch(args: BuildDevConfigPatchArgs): any {
     };
   }
 
+  if (dirtyDevEmailListener) {
+    if (!emailListenerValid) throw new Error("Email listener enabled but missing required account fields.");
+
+    body.plugins = {
+      listener: {
+        email: {
+          enabled: Boolean(draft.pluginEmailListenerEnabled),
+          triage_prompt: draft.pluginEmailListenerTriagePrompt,
+          accounts: draft.pluginEmailListenerAccounts.map((a) => {
+            const portNum = Number(a.port);
+            const port = Number.isFinite(portNum) ? Math.trunc(portNum) : 993;
+
+            const maxBodyNum = Number(a.maxBodyChars);
+            const max_body_chars = Number.isFinite(maxBodyNum) ? Math.max(0, Math.trunc(maxBodyNum)) : undefined;
+
+            const notifyId = a.notifyId.trim();
+            const notify =
+              a.notifyKind === "telegram" ? { kind: "telegram", chat_id: notifyId } : { kind: "discord", channel_id: notifyId };
+
+            return {
+              id: a.id.trim(),
+              host: a.host.trim(),
+              port,
+              secure: Boolean(a.secure),
+              user: a.user.trim(),
+              ...(a.pass.trim().length ? { pass: a.pass.trim() } : {}),
+              ...(a.mailbox.trim().length ? { mailbox: a.mailbox.trim() } : {}),
+              criterion: a.criterion,
+              ...(a.model.trim().length ? { model: a.model.trim() } : {}),
+              notify,
+              start_from: "now",
+              ...(typeof max_body_chars === "number" ? { max_body_chars } : {})
+            };
+          })
+        }
+      }
+    };
+  }
+
   if (dirtyDevWeb) {
     if (!webValid) throw new Error("Invalid web provider profile settings.");
 
@@ -497,6 +587,54 @@ export function applyDevConfigPatchToCfgBase(cfgBase: CfgBase, body: any): CfgBa
     nextWebActiveProfileId = nextWebProfiles[0]?.id ?? DEFAULT_PROFILE_ID;
   }
 
+  const nextEmailEnabled =
+    typeof (body as any)?.plugins?.listener?.email?.enabled === "boolean"
+      ? Boolean((body as any).plugins.listener.email.enabled)
+      : cfgBase.emailListenerEnabled;
+
+  const nextEmailTriagePrompt =
+    typeof (body as any)?.plugins?.listener?.email?.triage_prompt === "string"
+      ? String((body as any).plugins.listener.email.triage_prompt)
+      : cfgBase.emailListenerTriagePrompt;
+
+  const nextEmailAccounts = Array.isArray((body as any)?.plugins?.listener?.email?.accounts)
+    ? (((body as any).plugins.listener.email.accounts as any[]) ?? []).map((p) => {
+        const id = String(p?.id ?? "").trim();
+        const prev = cfgBase.emailListenerAccounts.find((x) => x.id === id);
+
+        const notifyKindRaw = String(p?.notify?.kind ?? "").trim().toLowerCase();
+        const notifyKind: "discord" | "telegram" = notifyKindRaw === "telegram" ? "telegram" : "discord";
+        const notifyId =
+          notifyKind === "telegram" ? String(p?.notify?.chat_id ?? "").trim() : String(p?.notify?.channel_id ?? "").trim();
+
+        const portNum = Number(p?.port);
+        const port = Number.isFinite(portNum) ? Math.trunc(portNum) : prev?.port ?? 993;
+
+        const maxBodyNum = Number(p?.max_body_chars);
+        const maxBodyChars = Number.isFinite(maxBodyNum) ? Math.max(0, Math.trunc(maxBodyNum)) : prev?.maxBodyChars ?? 12_000;
+
+        const startFrom: "now" = "now";
+
+        const passConfigured = Boolean(String(p?.pass ?? "").trim()) || Boolean(prev?.passConfigured);
+
+        return {
+          id,
+          host: String(p?.host ?? "").trim(),
+          port,
+          secure: typeof p?.secure === "boolean" ? Boolean(p.secure) : prev?.secure ?? true,
+          user: String(p?.user ?? "").trim(),
+          mailbox: String(p?.mailbox ?? prev?.mailbox ?? "INBOX").trim() || "INBOX",
+          criterion: String(p?.criterion ?? ""),
+          model: typeof p?.model === "string" ? String(p.model) : prev?.model ?? "",
+          notifyKind,
+          notifyId,
+          startFrom,
+          maxBodyChars,
+          passConfigured
+        };
+      })
+    : cfgBase.emailListenerAccounts;
+
   return {
     host: body.console?.host ?? cfgBase.host,
     port: body.console?.port ?? cfgBase.port,
@@ -534,6 +672,10 @@ export function applyDevConfigPatchToCfgBase(cfgBase: CfgBase, body: any): CfgBa
     telegramTokenConfigured: cfgBase.telegramTokenConfigured || Boolean(body.adapters?.telegram?.bot_token),
     telegramUserWhitelist: body.adapters?.telegram?.user_whitelist ?? cfgBase.telegramUserWhitelist,
     telegramGroupWhitelist: body.adapters?.telegram?.group_whitelist ?? cfgBase.telegramGroupWhitelist,
+
+    emailListenerEnabled: nextEmailEnabled,
+    emailListenerTriagePrompt: nextEmailTriagePrompt,
+    emailListenerAccounts: nextEmailAccounts,
 
     webActiveProfileId: nextWebActiveProfileId,
     webProfiles: nextWebProfiles,
@@ -591,6 +733,24 @@ export function draftAfterDevSave(d: SettingsDraft, nextBase: CfgBase, dirtyDevI
     adapterTelegramBotToken: "",
     adapterTelegramUserWhitelist: nextBase.telegramUserWhitelist.join("\n"),
     adapterTelegramGroupWhitelist: nextBase.telegramGroupWhitelist.join("\n"),
+
+    pluginEmailListenerEnabled: nextBase.emailListenerEnabled,
+    pluginEmailListenerTriagePrompt: nextBase.emailListenerTriagePrompt,
+    pluginEmailListenerAccounts: nextBase.emailListenerAccounts.map((a) => ({
+      id: a.id,
+      host: a.host,
+      port: String(a.port),
+      secure: Boolean(a.secure),
+      user: a.user,
+      pass: "",
+      mailbox: a.mailbox,
+      criterion: a.criterion,
+      model: a.model,
+      notifyKind: a.notifyKind,
+      notifyId: a.notifyId,
+      startFrom: a.startFrom,
+      maxBodyChars: String(a.maxBodyChars)
+    })),
 
     webActiveProfileId: dirtyDevWeb ? nextBase.webActiveProfileId : d.webActiveProfileId,
     webProfiles: dirtyDevWeb
