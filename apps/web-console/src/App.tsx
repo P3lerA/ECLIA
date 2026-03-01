@@ -275,12 +275,12 @@ function AppInner() {
 
     (async () => {
       try {
-        const { session, messages } = await apiGetSession(sid);
+        const { session, messages, hasMore } = await apiGetSession(sid);
         if (cancelled) return;
 
         const ui = toUiSession(session);
         dispatch({ type: "session/update", sessionId: sid, patch: { ...ui, localOnly: false } });
-        dispatch({ type: "messages/set", sessionId: sid, messages });
+        dispatch({ type: "messages/set", sessionId: sid, messages, hasMore });
       } catch {
         // Ignore (session may be local-only, or gateway offline).
       }

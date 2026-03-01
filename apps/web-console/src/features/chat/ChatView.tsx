@@ -143,7 +143,7 @@ export function ChatView({
       </div>
 
       <div className="chatview-body motion-page">
-        <MessageList sessionId={session.id} messages={viewMessages} />
+        <MessageList sessionId={session.id} messages={viewMessages} plainOutput={Boolean(state.settings.displayPlainOutput)} />
       </div>
 
       <div

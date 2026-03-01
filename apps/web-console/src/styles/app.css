@@ -339,6 +339,16 @@ button, input, select, textarea{
   flex-direction: column;
   gap: 10px;
 }
+.load-earlier{
+  text-align: center;
+  padding: 4px 0 8px;
+}
+.load-earlier-hint{
+  font-size: 0.82rem;
+  color: var(--text-2);
+  opacity: 0.7;
+}
+
 .msg{
   display: flex;
   gap: 10px;

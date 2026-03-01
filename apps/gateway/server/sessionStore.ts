@@ -171,7 +171,10 @@ export class SessionStore {
    * UI can project these records as needed; the gateway uses them to rebuild
    * OpenAI-compatible context.
    */
-  async readTranscript(sessionId: string): Promise<{ meta: SessionMetaV1; transcript: TranscriptRecordV1[] } | null> {
+  async readTranscript(
+    sessionId: string,
+    opts?: { tail?: number }
+  ): Promise<{ meta: SessionMetaV1; transcript: TranscriptRecordV1[]; totalCount: number } | null> {
     await this.init();
 
     const sid = safeId(sessionId);
@@ -180,8 +183,8 @@ export class SessionStore {
     const meta = await readJsonFile<SessionMetaV1>(this.metaPath(sid));
     if (!meta) return null;
 
-    const transcript = await this.readTranscriptRecords(sid);
-    return { meta: coerceMeta(meta as any, sid), transcript };
+    const { records, totalCount } = await this.readTranscriptRecords(sid, opts);
+    return { meta: coerceMeta(meta as any, sid), transcript: records, totalCount };
   }
 
   async updateMeta(sessionId: string, patch: Partial<SessionMetaV1>): Promise<SessionMetaV1> {
@@ -359,7 +362,10 @@ export class SessionStore {
     }
   }
 
-  private async readTranscriptRecords(sessionId: string): Promise<TranscriptRecordV1[]> {
+  private async readTranscriptRecords(
+    sessionId: string,
+    opts?: { tail?: number }
+  ): Promise<{ records: TranscriptRecordV1[]; totalCount: number }> {
     const trPath = this.transcriptPath(sessionId);
 
     // Stream line-by-line for resilience (large sessions won't blow memory).
@@ -367,7 +373,7 @@ export class SessionStore {
     try {
       stream = fs.createReadStream(trPath, { encoding: "utf-8" });
     } catch {
-      return [];
+      return { records: [], totalCount: 0 };
     }
 
     const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
@@ -394,6 +400,9 @@ export class SessionStore {
       stream.close();
     }
 
-    return out;
+    const totalCount = out.length;
+    const tail = opts?.tail;
+    const records = tail != null && tail > 0 && tail < totalCount ? out.slice(-tail) : out;
+    return { records, totalCount };
   }
 }

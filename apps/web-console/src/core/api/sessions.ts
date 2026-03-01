@@ -21,7 +21,7 @@ export type CreateSessionResponse =
   | { ok: false; error: string; hint?: string };
 
 export type GetSessionResponse =
-  | { ok: true; session: SessionMeta; transcript: TranscriptRecord[] }
+  | { ok: true; session: SessionMeta; transcript: TranscriptRecord[]; totalCount?: number; hasMore?: boolean }
   | { ok: false; error: string; hint?: string };
 
 export type ResetSessionResponse =
@@ -64,11 +64,16 @@ export async function apiCreateSession(
   return j.session;
 }
 
-export async function apiGetSession(sessionId: string): Promise<{ session: SessionMeta; messages: Message[] }> {
-  const r = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: "GET" });
+export async function apiGetSession(
+  sessionId: string,
+  opts?: { tail?: number }
+): Promise<{ session: SessionMeta; messages: Message[]; hasMore: boolean }> {
+  const tail = opts?.tail ?? 50;
+  const qs = tail > 0 ? `?tail=${tail}` : "";
+  const r = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}${qs}`, { method: "GET" });
   const j = (await r.json()) as GetSessionResponse;
   if (!j.ok) throw new Error(j.hint ?? j.error);
-  return { session: j.session, messages: transcriptToMessages(j.transcript) };
+  return { session: j.session, messages: transcriptToMessages(j.transcript), hasMore: Boolean(j.hasMore) };
 }
 
 // ---- Transcript types (mirrors gateway/server/transcriptTypes.ts) ----

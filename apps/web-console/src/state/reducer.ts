@@ -101,6 +101,7 @@ export type AppState = {
   activeSessionId: string;
 
   messagesBySession: Record<string, Message[]>;
+  hasMoreBySession: Record<string, boolean>;
 
   settings: AppSettings;
   gpu: AppGPU;
@@ -134,7 +135,7 @@ export type Action =
   | { type: "settings/webResultTruncateChars"; value: number }
   | { type: "gpu/available"; available: boolean }
   | { type: "message/add"; sessionId: string; message: Message }
-  | { type: "messages/set"; sessionId: string; messages: Message[] }
+  | { type: "messages/set"; sessionId: string; messages: Message[]; hasMore?: boolean }
   | { type: "assistant/stream/start"; sessionId: string; messageId: string }
   | { type: "assistant/stream/append"; sessionId: string; text: string }
   | { type: "assistant/stream/finalize"; sessionId: string }
@@ -165,7 +166,8 @@ export function reducer(state: AppState, action: Action): AppState {
       const remove = new Set(ids);
       let sessions = state.sessions.filter((s) => !remove.has(s.id));
       const messagesBySession = { ...state.messagesBySession };
-      for (const id of remove) delete messagesBySession[id];
+      const hasMoreBySession = { ...state.hasMoreBySession };
+      for (const id of remove) { delete messagesBySession[id]; delete hasMoreBySession[id]; }
 
       let activeSessionId = state.activeSessionId;
       if (remove.has(activeSessionId)) {
@@ -190,7 +192,7 @@ export function reducer(state: AppState, action: Action): AppState {
         activeSessionId = id;
       }
 
-      return { ...state, sessions, activeSessionId, messagesBySession };
+      return { ...state, sessions, activeSessionId, messagesBySession, hasMoreBySession };
     }
 
     case "session/add": {
@@ -349,6 +351,10 @@ export function reducer(state: AppState, action: Action): AppState {
         messagesBySession: {
           ...state.messagesBySession,
           [action.sessionId]: action.messages
+        },
+        hasMoreBySession: {
+          ...state.hasMoreBySession,
+          [action.sessionId]: Boolean(action.hasMore)
         }
       };
     }

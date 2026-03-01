@@ -194,14 +194,14 @@ export function useSendMessage() {
         // Best-effort: re-sync this session from the gateway so IDs/blocks stay canonical.
         if (state.settings.sessionSyncEnabled) {
           try {
-            const { session, messages } = await apiGetSession(sessionId);
+            const { session, messages, hasMore } = await apiGetSession(sessionId);
             const ui = toUiSession(session);
             dispatch({
               type: "session/update",
               sessionId,
               patch: { title: ui.title, updatedAt: ui.updatedAt, meta: ui.meta, localOnly: false }
             });
-            dispatch({ type: "messages/set", sessionId, messages });
+            dispatch({ type: "messages/set", sessionId, messages, hasMore });
           } catch {
             // ignore
           }

@@ -41,6 +41,11 @@ export function useMessages(sessionId: string): Message[] {
   return s.messagesBySession[sessionId] ?? [];
 }
 
+export function useHasMore(sessionId: string): boolean {
+  const s = useAppState();
+  return Boolean(s.hasMoreBySession[sessionId]);
+}
+
 export function useLogs(tab: InspectorTabId): LogItem[] {
   const s = useAppState();
   return s.logsByTab[tab] ?? [];

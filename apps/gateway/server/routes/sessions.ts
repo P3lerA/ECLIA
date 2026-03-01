@@ -56,9 +56,11 @@ export async function handleSessions(req: http.IncomingMessage, res: http.Server
 
     if (!store.isValidSessionId(id)) return json(res, 400, { ok: false, error: "invalid_session_id" });
 
-    const detail = await store.readTranscript(id);
+    const tail = safeInt(u.searchParams.get("tail"), 0) || undefined;
+    const detail = await store.readTranscript(id, tail ? { tail } : undefined);
     if (!detail) return json(res, 404, { ok: false, error: "not_found" });
-    return json(res, 200, { ok: true, session: detail.meta, transcript: detail.transcript });
+    const hasMore = tail ? detail.totalCount > tail : false;
+    return json(res, 200, { ok: true, session: detail.meta, transcript: detail.transcript, totalCount: detail.totalCount, hasMore });
   }
 
   if (m1 && req.method === "DELETE") {

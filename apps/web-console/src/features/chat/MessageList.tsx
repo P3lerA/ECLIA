@@ -1,6 +1,8 @@
 import React from "react";
 import type { Message } from "../../core/types";
 import { MessageBubble } from "./MessageBubble";
+import { apiGetSession } from "../../core/api/sessions";
+import { useAppDispatch, useHasMore } from "../../state/AppState";
 
 const STICKY_THRESHOLD_PX = 48;
 
@@ -18,12 +20,58 @@ function getWindowScrollBottomDistance(): number {
 
 export function MessageList({
   sessionId,
-  messages
+  messages,
+  plainOutput
 }: {
   sessionId: string;
   messages: Message[];
+  plainOutput: boolean;
 }) {
   const ref = React.useRef<HTMLDivElement | null>(null);
+  const dispatch = useAppDispatch();
+  const hasMore = useHasMore(sessionId);
+  const loadingMoreRef = React.useRef(false);
+  const [loadingMore, setLoadingMore] = React.useState(false);
+
+  // Track the id of the first visible message so we can restore scroll position after prepending.
+  const prevFirstIdRef = React.useRef<string | null>(null);
+
+  const loadEarlier = React.useCallback(async () => {
+    if (loadingMoreRef.current || !hasMore) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+
+    // Remember the current first message id before loading.
+    if (messages.length > 0) {
+      prevFirstIdRef.current = messages[0].id;
+    }
+
+    try {
+      const currentCount = messages.length;
+      const { messages: allMessages, hasMore: more } = await apiGetSession(sessionId, { tail: currentCount + 50 });
+      dispatch({ type: "messages/set", sessionId, messages: allMessages, hasMore: more });
+    } catch {
+      // ignore
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [sessionId, messages, hasMore, dispatch]);
+
+  // After messages change from a "load earlier" operation, restore scroll to the previous first message.
+  React.useLayoutEffect(() => {
+    const anchorId = prevFirstIdRef.current;
+    if (!anchorId) return;
+
+    const el = ref.current;
+    if (!el) return;
+
+    const anchorEl = el.querySelector(`[data-msg-id="${CSS.escape(anchorId)}"]`);
+    if (anchorEl) {
+      (anchorEl as HTMLElement).scrollIntoView({ block: "start" });
+    }
+    prevFirstIdRef.current = null;
+  }, [messages]);
 
   // Whether we should keep the view "pinned" to the bottom.
   // - true  => streaming / new messages will auto-scroll
@@ -35,13 +83,23 @@ export function MessageList({
     if (el && isElementScrollable(el)) {
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
       stickToBottomRef.current = distance <= STICKY_THRESHOLD_PX;
+
+      // Auto-load when scrolled to the top.
+      if (el.scrollTop <= STICKY_THRESHOLD_PX) {
+        loadEarlier();
+      }
       return;
     }
 
     // Fallback: if the window is the scroll container (e.g. flex height constraints
     // didn't apply in the current environment), keep the same behavior.
-    stickToBottomRef.current = getWindowScrollBottomDistance() <= STICKY_THRESHOLD_PX;
-  }, []);
+    const winDist = getWindowScrollBottomDistance();
+    stickToBottomRef.current = winDist <= STICKY_THRESHOLD_PX;
+
+    if ((window.scrollY ?? 0) <= STICKY_THRESHOLD_PX) {
+      loadEarlier();
+    }
+  }, [loadEarlier]);
 
   const scrollToBottom = React.useCallback((behavior: ScrollBehavior = "auto") => {
     const el = ref.current;
@@ -85,8 +143,13 @@ export function MessageList({
 
   return (
     <div ref={ref} className="message-list" onScroll={updateStickiness}>
+      {loadingMore && (
+        <div className="load-earlier">
+          <span className="load-earlier-hint">Loading…</span>
+        </div>
+      )}
       {messages.map((m) => (
-        <MessageBubble key={m.id} msg={m} />
+        <MessageBubble key={m.id} msg={m} plainOutput={plainOutput} />
       ))}
     </div>
   );

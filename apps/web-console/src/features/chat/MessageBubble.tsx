@@ -1,10 +1,14 @@
 import React from "react";
 import type { Block, Message } from "../../core/types";
 import { runtime } from "../../core/runtime";
-import { useAppState } from "../../state/AppState";
 
-export function MessageBubble({ msg }: { msg: Message }) {
-  const plainOutput = Boolean(useAppState().settings.displayPlainOutput);
+export const MessageBubble = React.memo(function MessageBubble({
+  msg,
+  plainOutput
+}: {
+  msg: Message;
+  plainOutput: boolean;
+}) {
 
   const roleLabel =
     msg.role === "user"
@@ -31,7 +35,7 @@ export function MessageBubble({ msg }: { msg: Message }) {
       : msg.blocks;
 
   return (
-    <div className={"msg motion-msg " + msg.role}>
+    <div className={"msg motion-msg " + msg.role} data-msg-id={msg.id}>
       <div className="bubble">
         <div className="role">
           <span className={dotClass} />
@@ -55,4 +59,4 @@ export function MessageBubble({ msg }: { msg: Message }) {
       </div>
     </div>
   );
-}
+});
