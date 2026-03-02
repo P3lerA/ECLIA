@@ -74,6 +74,12 @@ function scanEmailListenerEnabled(tomlText) {
 }
 
 
+function scanMemoryEnabled(tomlText) {
+  const raw = scanTomlKey(tomlText, "memory", "enabled");
+  return raw === null ? null : parseBoolLike(raw);
+}
+
+
 function scanApiPort(tomlText) {
   const raw = scanTomlKey(tomlText, "api", "port");
   return raw === null ? null : parsePortLike(raw);
@@ -105,6 +111,16 @@ function detectEmailListenerEnabled(rootDir) {
 
   const localVal = scanEmailListenerEnabled(local);
   const baseVal = scanEmailListenerEnabled(base);
+
+  return (localVal ?? baseVal ?? false) === true;
+}
+
+function detectMemoryEnabled(rootDir) {
+  const local = readFileMaybe(path.join(rootDir, "eclia.config.local.toml"));
+  const base = readFileMaybe(path.join(rootDir, "eclia.config.toml"));
+
+  const localVal = scanMemoryEnabled(local);
+  const baseVal = scanMemoryEnabled(base);
 
   return (localVal ?? baseVal ?? false) === true;
 }
@@ -170,6 +186,7 @@ const rootDir = process.cwd();
 const discordEnabled = detectDiscordEnabled(rootDir);
 const telegramEnabled = detectTelegramEnabled(rootDir);
 const listenerEmailEnabled = detectEmailListenerEnabled(rootDir);
+const memoryEnabled = detectMemoryEnabled(rootDir);
 const apiPort = detectApiPort(rootDir);
 const gatewayHealthUrl = `http://127.0.0.1:${apiPort}/api/health`;
 
@@ -178,6 +195,7 @@ console.log(`[DEV] api port: ${apiPort}`);
 console.log(`[DEV] discord adapter: ${discordEnabled ? "enabled" : "disabled"}`);
 console.log(`[DEV] telegram adapter: ${telegramEnabled ? "enabled" : "disabled"}`);
 console.log(`[DEV] listener-email plugin: ${listenerEmailEnabled ? "enabled" : "disabled"}`);
+console.log(`[DEV] memory service: ${memoryEnabled ? "enabled" : "disabled"}`);
 
 const children = [];
 let shuttingDown = false;
@@ -268,6 +286,11 @@ async function main() {
     console.log(`[DEV] waiting for gateway: ${gatewayHealthUrl}`);
     await waitForGatewayReady(apiChild);
     if (shuttingDown) return;
+  }
+
+  if (memoryEnabled) {
+    console.log("[DEV] gateway ready; starting MEMORY");
+    spawnRegistered("MEMORY", ["-C", "apps/memory", "dev"]);
   }
 
   console.log("[DEV] gateway ready; starting WEB");

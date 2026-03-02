@@ -251,6 +251,7 @@ export class SessionStore {
 
   async appendTranscript(sessionId: string, msg: OpenAICompatMessage, ts?: number): Promise<void> {
     await this.ensureSession(sessionId);
+
     const rec: TranscriptRecordV1 = {
       v: 1,
       id: crypto.randomUUID(),
@@ -318,6 +319,21 @@ export class SessionStore {
       runtime = { temperature, topP, topK, maxOutputTokens };
     }
 
+
+    let memory: TranscriptTurnV1["memory"] | undefined;
+    const memoryIn = (turn as any)?.memory;
+    if (Array.isArray(memoryIn)) {
+      const out: Array<{ id: string; raw: string; score: number | null }> = [];
+      for (const row of memoryIn) {
+        const id = typeof row?.id === "string" ? String(row.id).trim() : "";
+        const raw = typeof row?.raw === "string" ? String(row.raw) : "";
+        if (!id || !raw.trim()) continue;
+        const score = typeof row?.score === "number" && Number.isFinite(row.score) ? row.score : null;
+        out.push({ id, raw, score });
+      }
+      if (out.length) memory = out;
+    }
+
     const rec: TranscriptRecordV1 = {
       v: 1,
       id,
@@ -330,6 +346,7 @@ export class SessionStore {
         ...(upstream ? { upstream } : {}),
         ...(git ? { git } : {}),
         ...(runtime ? { runtime } : {}),
+        ...(memory ? { memory } : {}),
         ...(toolAccessMode ? { toolAccessMode } : {})
       }
     };

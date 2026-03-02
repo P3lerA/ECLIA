@@ -11,9 +11,21 @@
     "build:web": "pnpm -C apps/web-console build",
     "dev:gateway": "pnpm -C apps/gateway dev",
     "typecheck": "pnpm -r --if-present run typecheck",
-    "typecheck:watch": "pnpm -r --if-present --parallel run typecheck:watch"
+    "typecheck:watch": "pnpm -r --if-present --parallel run typecheck:watch",
+    "dev:memory": "pnpm -C apps/memory dev"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"
+  },
+  "pnpm": {
+    "packageExtensions": {
+      "request-promise-core@1.1.3": {
+        "peerDependenciesMeta": {
+          "request": {
+            "optional": true
+          }
+        }
+      }
+    }
   }
 }

@@ -89,6 +89,13 @@ export type TranscriptTurnV1 = {
 
   /** Redundant tool access mode snapshot (useful for debugging). */
   toolAccessMode?: "full" | "safe";
+
+  /**
+   * Memories injected for this turn (debugging/provenance only).
+   *
+   * NOTE: These are NOT replayed into future contexts automatically.
+   */
+  memory?: Array<{ id: string; raw: string; score: number | null }>;
 };
 
 export type TranscriptRecordV1 =

@@ -37,6 +37,53 @@ export type EcliaConfig = {
   };
 
   /**
+   * Memory service (optional).
+   *
+   * When enabled, the gateway will call the memory service for:
+   * - /recall before prompt assembly
+   */
+  memory: {
+    enabled: boolean;
+    host: string;
+    port: number;
+
+    /**
+     * How many recent user-turns to attach in the /recall request body as a fallback transcript.
+     *
+     * Range: 0–64
+     */
+    recent_turns: number;
+
+    /**
+     * Max memories requested per /recall call.
+     *
+     * Range: 0–200
+     */
+    recall_limit: number;
+
+    /**
+     * Gateway HTTP timeout for /recall requests (milliseconds).
+     *
+     * Range: 50–60000
+     */
+    timeout_ms: number;
+
+    /**
+     * Embeddings sidecar (local) used by the memory service.
+     *
+     * NOTE: The gateway does not depend on these settings directly; they are
+     * included here so the Console can configure the sidecar via TOML.
+     */
+    embeddings: {
+      /**
+       * Sentence-Transformers model name or Hugging Face model id.
+       * Example: "all-MiniLM-L6-v2"
+       */
+      model: string;
+    };
+  };
+
+  /**
    * Debug/dev features.
    *
    * These options are intended for local development and troubleshooting.
@@ -286,6 +333,7 @@ export type EcliaConfigPatch = Partial<{
   codex_home: string;
   console: Partial<EcliaConfig["console"]>;
   api: Partial<EcliaConfig["api"]>;
+  memory: Partial<EcliaConfig["memory"]>;
   debug: Partial<EcliaConfig["debug"]>;
   skills: Partial<EcliaConfig["skills"]>;
   persona: Partial<EcliaConfig["persona"]>;
@@ -325,6 +373,15 @@ export type EcliaConfigPatch = Partial<{
 export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
   console: { host: "127.0.0.1", port: 5173 },
   api: { port: 8787 },
+  memory: {
+    enabled: false,
+    host: "127.0.0.1",
+    port: 8788,
+    recent_turns: 8,
+    recall_limit: 20,
+    timeout_ms: 1200,
+    embeddings: { model: "all-MiniLM-L6-v2" }
+  },
   debug: {
     capture_upstream_requests: false,
     parse_assistant_output: false

@@ -76,6 +76,7 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
         codex_home: config.codex_home,
         console: config.console,
         api: config.api,
+        memory: config.memory,
         debug: config.debug,
         persona: {
           user_preferred_name: String((config.persona as any)?.user_preferred_name ?? ""),
@@ -194,6 +195,89 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
     }
     if (body.console) patch.console = body.console;
     if (body.api) patch.api = body.api;
+
+    if (body.memory && typeof body.memory === "object") {
+      const memPatch: any = {};
+      if (Object.prototype.hasOwnProperty.call(body.memory, "enabled")) {
+        memPatch.enabled = Boolean((body.memory as any).enabled);
+      }
+      if (Object.prototype.hasOwnProperty.call(body.memory, "host")) {
+        memPatch.host = typeof (body.memory as any).host === "string" ? String((body.memory as any).host).trim() : "";
+      }
+      if (Object.prototype.hasOwnProperty.call(body.memory, "port")) {
+        memPatch.port = (body.memory as any).port;
+      }
+      if (Object.prototype.hasOwnProperty.call(body.memory, "recent_turns")) {
+        memPatch.recent_turns = (body.memory as any).recent_turns;
+      }
+      if (Object.prototype.hasOwnProperty.call(body.memory, "recall_limit")) {
+        memPatch.recall_limit = (body.memory as any).recall_limit;
+      }
+      if (Object.prototype.hasOwnProperty.call(body.memory, "timeout_ms")) {
+        memPatch.timeout_ms = (body.memory as any).timeout_ms;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(body.memory, "embeddings")) {
+        const embRaw = (body.memory as any).embeddings;
+        if (embRaw && typeof embRaw === "object") {
+          const embPatch: any = {};
+          if (Object.prototype.hasOwnProperty.call(embRaw, "model")) {
+            embPatch.model = typeof (embRaw as any).model === "string" ? String((embRaw as any).model).trim() : "";
+          }
+          if (Object.keys(embPatch).length) memPatch.embeddings = embPatch;
+        }
+      }
+
+      // Validate numeric fields early so we do not write obviously broken configs.
+      if (Object.prototype.hasOwnProperty.call(memPatch, "port")) {
+        const n = typeof memPatch.port === "number" ? memPatch.port : typeof memPatch.port === "string" ? Number(memPatch.port) : NaN;
+        const i = Number.isFinite(n) ? Math.trunc(n) : NaN;
+        if (!Number.isFinite(i) || i < 1 || i > 65535) {
+          return json(res, 400, { ok: false, error: "bad_request", hint: "memory.port must be 1–65535." });
+        }
+        memPatch.port = i;
+      }
+      if (Object.prototype.hasOwnProperty.call(memPatch, "recent_turns")) {
+        const n = typeof memPatch.recent_turns === "number" ? memPatch.recent_turns : typeof memPatch.recent_turns === "string" ? Number(memPatch.recent_turns) : NaN;
+        const i = Number.isFinite(n) ? Math.trunc(n) : NaN;
+        if (!Number.isFinite(i) || i < 0 || i > 64) {
+          return json(res, 400, { ok: false, error: "bad_request", hint: "memory.recent_turns must be 0–64." });
+        }
+        memPatch.recent_turns = i;
+      }
+      if (Object.prototype.hasOwnProperty.call(memPatch, "recall_limit")) {
+        const n = typeof memPatch.recall_limit === "number" ? memPatch.recall_limit : typeof memPatch.recall_limit === "string" ? Number(memPatch.recall_limit) : NaN;
+        const i = Number.isFinite(n) ? Math.trunc(n) : NaN;
+        if (!Number.isFinite(i) || i < 0 || i > 200) {
+          return json(res, 400, { ok: false, error: "bad_request", hint: "memory.recall_limit must be 0–200." });
+        }
+        memPatch.recall_limit = i;
+      }
+      if (Object.prototype.hasOwnProperty.call(memPatch, "timeout_ms")) {
+        const n = typeof memPatch.timeout_ms === "number" ? memPatch.timeout_ms : typeof memPatch.timeout_ms === "string" ? Number(memPatch.timeout_ms) : NaN;
+        const i = Number.isFinite(n) ? Math.trunc(n) : NaN;
+        if (!Number.isFinite(i) || i < 50 || i > 60000) {
+          return json(res, 400, { ok: false, error: "bad_request", hint: "memory.timeout_ms must be 50–60000." });
+        }
+        memPatch.timeout_ms = i;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(memPatch, "embeddings")) {
+        const emb = (memPatch as any).embeddings;
+        if (emb && typeof emb === "object") {
+          if (Object.prototype.hasOwnProperty.call(emb, "model")) {
+            const s = typeof (emb as any).model === "string" ? String((emb as any).model).trim() : "";
+            // Allow empty (disables sidecar), otherwise cap to a reasonable length.
+            if (s.length > 300) {
+              return json(res, 400, { ok: false, error: "bad_request", hint: "memory.embeddings.model must be <= 300 characters." });
+            }
+            (emb as any).model = s;
+          }
+        }
+      }
+
+      if (Object.keys(memPatch).length) patch.memory = memPatch;
+    }
 
     // Dev hardening: only allow binding the console to localhost or all interfaces.
     // (Other hostnames/IPs will be supported later when we have a proper edge proxy story.)

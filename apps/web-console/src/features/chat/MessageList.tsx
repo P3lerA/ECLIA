@@ -78,7 +78,14 @@ export function MessageList({
   // - false => user has scrolled up, so don't fight them
   const stickToBottomRef = React.useRef(true);
 
+  // True between session entry and the first batch of messages arriving.
+  // Prevents updateStickiness from overriding stickToBottom or triggering loadEarlier
+  // while scroll is at 0 simply because content hasn't loaded yet.
+  const enteringRef = React.useRef(true);
+
   const updateStickiness = React.useCallback(() => {
+    if (enteringRef.current) return;
+
     const el = ref.current;
     if (el && isElementScrollable(el)) {
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -119,6 +126,7 @@ export function MessageList({
   // Layout effect avoids a "flash" at the top on large histories.
   React.useLayoutEffect(() => {
     stickToBottomRef.current = true;
+    enteringRef.current = true;
     // Wait a frame so layout (incl. fonts) settles before measuring heights.
     requestAnimationFrame(() => scrollToBottom("auto"));
   }, [sessionId, scrollToBottom]);
@@ -136,7 +144,19 @@ export function MessageList({
   }, [updateStickiness]);
 
   // When new content arrives, keep following if we were already at the bottom.
+  // On first load after session entry, always scroll to bottom.
   React.useEffect(() => {
+    if (enteringRef.current) {
+      // Don't consume the entering flag on empty messages — the real data
+      // hasn't arrived yet (async fetch). If we clear it now, updateStickiness
+      // will see scrollTop=0 and set stickToBottom=false before the real
+      // messages render, preventing scroll-to-bottom.
+      if (messages.length === 0) return;
+      enteringRef.current = false;
+      stickToBottomRef.current = true;
+      requestAnimationFrame(() => scrollToBottom("auto"));
+      return;
+    }
     if (!stickToBottomRef.current) return;
     requestAnimationFrame(() => scrollToBottom("auto"));
   }, [messages, scrollToBottom]);

@@ -1,0 +1,14 @@
+# ECLIA memory embeddings sidecar
+#
+# This service is intentionally minimal:
+# - FastAPI HTTP layer
+# - sentence-transformers for embeddings
+#
+# Install (example):
+#   python -m venv .venv
+#   source .venv/bin/activate
+#   pip install -r requirements.txt
+
+fastapi>=0.110.0
+uvicorn[standard]>=0.23.0
+sentence-transformers>=2.7.0

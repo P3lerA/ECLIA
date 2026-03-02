@@ -52,6 +52,12 @@ export {
 } from "./system-instruction.js";
 
 export {
+  ensureSystemMemoryTemplateFiles,
+  readSystemMemoryTemplate,
+  renderSystemMemoryTemplate
+} from "./system-memory.js";
+
+export {
   ensureLocalConfig,
   loadEcliaConfig,
   writeLocalEcliaConfig

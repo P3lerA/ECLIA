@@ -9,6 +9,9 @@ eclia.config.local.toml
 .eclia/
 .codex/
 
+# Python virtualenvs
+**/.venv/
+
 # Skill local overrides (generated from templates)
 skills/**/SKILL.md
 skills/**/skill.md

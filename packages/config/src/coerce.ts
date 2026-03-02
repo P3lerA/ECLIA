@@ -81,6 +81,14 @@ function clampPort(v: unknown, fallback: number): number {
   return i;
 }
 
+function clampInt(v: unknown, min: number, max: number, fallback: number): number {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return fallback;
+  const i = Math.trunc(n);
+  if (i < min || i > max) return fallback;
+  return i;
+}
+
 function coerceHost(v: unknown, fallback: string): string {
   if (typeof v !== "string") return fallback;
   const s = v.trim();
@@ -163,6 +171,7 @@ export function coerceConfig(raw: Record<string, any>): EcliaConfig {
 
   const consoleRaw = isRecord(raw.console) ? raw.console : {};
   const apiRaw = isRecord(raw.api) ? raw.api : {};
+  const memoryRaw = isRecord((raw as any).memory) ? ((raw as any).memory as any) : {};
   const debugRaw = isRecord((raw as any).debug) ? ((raw as any).debug as any) : {};
   const skillsRaw = isRecord((raw as any).skills) ? ((raw as any).skills as any) : {};
   const personaRaw = isRecord((raw as any).persona) ? ((raw as any).persona as any) : {};
@@ -314,6 +323,17 @@ export function coerceConfig(raw: Record<string, any>): EcliaConfig {
     },
     api: {
       port: clampPort(apiRaw.port, base.api.port)
+    },
+    memory: {
+      enabled: coerceBool((memoryRaw as any).enabled, base.memory.enabled),
+      host: coerceHost((memoryRaw as any).host, base.memory.host),
+      port: clampPort((memoryRaw as any).port, base.memory.port),
+      recent_turns: clampInt((memoryRaw as any).recent_turns, 0, 64, base.memory.recent_turns),
+      recall_limit: clampInt((memoryRaw as any).recall_limit, 0, 200, base.memory.recall_limit),
+      timeout_ms: clampInt((memoryRaw as any).timeout_ms, 50, 60_000, base.memory.timeout_ms),
+      embeddings: {
+        model: coerceString(((memoryRaw as any) as any)?.embeddings?.model, base.memory.embeddings.model)
+      }
     },
     debug: {
       capture_upstream_requests: coerceBool((debugRaw as any).capture_upstream_requests, base.debug.capture_upstream_requests),

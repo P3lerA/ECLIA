@@ -220,6 +220,44 @@ async function main() {
 
     if (pathname === "/api/chat" && req.method === "POST") return await handleChat(req, res, store, approvals, toolhost);
 
+    // -- Memory service proxy -----------------------------------------------
+    if (pathname.startsWith("/api/memory/")) {
+      const memHost = String((config as any)?.memory?.host ?? "127.0.0.1").trim() || "127.0.0.1";
+      const memPortRaw = (config as any)?.memory?.port;
+      const memPort =
+        typeof memPortRaw === "number" && memPortRaw > 0
+          ? memPortRaw
+          : typeof memPortRaw === "string" && Number(memPortRaw) > 0
+            ? Number(memPortRaw)
+            : 8788;
+
+      const memPath = pathname.slice("/api/memory".length) + (u.search ?? "");
+      const memUrl = `http://${memHost}:${memPort}${memPath}`;
+
+      const chunks: Buffer[] = [];
+      for await (const c of req) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
+      const body = Buffer.concat(chunks);
+
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 630_000);
+      try {
+        const upstream = await fetch(memUrl, {
+          method: req.method ?? "GET",
+          headers: body.length ? { "Content-Type": req.headers["content-type"] ?? "application/json" } : undefined,
+          body: body.length ? body : undefined,
+          signal: ctrl.signal
+        });
+        const data = await upstream.arrayBuffer();
+        res.writeHead(upstream.status, { "Content-Type": upstream.headers.get("content-type") ?? "application/json" });
+        res.end(Buffer.from(data));
+      } catch {
+        return json(res, 502, { ok: false, error: "memory_service_unreachable" });
+      } finally {
+        clearTimeout(timer);
+      }
+      return;
+    }
+
     json(res, 404, { ok: false, error: "not_found" });
   });
 

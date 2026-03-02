@@ -6,6 +6,7 @@ import { ChatView } from "./features/chat/ChatView";
 import { MenuSheet } from "./features/menu/MenuSheet";
 import { SettingsView } from "./features/settings/SettingsView";
 import { PluginsView } from "./features/plugins/PluginsView";
+import { MemoryView } from "./features/memory/MemoryView";
 import { BackgroundRoot } from "./features/background/BackgroundRoot";
 import { applyTheme, subscribeSystemThemeChange, writeStoredThemeMode } from "./theme/theme";
 import { writeStoredPrefs } from "./persist/prefs";
@@ -83,7 +84,8 @@ function AppInner() {
   const [authEpoch, setAuthEpoch] = React.useState(0);
   const authCheckedRef = React.useRef(false);
 
-  const containerWide = location.pathname.startsWith("/settings") || location.pathname.startsWith("/plugins");
+  const containerWide =
+    location.pathname.startsWith("/settings") || location.pathname.startsWith("/plugins") || location.pathname.startsWith("/memory");
 
   const sessionsRef = React.useRef(state.sessions);
 
@@ -304,6 +306,8 @@ function AppInner() {
           <Route path="/settings" element={<SettingsView onBack={() => navigate("/")} />} />
 
           <Route path="/plugins" element={<PluginsView onBack={() => navigate("/")} />} />
+
+          <Route path="/memory" element={<MemoryView onBack={() => navigate("/")} />} />
 
           <Route
             path="/"

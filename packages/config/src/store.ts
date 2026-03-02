@@ -8,6 +8,7 @@ import { coerceConfig, coerceOptionalString, coerceProfileId, deepMerge, isRecor
 import { findProjectRoot } from "./root.js";
 import { ensureEmailTriageFiles, readEmailTriagePrompt, writeEmailTriagePromptLocal } from "./email-triage.js";
 import { ensureSystemInstructionFiles, readSystemInstruction, writeSystemInstructionLocal } from "./system-instruction.js";
+import { ensureSystemMemoryTemplateFiles } from "./system-memory.js";
 import { DEFAULT_PROFILE_ID } from "./provider-defaults.js";
 import type { EcliaConfig, EcliaConfigPatch } from "./types.js";
 
@@ -57,6 +58,7 @@ export function loadEcliaConfig(startDir: string = process.cwd()): {
   // best-effort create local overrides file
   ensureLocalConfig(rootDir);
   ensureSystemInstructionFiles(rootDir);
+  ensureSystemMemoryTemplateFiles(rootDir);
   ensureEmailTriageFiles(rootDir);
 
   const base = tryReadToml(configPath);
@@ -88,6 +90,7 @@ export function writeLocalEcliaConfig(
 
   ensureLocalConfig(rootDir);
   ensureSystemInstructionFiles(rootDir);
+  ensureSystemMemoryTemplateFiles(rootDir);
   ensureEmailTriageFiles(rootDir);
 
   let patchSystemInstruction: string | undefined;

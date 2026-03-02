@@ -203,21 +203,23 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
                   toggleSelected(s.id);
                   return;
                 }
+                // Close the menu first, then navigate on the next frame so
+                // the close animation isn't blocked by the heavy ChatView render.
+                onClose();
+
                 // Draft local sessions (no messages yet) should route to the landing view.
                 const hasLocalMsgs = (state.messagesBySession[s.id]?.length ?? 0) > 0;
                 const isDraft = Boolean(s.localOnly) && !hasLocalMsgs && !s.started;
-                if (isDraft) {
-                  // Landing has no session id in the URL, so we *do* use state here to pick
-                  // which draft session the landing composer will send messages to.
-                  dispatch({ type: "session/select", sessionId: s.id });
-                  navigate("/");
-                } else {
-                  navigate(`/session/${s.id}`, {
-                    // Nice touch: when jumping from Landing → Chat, trigger the dock animation.
-                    state: { dockFromLanding: location.pathname === "/" }
-                  });
-                }
-                onClose();
+                requestAnimationFrame(() => {
+                  if (isDraft) {
+                    dispatch({ type: "session/select", sessionId: s.id });
+                    navigate("/");
+                  } else {
+                    navigate(`/session/${s.id}`, {
+                      state: { dockFromLanding: location.pathname === "/" }
+                    });
+                  }
+                });
               }}
             >
               {manage ? (
@@ -375,6 +377,16 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
                     }}
                   >
                     <div className="menu-item-main">Plugins</div>
+                  </button>
+
+                  <button
+                    className="menu-item"
+                    onClick={() => {
+                      navigate("/memory");
+                      onClose();
+                    }}
+                  >
+                    <div className="menu-item-main">Memory</div>
                   </button>
                 </div>
               </section>

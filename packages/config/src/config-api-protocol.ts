@@ -11,6 +11,17 @@ export type ConfigApiRequestBody = {
   codex_home?: string;
   console?: { host?: string; port?: number };
   api?: { port?: number };
+  memory?: {
+    enabled?: boolean;
+    host?: string;
+    port?: number;
+    recent_turns?: number;
+    recall_limit?: number;
+    timeout_ms?: number;
+    embeddings?: {
+      model?: string;
+    };
+  };
   persona?: {
     user_preferred_name?: string;
     assistant_name?: string;
@@ -120,6 +131,17 @@ export type ConfigApiConfig = {
   codex_home?: string;
   console: { host: string; port: number };
   api?: { port: number };
+  memory?: {
+    enabled?: boolean;
+    host?: string;
+    port?: number;
+    recent_turns?: number;
+    recall_limit?: number;
+    timeout_ms?: number;
+    embeddings?: {
+      model?: string;
+    };
+  };
   persona?: {
     user_preferred_name?: string;
     assistant_name?: string;

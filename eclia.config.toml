@@ -11,6 +11,32 @@ port = 5173
 # Gateway API server port (dev)
 port = 8787
 
+[memory]
+# Memory service (dev).
+# When enabled, the gateway will call:
+#   - POST /recall (before prompt assembly)
+enabled = false
+host = "127.0.0.1"
+port = 8788
+
+# How many recent user-turns to include in each /recall request as fallback transcript.
+# Range: 0–64
+recent_turns = 8
+
+# Max memories requested per /recall call.
+# Range: 0–200
+recall_limit = 20
+
+# Gateway HTTP timeout for /recall requests (milliseconds).
+# Range: 50–60000
+timeout_ms = 1200
+
+[memory.embeddings]
+# Embeddings sidecar (local).
+# Model id resolved by sentence-transformers (Hugging Face Hub).
+# Examples: "all-MiniLM-L6-v2", "all-mpnet-base-v2"
+model = "all-MiniLM-L6-v2"
+
 [skills]
 # Skills are optional capability packs stored under: skills/<name>/skill.md
 #
