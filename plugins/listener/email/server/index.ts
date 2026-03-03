@@ -18,6 +18,7 @@ import {
 } from "./email-format.js";
 
 const log = makeAdapterLogger("listener-email");
+const EMAIL_STATE_DIR = [".eclia", "plugin", "listener-email"] as const;
 
 type EmailListenerAccountConfig = {
   id: string;
@@ -153,6 +154,7 @@ async function evalOneEmail(args: {
     streamMode: "final",
     enabledTools: ["send"],
     includeHistory: false,
+    skipMemoryRecall: true,
     origin: args.origin
   });
 
@@ -174,7 +176,7 @@ async function runAccount(rootDir: string, account: EmailListenerAccountConfig, 
     log.warn(`[${account.id}] failed to ensure gateway session:`, String(e?.message ?? e));
   }
 
-  const stateDir = path.join(rootDir, ".eclia", "listener-email");
+  const stateDir = path.join(rootDir, ...EMAIL_STATE_DIR);
   await ensureDir(stateDir);
   const stateKey = account.id
     .toLowerCase()
@@ -397,7 +399,7 @@ async function main() {
   }
 
   log.info(`starting listener-email for ${accounts.length} account(s) -> gateway=${guessGatewayUrl()}`);
-  await ensureDir(path.join(rootDir, ".eclia", "listener-email"));
+  await ensureDir(path.join(rootDir, ...EMAIL_STATE_DIR));
 
   // Fire and forget each account; keep the process alive.
   for (const acc of accounts) {

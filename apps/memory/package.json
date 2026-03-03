@@ -10,7 +10,8 @@
     "typecheck:watch": "tsc -p tsconfig.json --noEmit -w --preserveWatchOutput"
   },
   "dependencies": {
-    "@eclia/config": "workspace:*"
+    "@eclia/config": "workspace:*",
+    "@libsql/client": "^0.17.0"
   },
   "devDependencies": {
     "@types/node": "^20.19.31",

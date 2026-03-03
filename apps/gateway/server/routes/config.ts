@@ -228,6 +228,34 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
         }
       }
 
+      if (Object.prototype.hasOwnProperty.call(body.memory, "genesis")) {
+        const gRaw = (body.memory as any).genesis;
+        if (gRaw && typeof gRaw === "object") {
+          const gPatch: any = {};
+          if (Object.prototype.hasOwnProperty.call(gRaw, "turns_per_call")) {
+            gPatch.turns_per_call = (gRaw as any).turns_per_call;
+          }
+          if (Object.keys(gPatch).length) memPatch.genesis = gPatch;
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(body.memory, "emit")) {
+        const eRaw = (body.memory as any).emit;
+        if (eRaw && typeof eRaw === "object") {
+          const ePatch: any = {};
+          if (Object.prototype.hasOwnProperty.call(eRaw, "tool_messages")) {
+            ePatch.tool_messages = typeof (eRaw as any).tool_messages === "string" ? String((eRaw as any).tool_messages).trim() : "";
+          }
+          if (Object.prototype.hasOwnProperty.call(eRaw, "tool_max_chars_per_msg")) {
+            ePatch.tool_max_chars_per_msg = (eRaw as any).tool_max_chars_per_msg;
+          }
+          if (Object.prototype.hasOwnProperty.call(eRaw, "tool_max_total_chars")) {
+            ePatch.tool_max_total_chars = (eRaw as any).tool_max_total_chars;
+          }
+          if (Object.keys(ePatch).length) memPatch.emit = ePatch;
+        }
+      }
+
       // Validate numeric fields early so we do not write obviously broken configs.
       if (Object.prototype.hasOwnProperty.call(memPatch, "port")) {
         const n = typeof memPatch.port === "number" ? memPatch.port : typeof memPatch.port === "string" ? Number(memPatch.port) : NaN;
@@ -272,6 +300,64 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
               return json(res, 400, { ok: false, error: "bad_request", hint: "memory.embeddings.model must be <= 300 characters." });
             }
             (emb as any).model = s;
+          }
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(memPatch, "genesis")) {
+        const g = (memPatch as any).genesis;
+        if (g && typeof g === "object") {
+          if (Object.prototype.hasOwnProperty.call(g, "turns_per_call")) {
+            const n =
+              typeof (g as any).turns_per_call === "number"
+                ? (g as any).turns_per_call
+                : typeof (g as any).turns_per_call === "string"
+                  ? Number((g as any).turns_per_call)
+                  : NaN;
+            const i = Number.isFinite(n) ? Math.trunc(n) : NaN;
+            if (!Number.isFinite(i) || i < 1 || i > 64) {
+              return json(res, 400, { ok: false, error: "bad_request", hint: "memory.genesis.turns_per_call must be 1–64." });
+            }
+            (g as any).turns_per_call = i;
+          }
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(memPatch, "emit")) {
+        const e = (memPatch as any).emit;
+        if (e && typeof e === "object") {
+          if (Object.prototype.hasOwnProperty.call(e, "tool_messages")) {
+            const s = typeof (e as any).tool_messages === "string" ? String((e as any).tool_messages).trim() : "";
+            if (s !== "drop" && s !== "truncate") {
+              return json(res, 400, { ok: false, error: "bad_request", hint: "memory.emit.tool_messages must be 'drop' or 'truncate'." });
+            }
+            (e as any).tool_messages = s;
+          }
+          if (Object.prototype.hasOwnProperty.call(e, "tool_max_chars_per_msg")) {
+            const n =
+              typeof (e as any).tool_max_chars_per_msg === "number"
+                ? (e as any).tool_max_chars_per_msg
+                : typeof (e as any).tool_max_chars_per_msg === "string"
+                  ? Number((e as any).tool_max_chars_per_msg)
+                  : NaN;
+            const i = Number.isFinite(n) ? Math.trunc(n) : NaN;
+            if (!Number.isFinite(i) || i < 0 || i > 50_000) {
+              return json(res, 400, { ok: false, error: "bad_request", hint: "memory.emit.tool_max_chars_per_msg must be 0–50000." });
+            }
+            (e as any).tool_max_chars_per_msg = i;
+          }
+          if (Object.prototype.hasOwnProperty.call(e, "tool_max_total_chars")) {
+            const n =
+              typeof (e as any).tool_max_total_chars === "number"
+                ? (e as any).tool_max_total_chars
+                : typeof (e as any).tool_max_total_chars === "string"
+                  ? Number((e as any).tool_max_total_chars)
+                  : NaN;
+            const i = Number.isFinite(n) ? Math.trunc(n) : NaN;
+            if (!Number.isFinite(i) || i < 0 || i > 200_000) {
+              return json(res, 400, { ok: false, error: "bad_request", hint: "memory.emit.tool_max_total_chars must be 0–200000." });
+            }
+            (e as any).tool_max_total_chars = i;
           }
         }
       }

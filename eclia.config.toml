@@ -37,6 +37,21 @@ timeout_ms = 1200
 # Examples: "all-MiniLM-L6-v2", "all-mpnet-base-v2"
 model = "all-MiniLM-L6-v2"
 
+[memory.genesis]
+# Memory genesis (bootstrapping).
+# How many user-turns to include per model request during Stage 1/2 extraction.
+# Range: 1–64
+turns_per_call = 20
+
+[memory.emit]
+# Memory emit pipeline (LLM extraction calls).
+# Tool messages are often extremely noisy; default is to drop them entirely.
+tool_messages = "drop"  # "drop" | "truncate"
+
+# If tool_messages = "truncate", keep tool messages but clip aggressively.
+tool_max_chars_per_msg = 1200   # Range: 0–50000
+tool_max_total_chars = 5000     # Range: 0–200000
+
 [skills]
 # Skills are optional capability packs stored under: skills/<name>/skill.md
 #

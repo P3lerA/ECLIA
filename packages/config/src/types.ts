@@ -81,6 +81,53 @@ export type EcliaConfig = {
        */
       model: string;
     };
+
+    /**
+     * Memory genesis (bootstrapping) pipeline.
+     *
+     * This stage runs once after enough transcript turns exist to initialize
+     * the memory graph and embeddings cache.
+     */
+    genesis: {
+      /**
+       * How many user-turns to include per model request during Stage 1/2 extraction.
+       *
+       * Range: 1–64
+       */
+      turns_per_call: number;
+    };
+
+    /**
+     * Memory emit pipeline (LLM-based extraction calls).
+     *
+     * These settings control how much tool output noise is allowed into the
+     * role-structured transcript context when the memory service asks the model
+     * to extract memories.
+     */
+    emit: {
+      /**
+       * Strategy for handling role=tool messages when building emit context.
+       *
+       * - "drop": remove tool messages entirely (recommended; least noisy)
+       * - "truncate": keep tool messages, but aggressively clip them
+       */
+      tool_messages: "drop" | "truncate";
+
+      /**
+       * Max characters per tool message when tool_messages="truncate".
+       *
+       * Range: 0–50000
+       */
+      tool_max_chars_per_msg: number;
+
+      /**
+       * Max total characters contributed by tool messages (tail-kept) when
+       * tool_messages="truncate".
+       *
+       * Range: 0–200000
+       */
+      tool_max_total_chars: number;
+    };
   };
 
   /**
@@ -380,7 +427,15 @@ export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
     recent_turns: 8,
     recall_limit: 20,
     timeout_ms: 1200,
-    embeddings: { model: "all-MiniLM-L6-v2" }
+    embeddings: { model: "all-MiniLM-L6-v2" },
+    genesis: {
+      turns_per_call: 20
+    },
+    emit: {
+      tool_messages: "drop",
+      tool_max_chars_per_msg: 1200,
+      tool_max_total_chars: 5000
+    }
   },
   debug: {
     capture_upstream_requests: false,

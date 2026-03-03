@@ -21,6 +21,14 @@ export type ConfigApiRequestBody = {
     embeddings?: {
       model?: string;
     };
+    genesis?: {
+      turns_per_call?: number;
+    };
+    emit?: {
+      tool_messages?: "drop" | "truncate";
+      tool_max_chars_per_msg?: number;
+      tool_max_total_chars?: number;
+    };
   };
   persona?: {
     user_preferred_name?: string;
@@ -140,6 +148,14 @@ export type ConfigApiConfig = {
     timeout_ms?: number;
     embeddings?: {
       model?: string;
+    };
+    genesis?: {
+      turns_per_call?: number;
+    };
+    emit?: {
+      tool_messages?: "drop" | "truncate";
+      tool_max_chars_per_msg?: number;
+      tool_max_total_chars?: number;
     };
   };
   persona?: {

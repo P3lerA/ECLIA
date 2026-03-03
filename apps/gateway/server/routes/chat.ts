@@ -15,6 +15,7 @@ import type { SessionMetaV1 } from "../sessionTypes.js";
 import type { OpenAICompatMessage } from "../transcriptTypes.js";
 import { ToolApprovalHub } from "../tools/approvalHub.js";
 import { loadExecAllowlist, type ToolAccessMode } from "../tools/policy.js";
+import { MEMORY_TOOL_NAME } from "../tools/toolSchemas.js";
 import { McpStdioClient } from "../mcp/stdioClient.js";
 import { sseHeaders, initSse, send, startSseKeepAlive } from "../sse.js";
 import { withSessionLock } from "../sessionLock.js";
@@ -42,6 +43,9 @@ type ChatReqBody = {
   sessionId?: string;
   model?: string; // UI route key OR a real upstream model id
   userText?: string;
+
+  /** Optional override for the upstream system instruction (bypasses the gateway default system prompt + skills injection). */
+  systemInstructionOverride?: string;
 
   /**
    * Client-side runtime preference (not stored in TOML).
@@ -111,6 +115,9 @@ type ChatReqBody = {
    */
   includeHistory?: boolean;
 
+  /** When true, skip the gateway's built-in memory recall/injection for this request. */
+  skipMemoryRecall?: boolean;
+
   /**
    * Optional session origin metadata.
    * If the session has no origin yet, the gateway will persist it.
@@ -118,8 +125,9 @@ type ChatReqBody = {
   origin?: { kind: string; [k: string]: unknown };
 
   /**
-   * Legacy/compat: allow callers to send explicit messages (used by mock transport).
-   * If provided, the gateway will still persist the session, but context will be taken from storage.
+   * Optional explicit context messages (role-structured).
+   * If provided, these messages will be used to build the upstream context instead of the stored session history.
+   * The messages are NOT persisted to the session transcript (only the current userText is).
    */
   messages?: Array<{ role: "system" | "user" | "assistant" | "tool"; content: any }>;
 };
@@ -181,6 +189,30 @@ function contentToString(v: any): string {
   } catch {
     return String(v);
   }
+}
+
+function coerceExplicitContextMessages(raw: any): OpenAICompatMessage[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: OpenAICompatMessage[] = [];
+  for (const m of raw) {
+    if (!m || typeof m !== "object" || Array.isArray(m)) continue;
+    const role = typeof (m as any).role === "string" ? String((m as any).role) : "";
+    if (role !== "system" && role !== "user" && role !== "assistant" && role !== "tool") continue;
+
+    const content = contentToString((m as any).content);
+    const msg: any = { role, content };
+
+    if (role === "tool") {
+      const tci = typeof (m as any).tool_call_id === "string" ? String((m as any).tool_call_id) : "";
+      if (tci) msg.tool_call_id = tci;
+    } else {
+      const name = typeof (m as any).name === "string" ? String((m as any).name) : "";
+      if (name) msg.name = name;
+    }
+
+    out.push(msg as OpenAICompatMessage);
+  }
+  return out.length ? out : [];
 }
 
 /**
@@ -329,6 +361,9 @@ export async function handleChat(
     : null;
   const enabledToolSet = enabledTools ? new Set(enabledTools) : null;
 
+  // Internal-by-default tools: only expose them when explicitly enabled by the caller.
+  const internalOnlyTools = new Set<string>([MEMORY_TOOL_NAME]);
+
   const toolsForModelEffective = enabledToolSet
     ? (toolsForModel as any[]).filter((t) => {
         const n =
@@ -339,7 +374,16 @@ export async function handleChat(
               : "";
         return n && enabledToolSet.has(n);
       })
-    : toolsForModel;
+    : (toolsForModel as any[]).filter((t) => {
+        const n =
+          typeof (t as any)?.function?.name === "string"
+            ? String((t as any).function.name)
+            : typeof (t as any)?.name === "string"
+              ? String((t as any).name)
+              : "";
+        if (!n) return false;
+        return !internalOnlyTools.has(n);
+      });
 
   return await withSessionLock(sessionId, async () => {
     // If the client disconnected while waiting in the per-session queue, don't do work.
@@ -351,25 +395,31 @@ export async function handleChat(
     // Best-effort provenance snapshot (commit/branch/dirty).
     const git = readGitInfo(rootDir);
 
-    // Global system instruction (from _system.local.md, fallback _system.md).
-    // Injected as the ONLY role=system message for all providers.
-    const { text: systemInstruction } = composeSystemInstruction([
-      {
-        id: "system_file",
-        source: "system_file",
-        priority: 100,
-        content: renderSystemInstructionTemplate(
-          typeof (config.inference as any)?.system_instruction === "string" ? String((config.inference as any).system_instruction) : "",
+    // System instruction: by default, it is composed from _system(.local).md + skills.
+    // When systemInstructionOverride is provided, we bypass the default composition entirely.
+    const systemInstructionOverrideRaw = typeof body.systemInstructionOverride === "string" ? String(body.systemInstructionOverride) : "";
+    const systemInstruction = systemInstructionOverrideRaw.trim().length
+      ? renderSystemInstructionTemplate(systemInstructionOverrideRaw, {
+          userPreferredName: (config as any)?.persona?.user_preferred_name,
+          assistantName: (config as any)?.persona?.assistant_name
+        })
+      : composeSystemInstruction([
           {
-            userPreferredName: (config as any)?.persona?.user_preferred_name,
-            assistantName: (config as any)?.persona?.assistant_name
-          }
-        )
-      },
+            id: "system_file",
+            source: "system_file",
+            priority: 100,
+            content: renderSystemInstructionTemplate(
+              typeof (config.inference as any)?.system_instruction === "string" ? String((config.inference as any).system_instruction) : "",
+              {
+                userPreferredName: (config as any)?.persona?.user_preferred_name,
+                assistantName: (config as any)?.persona?.assistant_name
+              }
+            )
+          },
 
-      // Optional: skills system blurb (from skills/_system.md). No code-generated boilerplate.
-      buildSkillsInstructionPart(rootDir, config.skills.enabled)
-    ]);
+          // Optional: skills system blurb (from skills/_system.md). No code-generated boilerplate.
+          buildSkillsInstructionPart(rootDir, config.skills.enabled)
+        ]).text;
 
     // Ensure store is initialized and session exists.
     await store.init();
@@ -513,34 +563,47 @@ export async function handleChat(
       return;
     }
 
-    const historyBase = (includeHistory ? [...priorMessages, userMsg] : [userMsg]).filter((m) => m && m.role !== "system");
+    const explicitContextMessages = coerceExplicitContextMessages((body as any).messages);
+    const explicitNonSystem = explicitContextMessages ? explicitContextMessages.filter((m) => m && m.role !== "system") : null;
+
+    const historyBase = (explicitNonSystem
+      ? [...explicitNonSystem, userMsg]
+      : includeHistory
+        ? [...priorMessages, userMsg]
+        : [userMsg]
+    ).filter((m) => m && m.role !== "system");
+
+    const skipMemoryRecall = Boolean((body as any).skipMemoryRecall);
 
     // Optional: memory recall (best-effort).
     // Request includes the last N user-turns transcript so the memory service can fallback to
     // keyword search when this session has no stored memories yet.
     let recalledMemories: RetrievedMemory[] = [];
-    try {
-      const recentTurnsRaw = (config as any)?.memory?.recent_turns;
-      const recentTurnsNum =
-        typeof recentTurnsRaw === "number" ? recentTurnsRaw : typeof recentTurnsRaw === "string" ? Number(recentTurnsRaw) : NaN;
-      const recentTurns = Number.isFinite(recentTurnsNum)
-        ? Math.max(0, Math.min(64, Math.trunc(recentTurnsNum)))
-        : 8;
-      const recentMsgs = takeLastNTurnsForRecall(priorMessages, recentTurns);
-      const recentTranscript = recentMsgs
-        .map(toRecallTranscriptMessage)
-        .filter(Boolean) as RecallTranscriptMessage[];
+    if (!skipMemoryRecall) {
+      try {
+        const recentTurnsRaw = (config as any)?.memory?.recent_turns;
+        const recentTurnsNum =
+          typeof recentTurnsRaw === "number" ? recentTurnsRaw : typeof recentTurnsRaw === "string" ? Number(recentTurnsRaw) : NaN;
+        const recentTurns = Number.isFinite(recentTurnsNum)
+          ? Math.max(0, Math.min(64, Math.trunc(recentTurnsNum)))
+          : 8;
+        const recallSource = explicitNonSystem ?? priorMessages;
+        const recentMsgs = takeLastNTurnsForRecall(recallSource, recentTurns);
+        const recentTranscript = recentMsgs
+          .map(toRecallTranscriptMessage)
+          .filter(Boolean) as RecallTranscriptMessage[];
 
-      const recalled = await recallMemories({
-        config,
-        sessionId,
-        userText,
-        recentTranscript,
-      });
+        const recalled = await recallMemories({
+          config,
+          sessionId,
+          userText,
+          recentTranscript,
+        });
 
-      if (Array.isArray(recalled)) recalledMemories = recalled;
-    } catch {
-      // best-effort: recall failures should never block chat
+        if (Array.isArray(recalled)) recalledMemories = recalled;
+      } catch {
+        // best-effort: recall failures should never block chat
+      }
     }
 
     // Inject system instruction as the only system message (when configured).

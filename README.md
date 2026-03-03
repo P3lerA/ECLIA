@@ -11,7 +11,7 @@ I <em>remember</em> u.
 
 ```bash
 #install pnpm and ECLIA
-npm install pnpm
+npm i -g pnpm
 pnpm install
 #Install CodeX cli if you want to login with your OpenAI account to use CodeX
 #OAuth is handled by CodeX itself under repo/.codex.

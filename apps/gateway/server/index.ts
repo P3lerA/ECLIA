@@ -7,9 +7,10 @@ import { loadEcliaConfig } from "@eclia/config";
 
 import { SessionStore } from "./sessionStore.js";
 import { ToolApprovalHub } from "./tools/approvalHub.js";
-import { EXEC_TOOL_NAME, SEND_TOOL_NAME, WEB_TOOL_NAME } from "./tools/toolSchemas.js";
+import { EXEC_TOOL_NAME, SEND_TOOL_NAME, WEB_TOOL_NAME, MEMORY_TOOL_NAME } from "./tools/toolSchemas.js";
 import { SEND_TOOL_SCHEMA } from "./tools/native/sendTool.js";
 import { WEB_TOOL_SCHEMA } from "./tools/native/webTool.js";
+import { MEMORY_TOOL_SCHEMA } from "./tools/native/memoryTool.js";
 import { McpStdioClient, type McpToolDef } from "./mcp/stdioClient.js";
 import { json } from "./httpUtils.js";
 
@@ -106,6 +107,16 @@ async function main() {
           "Use mode=search to get short per-URL summaries + links. " +
           "Use mode=extract (one or more URLs) to fetch and return page content.",
         parameters: WEB_TOOL_SCHEMA
+      }
+    },
+    {
+      type: "function",
+      function: {
+        name: MEMORY_TOOL_NAME,
+        description:
+          "Emit extracted long-term memory candidates as structured items. " +
+          "This is an internal tool used by the memory service.",
+        parameters: MEMORY_TOOL_SCHEMA
       }
     }
   ];

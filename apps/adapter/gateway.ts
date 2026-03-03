@@ -136,9 +136,17 @@ export async function runGatewayChat(args: {
   streamMode?: "full" | "final";
   /** Optional list of tool names to expose to the model for this request (e.g. ["send"]). */
   enabledTools?: string[];
+  /** Optional explicit context messages (role-structured). When provided, used as upstream context instead of stored session history. */
+  messages?: Array<{ role: "system" | "user" | "assistant" | "tool"; content: any; name?: string; tool_call_id?: string }>;
+  /** Optional override for the upstream system instruction (bypasses the gateway's default system prompt injection). */
+  systemInstructionOverride?: string;
+  /** When true, the gateway will skip its built-in memory recall step for this request. */
+  skipMemoryRecall?: boolean;
   origin?: any;
   /** When false, gateway will not include prior session history in upstream context. */
   includeHistory?: boolean;
+  /** Optional override for the gateway's context token limit (conservative estimate). */
+  contextTokenLimit?: number;
   onRecord?: (record: TranscriptRecord) => Promise<void>;
 }): Promise<{ text: string; meta?: any }> {
   let resp: Response;
@@ -153,7 +161,11 @@ export async function runGatewayChat(args: {
         toolAccessMode: args.toolAccessMode ?? "full",
         streamMode: args.streamMode ?? (args.onRecord ? "full" : "final"),
         ...(Array.isArray(args.enabledTools) ? { enabledTools: args.enabledTools } : {}),
+        ...(Array.isArray(args.messages) ? { messages: args.messages } : {}),
+        ...(typeof args.systemInstructionOverride === "string" ? { systemInstructionOverride: args.systemInstructionOverride } : {}),
+        ...(typeof args.skipMemoryRecall === "boolean" ? { skipMemoryRecall: args.skipMemoryRecall } : {}),
         ...(typeof args.includeHistory === "boolean" ? { includeHistory: args.includeHistory } : {}),
+        ...(typeof args.contextTokenLimit === "number" ? { contextTokenLimit: args.contextTokenLimit } : {}),
         origin: args.origin
       })
     });

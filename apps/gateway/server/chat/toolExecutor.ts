@@ -25,7 +25,8 @@ import {
   invokeWebTool,
   parseWebArgs
 } from "../tools/native/webTool.js";
-import { EXEC_TOOL_NAME, SEND_TOOL_NAME, WEB_TOOL_NAME } from "../tools/toolSchemas.js";
+import { EXEC_TOOL_NAME, SEND_TOOL_NAME, WEB_TOOL_NAME, MEMORY_TOOL_NAME } from "../tools/toolSchemas.js";
+import { invokeMemoryTool, safeMemoryToolResultForModel } from "../tools/native/memoryTool.js";
 import type { McpStdioClient } from "../mcp/stdioClient.js";
 import type { ToolCall, ToolResult, UpstreamProvider } from "../upstream/provider.js";
 import { safeJsonStringify } from "../httpUtils.js";
@@ -585,6 +586,29 @@ export async function runToolCalls(args: {
           };
         }
       }
+    } else if (name === MEMORY_TOOL_NAME) {
+      if (p.parseError) {
+        ok = false;
+        output = {
+          type: "memory_result",
+          ok: false,
+          error: { code: "bad_arguments_json", message: `Invalid JSON arguments: ${p.parseError}` },
+          argsRaw: call.argsRaw
+        };
+      } else {
+        const r = await invokeMemoryTool({
+          config: args.config,
+          sessionId: args.sessionId,
+          callId: call.callId,
+          parsedArgs: p.parsed
+        });
+        ok = r.ok;
+        output = {
+          type: "memory_result",
+          ...(r.result ?? {}),
+          ok
+        };
+      }
     } else {
       ok = false;
       output = { ok: false, error: { code: "unknown_tool", message: `Unknown tool: ${name}` } };
@@ -604,20 +628,21 @@ export async function runToolCalls(args: {
 
     // Persist
     const toolTs = Date.now();
-    const toolContent = safeJsonStringify(output);
+    const toolContentForTranscript = safeJsonStringify(output);
+    const toolContentForModel = name === MEMORY_TOOL_NAME ? safeMemoryToolResultForModel(output) : toolContentForTranscript;
 
     await args.store.appendTranscript(
       args.sessionId,
       {
         role: "tool",
         tool_call_id: call.callId,
-        content: toolContent
+        content: toolContentForTranscript
       } as any,
       toolTs
     );
 
     // Feed back to model (provider-specific formatting happens after the loop).
-    toolResults.push({ callId: call.callId, content: toolContent, ok });
+    toolResults.push({ callId: call.callId, content: toolContentForModel, ok });
   }
 
   const toolMessages = toolResults.length ? args.provider.buildToolResultMessages({ results: toolResults }) : [];

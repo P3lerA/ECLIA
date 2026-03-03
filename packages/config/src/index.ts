@@ -58,6 +58,12 @@ export {
 } from "./system-memory.js";
 
 export {
+  ensureSystemMemoryEmitTemplateFiles,
+  readSystemMemoryEmitTemplate,
+  renderSystemMemoryEmitTemplate
+} from "./system-memory-emit.js";
+
+export {
   ensureLocalConfig,
   loadEcliaConfig,
   writeLocalEcliaConfig

@@ -6,246 +6,109 @@ import { EcliaLogo } from "../common/EcliaLogo";
 import { fetchDevConfig, saveDevConfig } from "../settings/settingsInteractions";
 import type { ConfigRequestBody, ConfigResponse } from "../settings/settingsTypes";
 import { isValidPort, portNumber } from "../settings/settingsUtils";
-import { SettingsAdvancedSection } from "../settings/components/SettingsAdvancedSection";
-import { SettingsToggleRow } from "../settings/components/SettingsToggleRow";
-import { apiFetch } from "../../core/api/apiFetch";
+import { checkModelCached, createMemory, deleteMemoryItem, deleteModel, downloadModel, listMemories } from "./memoryApi";
+import { MemoryManageSection } from "./sections/MemoryManageSection";
+import { MemorySettingsSection } from "./sections/MemorySettingsSection";
+import { MemoryToolSection } from "./sections/MemoryToolSection";
+import { DEFAULT_MEMORY_DRAFT, MEMORY_SECTIONS } from "./memoryTypes";
+import type { EmbeddingLanguage, MemoryBase, MemoryDraft, MemoryManageItem, MemorySectionId, ModelStatus } from "./memoryTypes";
+import { baseToDraft, inferLanguage, intOrNull, parseStrength, readMemoryBase } from "./memoryUtils";
 
-// ---------------------------------------------------------------------------
-// Curated embedding models grouped by language
-// ---------------------------------------------------------------------------
-
-type EmbeddingLanguage = "en" | "zh" | "multi";
-
-type CuratedModel = {
-  value: string;
-  label: string;
-};
-
-const EMBEDDING_MODELS: Record<EmbeddingLanguage, CuratedModel[]> = {
-  en: [
-    { value: "all-MiniLM-L6-v2", label: "all-MiniLM-L6-v2 — fast, lightweight" },
-    { value: "all-mpnet-base-v2", label: "all-mpnet-base-v2 — higher quality" },
-    { value: "multi-qa-MiniLM-L6-cos-v1", label: "multi-qa-MiniLM-L6-cos-v1 — QA optimised" },
-  ],
-  zh: [
-    { value: "shibing624/text2vec-base-chinese", label: "text2vec-base-chinese — Chinese tuned" },
-    { value: "DMetaSoul/sbert-chinese-general-v2", label: "sbert-chinese-general-v2 — general Chinese" },
-    { value: "paraphrase-multilingual-MiniLM-L12-v2", label: "multilingual-MiniLM-L12-v2 — 50+ languages" },
-  ],
-  multi: [
-    { value: "paraphrase-multilingual-MiniLM-L12-v2", label: "multilingual-MiniLM-L12-v2 — 50+ languages" },
-    { value: "distiluse-base-multilingual-cased-v2", label: "distiluse-multilingual-v2 — 15 languages, light" },
-    { value: "paraphrase-multilingual-mpnet-base-v2", label: "multilingual-mpnet-base-v2 — higher quality" },
-  ],
-};
-
-const LANGUAGE_OPTIONS: { value: EmbeddingLanguage; label: string }[] = [
-  { value: "en", label: "English" },
-  { value: "zh", label: "Chinese" },
-  { value: "multi", label: "Multi-Language" },
-];
-
-/** Infer language category from a model name. */
-function inferLanguage(model: string): EmbeddingLanguage {
-  for (const lang of ["zh", "multi", "en"] as EmbeddingLanguage[]) {
-    if (EMBEDDING_MODELS[lang].some((m) => m.value === model)) return lang;
-  }
-  // Default: if the model name hints at Chinese/multilingual, pick accordingly.
-  const lower = model.toLowerCase();
-  if (lower.includes("chinese") || lower.includes("text2vec")) return "zh";
-  if (lower.includes("multilingual") || lower.includes("multi-")) return "multi";
-  return "en";
-}
-
-// ---------------------------------------------------------------------------
-// Memory service API helpers (via gateway proxy /api/memory/*)
-// ---------------------------------------------------------------------------
-
-type ModelStatus = "unknown" | "checking" | "cached" | "not_cached" | "downloading" | "deleting" | "error";
-
-async function memoryApiFetch(path: string, init?: RequestInit): Promise<any | null> {
-  try {
-    const resp = await apiFetch(`/api/memory${path}`, {
-      ...init,
-      signal: AbortSignal.timeout(init?.method === "POST" ? 630_000 : 8_000)
-    });
-    return await resp.json();
-  } catch {
-    return null;
-  }
-}
-
-async function checkModelCached(model: string): Promise<boolean | null> {
-  const data = await memoryApiFetch(`/embeddings/status?model=${encodeURIComponent(model)}`);
-  if (!data || data.ok !== true) return null;
-  return Boolean(data.cached);
-}
-
-async function downloadModel(model: string): Promise<{ ok: boolean; error?: string }> {
-  const data = await memoryApiFetch("/embeddings/download", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: model })
-  });
-  if (!data) return { ok: false, error: "Memory service unreachable" };
-  return { ok: Boolean(data.ok), error: data.error };
-}
-
-async function deleteModel(model: string): Promise<{ ok: boolean; error?: string }> {
-  const data = await memoryApiFetch("/embeddings/delete", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: model })
-  });
-  if (!data) return { ok: false, error: "Memory service unreachable" };
-  return { ok: Boolean(data.ok), error: data.error };
-}
-
-type MemoryBase = {
-  enabled: boolean;
-  host: string;
-  port: number;
-  recentTurns: number;
-  recallLimit: number;
-  timeoutMs: number;
-  embeddingsModel: string;
-};
-
-type MemoryDraft = {
-  enabled: boolean;
-  host: string;
-  port: string;
-  recentTurns: string;
-  recallLimit: string;
-  timeoutMs: string;
-  embeddingsModel: string;
-};
-
-function asStr(v: unknown): string {
-  return typeof v === "string" ? v : typeof v === "number" ? String(v) : "";
-}
-
-function intOrNull(s: string, min: number, max: number): number | null {
-  const n = Number(s);
-  if (!Number.isFinite(n)) return null;
-  const i = Math.trunc(n);
-  if (i < min || i > max) return null;
-  return i;
-}
-
-function readMemoryBase(cfg: any): MemoryBase {
-  const mem = (cfg as any)?.memory ?? {};
-
-  const enabled = Boolean(mem?.enabled ?? false);
-  const host = asStr(mem?.host).trim() || "127.0.0.1";
-
-  const portRaw = Number(asStr(mem?.port));
-  const port = Number.isInteger(portRaw) && portRaw > 0 && portRaw <= 65535 ? portRaw : 8788;
-
-  const recentTurnsRaw = Number(asStr(mem?.recent_turns));
-  const recentTurns = Number.isFinite(recentTurnsRaw) ? Math.trunc(recentTurnsRaw) : 8;
-
-  const recallLimitRaw = Number(asStr(mem?.recall_limit));
-  const recallLimit = Number.isFinite(recallLimitRaw) ? Math.trunc(recallLimitRaw) : 20;
-
-  const timeoutRaw = Number(asStr(mem?.timeout_ms));
-  const timeoutMs = Number.isFinite(timeoutRaw) ? Math.trunc(timeoutRaw) : 1200;
-
-  const embModel = asStr(mem?.embeddings?.model).trim() || "all-MiniLM-L6-v2";
-
-  return {
-    enabled,
-    host,
-    port,
-    recentTurns,
-    recallLimit,
-    timeoutMs,
-    embeddingsModel: embModel
-  };
-}
-
-
-function baseToDraft(base: MemoryBase): MemoryDraft {
-  return {
-    enabled: base.enabled,
-    host: base.host,
-    port: String(base.port),
-    recentTurns: String(base.recentTurns),
-    recallLimit: String(base.recallLimit),
-    timeoutMs: String(base.timeoutMs),
-    embeddingsModel: String(base.embeddingsModel ?? "").trim() || "all-MiniLM-L6-v2"
-  };
-}
-
+/**
+ * Memory settings uses an explicit "Save" to commit changes.
+ * While dirty, leaving the page is blocked to avoid accidental loss.
+ */
 export function MemoryView({ onBack }: { onBack: () => void }) {
+  const [activeSection, setActiveSection] = React.useState<MemorySectionId>("settings");
+
   const [cfgLoading, setCfgLoading] = React.useState(true);
   const [cfgError, setCfgError] = React.useState<string | null>(null);
   const [base, setBase] = React.useState<MemoryBase | null>(null);
-  const [draft, setDraft] = React.useState<MemoryDraft>({
-    enabled: false,
-    host: "127.0.0.1",
-    port: "8788",
-    recentTurns: "8",
-    recallLimit: "20",
-    timeoutMs: "1200",
-    embeddingsModel: "all-MiniLM-L6-v2"
-  });
+  const [draft, setDraft] = React.useState<MemoryDraft>(() => ({ ...DEFAULT_MEMORY_DRAFT }));
   const [saving, setSaving] = React.useState(false);
-  const [embLang, setEmbLang] = React.useState<EmbeddingLanguage>(() => inferLanguage(draft.embeddingsModel));
+
+  const [embLang, setEmbLang] = React.useState<EmbeddingLanguage>(() => inferLanguage(DEFAULT_MEMORY_DRAFT.embeddingsModel));
   const [modelStatus, setModelStatus] = React.useState<ModelStatus>("unknown");
   const [modelActionError, setModelActionError] = React.useState<string | null>(null);
 
-  // Check model cache status when the model name or base config changes.
+  const [manageQuery, setManageQuery] = React.useState("");
+  const [manageLoading, setManageLoading] = React.useState(false);
+  const [manageError, setManageError] = React.useState<string | null>(null);
+  const [manageItems, setManageItems] = React.useState<MemoryManageItem[]>([]);
+
+  const [newRaw, setNewRaw] = React.useState("");
+  const [newStrength, setNewStrength] = React.useState("1");
+  const [newError, setNewError] = React.useState<string | null>(null);
+  const [newSaving, setNewSaving] = React.useState(false);
+
   const checkStatus = React.useCallback(async (model: string) => {
-    const m = model.trim();
-    if (!m) { setModelStatus("unknown"); return; }
+    const clean = model.trim();
+    if (!clean) {
+      setModelStatus("unknown");
+      return;
+    }
+
     setModelStatus("checking");
     setModelActionError(null);
-    const cached = await checkModelCached(m);
-    if (cached === null) setModelStatus("error");
-    else setModelStatus(cached ? "cached" : "not_cached");
+
+    const cached = await checkModelCached(clean);
+    if (cached === null) {
+      setModelStatus("error");
+    } else {
+      setModelStatus(cached ? "cached" : "not_cached");
+    }
   }, []);
 
-  // Re-check when draft model changes (debounced).
   React.useEffect(() => {
-    if (!base) { setModelStatus("unknown"); return; }
-    const t = setTimeout(() => void checkStatus(draft.embeddingsModel), 400);
-    return () => clearTimeout(t);
+    if (!base) {
+      setModelStatus("unknown");
+      return;
+    }
+
+    const timer = setTimeout(() => void checkStatus(draft.embeddingsModel), 400);
+    return () => clearTimeout(timer);
   }, [base, draft.embeddingsModel, checkStatus]);
 
   const handleDownload = async () => {
     const model = draft.embeddingsModel.trim();
     if (!model) return;
+
     setModelStatus("downloading");
     setModelActionError(null);
-    const r = await downloadModel(model);
-    if (r.ok) {
+
+    const result = await downloadModel(model);
+    if (result.ok) {
       setModelStatus("cached");
-    } else {
-      setModelStatus("error");
-      const raw = r.error ?? "Download failed";
-      setModelActionError(
-        raw === "sidecar unreachable" || raw === "embeddings sidecar not running"
-          ? "Embeddings sidecar not running — set memory.embeddings.model in config and restart the memory service."
-          : raw
-      );
+      return;
     }
+
+    setModelStatus("error");
+    const raw = result.error ?? "Download failed";
+    setModelActionError(
+      raw === "sidecar unreachable" || raw === "embeddings sidecar not running"
+        ? "Embeddings sidecar not running — set memory.embeddings.model in config and restart the memory service."
+        : raw
+    );
   };
 
   const handleDelete = async () => {
     const model = draft.embeddingsModel.trim();
     if (!model) return;
+
     const ok = window.confirm(`Delete cached model "${model}" from disk?`);
     if (!ok) return;
+
     setModelStatus("deleting");
     setModelActionError(null);
-    const r = await deleteModel(model);
-    if (r.ok) {
+
+    const result = await deleteModel(model);
+    if (result.ok) {
       setModelStatus("not_cached");
-    } else {
-      setModelStatus("error");
-      setModelActionError(r.error ?? "Delete failed");
+      return;
     }
+
+    setModelStatus("error");
+    setModelActionError(result.error ?? "Delete failed");
   };
 
   const load = React.useCallback(async () => {
@@ -253,15 +116,15 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
     setCfgError(null);
 
     try {
-      const r = (await fetchDevConfig()) as ConfigResponse;
-      if (!r?.ok) throw new Error((r as any)?.hint || (r as any)?.error || "Failed to load config.");
+      const response = (await fetchDevConfig()) as ConfigResponse;
+      if (!response?.ok) throw new Error((response as any)?.hint || (response as any)?.error || "Failed to load config.");
 
-      const nextBase = readMemoryBase((r as any).config);
+      const nextBase = readMemoryBase((response as any).config);
       setBase(nextBase);
       setDraft(baseToDraft(nextBase));
       setEmbLang(inferLanguage(nextBase.embeddingsModel));
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to load config.";
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Failed to load config.";
       setCfgError(msg);
       setBase(null);
     } finally {
@@ -272,6 +135,28 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  const loadManage = React.useCallback(async () => {
+    setManageLoading(true);
+    setManageError(null);
+
+    try {
+      const rows = await listMemories({ q: "", limit: 500, offset: 0 });
+      if (!rows) throw new Error("Memory service unreachable.");
+      setManageItems(rows);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Failed to load memories.";
+      setManageError(msg);
+      setManageItems([]);
+    } finally {
+      setManageLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (activeSection !== "manage") return;
+    void loadManage();
+  }, [activeSection, loadManage]);
 
   const devDisabled = cfgLoading || !base;
 
@@ -284,12 +169,28 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
     const limitDirty = intOrNull(draft.recallLimit, 0, 200) !== base.recallLimit;
     const timeoutDirty = intOrNull(draft.timeoutMs, 50, 60_000) !== base.timeoutMs;
     const embDirty = draft.embeddingsModel.trim() !== base.embeddingsModel;
+    const genesisTurnsDirty = intOrNull(draft.genesisTurnsPerCall, 1, 64) !== base.genesisTurnsPerCall;
 
-    return draft.enabled !== base.enabled || hostDirty || portDirty || recentDirty || limitDirty || timeoutDirty || embDirty;
-  }, [base, draft.enabled, draft.host, draft.port, draft.recentTurns, draft.recallLimit, draft.timeoutMs, draft.embeddingsModel]);
+    const emitModeDirty = draft.emitToolMessages !== base.emitToolMessages;
+    const emitMaxCharsDirty = intOrNull(draft.emitToolMaxCharsPerMsg, 0, 50_000) !== base.emitToolMaxCharsPerMsg;
+    const emitMaxTotalDirty = intOrNull(draft.emitToolMaxTotalChars, 0, 200_000) !== base.emitToolMaxTotalChars;
+
+    return (
+      draft.enabled !== base.enabled ||
+      hostDirty ||
+      portDirty ||
+      recentDirty ||
+      limitDirty ||
+      timeoutDirty ||
+      embDirty ||
+      genesisTurnsDirty ||
+      emitModeDirty ||
+      emitMaxCharsDirty ||
+      emitMaxTotalDirty
+    );
+  }, [base, draft]);
 
   const valid = React.useMemo(() => {
-    // Allow invalid draft when disabled, so the user can disable the service even if fields are blank.
     if (!draft.enabled) return true;
 
     const hostOk = draft.host.trim().length > 0;
@@ -298,30 +199,52 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
     const limitOk = intOrNull(draft.recallLimit, 0, 200) !== null;
     const timeoutOk = intOrNull(draft.timeoutMs, 50, 60_000) !== null;
     const embOk = draft.embeddingsModel.trim().length > 0;
+    const genesisTurnsOk = intOrNull(draft.genesisTurnsPerCall, 1, 64) !== null;
 
-    return hostOk && portOk && recentOk && limitOk && timeoutOk && embOk;
-  }, [draft.enabled, draft.host, draft.port, draft.recentTurns, draft.recallLimit, draft.timeoutMs, draft.embeddingsModel]);
+    const emitMaxCharsOk = intOrNull(draft.emitToolMaxCharsPerMsg, 0, 50_000) !== null;
+    const emitMaxTotalOk = intOrNull(draft.emitToolMaxTotalChars, 0, 200_000) !== null;
+
+    return hostOk && portOk && recentOk && limitOk && timeoutOk && embOk && genesisTurnsOk && emitMaxCharsOk && emitMaxTotalOk;
+  }, [draft]);
 
   const canSave = dirty && valid && !saving && !cfgLoading && Boolean(base);
 
+  const filteredManageItems = React.useMemo(() => {
+    const q = manageQuery.trim().toLowerCase();
+    if (!q) return manageItems;
+    return manageItems.filter((item) => item.raw.toLowerCase().includes(q) || item.id.toLowerCase().includes(q));
+  }, [manageItems, manageQuery]);
+
   const discard = () => {
     if (!base || saving) return;
+
     setDraft(baseToDraft(base));
     setEmbLang(inferLanguage(base.embeddingsModel));
     setCfgError(null);
   };
 
   const save = async () => {
-    if (!base) return;
-    if (!dirty || saving) return;
-    if (!valid) return;
+    if (!base || !dirty || saving || !valid) return;
 
     const port = portNumber(draft.port);
     const recentTurns = intOrNull(draft.recentTurns, 0, 64);
     const recallLimit = intOrNull(draft.recallLimit, 0, 200);
     const timeoutMs = intOrNull(draft.timeoutMs, 50, 60_000);
+    const genesisTurnsPerCall = intOrNull(draft.genesisTurnsPerCall, 1, 64);
+    const emitToolMaxCharsPerMsg = intOrNull(draft.emitToolMaxCharsPerMsg, 0, 50_000);
+    const emitToolMaxTotalChars = intOrNull(draft.emitToolMaxTotalChars, 0, 200_000);
 
-    if (draft.enabled && (!port || recentTurns === null || recallLimit === null || timeoutMs === null)) return;
+    if (
+      draft.enabled &&
+      (!port ||
+        recentTurns === null ||
+        recallLimit === null ||
+        timeoutMs === null ||
+        genesisTurnsPerCall === null ||
+        emitToolMaxCharsPerMsg === null ||
+        emitToolMaxTotalChars === null)
+    )
+      return;
 
     const body: ConfigRequestBody = {
       memory: {
@@ -331,7 +254,13 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
         recent_turns: recentTurns ?? base.recentTurns,
         recall_limit: recallLimit ?? base.recallLimit,
         timeout_ms: timeoutMs ?? base.timeoutMs,
-        embeddings: { model: draft.embeddingsModel.trim() }
+        embeddings: { model: draft.embeddingsModel.trim() },
+        genesis: { turns_per_call: genesisTurnsPerCall ?? base.genesisTurnsPerCall },
+        emit: {
+          tool_messages: draft.emitToolMessages,
+          tool_max_chars_per_msg: emitToolMaxCharsPerMsg ?? base.emitToolMaxCharsPerMsg,
+          tool_max_total_chars: emitToolMaxTotalChars ?? base.emitToolMaxTotalChars
+        }
       } as any
     };
 
@@ -339,11 +268,11 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
     setCfgError(null);
 
     try {
-      const r = (await saveDevConfig(body)) as ConfigResponse;
-      if (!r?.ok) throw new Error((r as any)?.hint || (r as any)?.error || "Failed to save config.");
+      const response = (await saveDevConfig(body)) as ConfigResponse;
+      if (!response?.ok) throw new Error((response as any)?.hint || (response as any)?.error || "Failed to save config.");
       await load();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to save config.";
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Failed to save config.";
       setCfgError(msg);
     } finally {
       setSaving(false);
@@ -353,6 +282,56 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
   const back = () => {
     if (dirty || saving) return;
     onBack();
+  };
+
+  const createNew = async () => {
+    if (newSaving) return;
+
+    const raw = newRaw.trim();
+    const strengthNum = parseStrength(newStrength);
+
+    if (!raw) {
+      setNewError("Raw is required.");
+      return;
+    }
+
+    if (strengthNum === null) {
+      setNewError("Strength must be a number ≥ 0.");
+      return;
+    }
+
+    setNewSaving(true);
+    setNewError(null);
+
+    const created = await createMemory({ raw, strength: strengthNum });
+    if (!created) {
+      setNewError("Failed to create memory (memory service unreachable).");
+      setNewSaving(false);
+      return;
+    }
+
+    setNewRaw("");
+    setNewStrength("1");
+    setNewSaving(false);
+    void loadManage();
+  };
+
+  const updateInList = (next: MemoryManageItem) => {
+    setManageItems((items) => items.map((item) => (item.id === next.id ? next : item)));
+  };
+
+  const deleteFromList = async (id: string) => {
+    setManageLoading(true);
+    setManageError(null);
+
+    const ok = await deleteMemoryItem(id);
+    if (!ok) {
+      setManageError("Failed to delete memory (memory service unreachable).");
+    } else {
+      setManageItems((items) => items.filter((item) => item.id !== id));
+    }
+
+    setManageLoading(false);
   };
 
   return (
@@ -388,229 +367,70 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
       </div>
 
       <div className="settings-body">
-        <div className="settings-content" style={{ width: "100%" }}>
-          <div className="settings-section motion-item">
-            {!base ? (
-              <div className="devNoteText muted">Config service unavailable. Start the backend (pnpm dev:all) to edit memory settings.</div>
+        <aside className="settings-sidebar" aria-label="Memory navigation">
+          <nav className="settings-nav" aria-label="Memory sections">
+            {MEMORY_SECTIONS.map((section) => (
+              <button
+                key={section.id}
+                type="button"
+                className="settings-nav-btn"
+                data-active={activeSection === section.id ? "true" : "false"}
+                aria-current={activeSection === section.id ? "page" : undefined}
+                onClick={() => setActiveSection(section.id)}
+              >
+                {section.label}
+              </button>
+            ))}
+          </nav>
+        </aside>
+
+        <div className="settings-content">
+          <div key={activeSection} className="settings-section motion-item">
+            {activeSection === "settings" ? (
+              <MemorySettingsSection
+                base={base}
+                draft={draft}
+                setDraft={setDraft}
+                cfgLoading={cfgLoading}
+                cfgError={cfgError}
+                saving={saving}
+                devDisabled={devDisabled}
+                dirty={dirty}
+                valid={valid}
+                embLang={embLang}
+                setEmbLang={setEmbLang}
+                modelStatus={modelStatus}
+                modelActionError={modelActionError}
+                onReloadConfig={() => void load()}
+                onCheckStatus={(model) => void checkStatus(model)}
+                onDownloadModel={() => void handleDownload()}
+                onDeleteModel={() => void handleDelete()}
+              />
             ) : null}
 
-            {cfgError ? (
-              <div className="devNoteText" style={{ color: "var(--danger)" }}>
-                {cfgError}
-              </div>
+            {activeSection === "manage" ? (
+              <MemoryManageSection
+                newRaw={newRaw}
+                setNewRaw={setNewRaw}
+                newStrength={newStrength}
+                setNewStrength={setNewStrength}
+                newError={newError}
+                newSaving={newSaving}
+                onCreateNew={() => void createNew()}
+                manageQuery={manageQuery}
+                setManageQuery={setManageQuery}
+                manageLoading={manageLoading}
+                manageError={manageError}
+                filteredManageItems={filteredManageItems}
+                onReloadManage={() => void loadManage()}
+                onItemChange={updateInList}
+                onItemDelete={(id) => void deleteFromList(id)}
+              />
             ) : null}
 
-            <SettingsToggleRow
-              title="Enable memory"
-              checked={draft.enabled}
-              onCheckedChange={(enabled) => setDraft((d) => ({ ...d, enabled }))}
-              ariaLabel="Enable memory"
-              disabled={devDisabled}
-            />
-
-            {dirty && !valid ? (
-              <div className="devNoteText" style={{ color: "var(--danger)" }}>
-                Memory settings are invalid. Provide a host, valid port, numeric limits, and an embeddings model.
-              </div>
+            {activeSection === "tool" ? (
+              <MemoryToolSection base={base} draft={draft} setDraft={setDraft} devDisabled={devDisabled} />
             ) : null}
-
-            <div className="card">
-              <div className="card-title">Connection</div>
-
-              <div className="grid2">
-                <label className="field">
-                  <div className="field-label">Host</div>
-                  <input
-                    className="select"
-                    value={draft.host}
-                    onChange={(e) => setDraft((d) => ({ ...d, host: e.target.value }))}
-                    placeholder="127.0.0.1"
-                    spellCheck={false}
-                    disabled={devDisabled}
-                  />
-                </label>
-
-                <label className="field">
-                  <div className="field-label">Port</div>
-                  <input
-                    className="select"
-                    value={draft.port}
-                    onChange={(e) => setDraft((d) => ({ ...d, port: e.target.value }))}
-                    placeholder="8788"
-                    inputMode="numeric"
-                    spellCheck={false}
-                    disabled={devDisabled}
-                  />
-                </label>
-              </div>
-
-              <div className="profileActions" style={{ marginTop: 10 }}>
-                <button type="button" className="btn subtle" onClick={() => void load()} disabled={cfgLoading || saving}>
-                  Reload
-                </button>
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="card-title">Recall</div>
-
-              <div className="grid2">
-                <label className="field">
-                  <div className="field-label">Recent transcript turns</div>
-                  <input
-                    className="select"
-                    value={draft.recentTurns}
-                    onChange={(e) => setDraft((d) => ({ ...d, recentTurns: e.target.value }))}
-                    placeholder="8"
-                    inputMode="numeric"
-                    spellCheck={false}
-                    disabled={devDisabled}
-                  />
-                  <div className="field-sub">Gateway includes last N user-turns in /recall request.</div>
-                </label>
-
-                <label className="field">
-                  <div className="field-label">Recall limit</div>
-                  <input
-                    className="select"
-                    value={draft.recallLimit}
-                    onChange={(e) => setDraft((d) => ({ ...d, recallLimit: e.target.value }))}
-                    placeholder="20"
-                    inputMode="numeric"
-                    spellCheck={false}
-                    disabled={devDisabled}
-                  />
-                  <div className="field-sub">Maximum memory items requested per recall.</div>
-                </label>
-              </div>
-
-              <SettingsAdvancedSection>
-                <div className="grid2 stack-gap">
-                  <label className="field">
-                    <div className="field-label">Request timeout (ms)</div>
-                    <input
-                      className="select"
-                      value={draft.timeoutMs}
-                      onChange={(e) => setDraft((d) => ({ ...d, timeoutMs: e.target.value }))}
-                      placeholder="1200"
-                      inputMode="numeric"
-                      spellCheck={false}
-                      disabled={devDisabled}
-                    />
-                    <div className="field-sub">Abort /recall request if it exceeds this duration.</div>
-                  </label>
-
-                  <div className="field" aria-hidden="true" />
-                </div>
-              </SettingsAdvancedSection>
-            </div>
-
-            <div className="card">
-              <div className="card-title">Embeddings</div>
-
-              <div className="grid2">
-                <label className="field">
-                  <div className="field-label">Language</div>
-                  <select
-                    className="select"
-                    value={embLang}
-                    onChange={(e) => {
-                      const lang = e.target.value as EmbeddingLanguage;
-                      setEmbLang(lang);
-                      const first = EMBEDDING_MODELS[lang]?.[0];
-                      if (first) setDraft((d) => ({ ...d, embeddingsModel: first.value }));
-                    }}
-                    disabled={devDisabled}
-                  >
-                    {LANGUAGE_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
-                  <div className="field-sub">Filter recommended models by language.</div>
-                </label>
-
-                <label className="field">
-                  <div className="field-label">Model</div>
-                  {(() => {
-                    const models = EMBEDDING_MODELS[embLang];
-                    const isCustom = !models.some((m) => m.value === draft.embeddingsModel);
-                    return (
-                      <>
-                        <select
-                          className="select"
-                          value={isCustom ? "__custom__" : draft.embeddingsModel}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (v === "__custom__") {
-                              setDraft((d) => ({ ...d, embeddingsModel: "" }));
-                              return;
-                            }
-                            setDraft((d) => ({ ...d, embeddingsModel: v }));
-                          }}
-                          disabled={devDisabled}
-                        >
-                          {models.map((m) => (
-                            <option key={m.value} value={m.value}>{m.label}</option>
-                          ))}
-                          <option value="__custom__">Custom…</option>
-                        </select>
-                        {isCustom ? (
-                          <input
-                            className="select"
-                            style={{ marginTop: 6 }}
-                            value={draft.embeddingsModel}
-                            onChange={(e) => setDraft((d) => ({ ...d, embeddingsModel: e.target.value }))}
-                            placeholder="org/model-name"
-                            spellCheck={false}
-                            disabled={devDisabled}
-                          />
-                        ) : null}
-                      </>
-                    );
-                  })()}
-                  <div className="field-sub">Select a recommended model or choose Custom to enter any HuggingFace model name.</div>
-                </label>
-              </div>
-
-              {draft.embeddingsModel.trim() ? (
-                <div className="profileActions" style={{ marginTop: 10, gap: 8, alignItems: "center" }}>
-                  {modelStatus === "checking" ? (
-                    <span className="field-sub">Checking…</span>
-                  ) : modelStatus === "downloading" ? (
-                    <span className="field-sub">Downloading model (this may take a while)…</span>
-                  ) : modelStatus === "deleting" ? (
-                    <span className="field-sub">Deleting…</span>
-                  ) : modelStatus === "cached" ? (
-                    <>
-                      <span className="field-sub" style={{ color: "var(--success, #4a4)" }}>Cached locally</span>
-                      <button type="button" className="btn subtle" onClick={() => void handleDelete()} disabled={saving}>
-                        Delete
-                      </button>
-                    </>
-                  ) : modelStatus === "not_cached" ? (
-                    <>
-                      <span className="field-sub">Not downloaded</span>
-                      <button type="button" className="btn subtle" onClick={() => void handleDownload()} disabled={saving}>
-                        Download
-                      </button>
-                    </>
-                  ) : modelStatus === "error" ? (
-                    <>
-                      <span className="field-sub muted">
-                        {modelActionError ?? "Memory service not running — start it to check model status."}
-                      </span>
-                      <button type="button" className="btn subtle" onClick={() => void checkStatus(draft.embeddingsModel)}>
-                        Retry
-                      </button>
-                    </>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-
-            <div className="devNoteText muted">
-              Tip: edit <code>_system_memory.local.md</code> to control how retrieved context is injected. The placeholder is <code>{"{{RETRIEVED_CONTEXT}}"}</code>.
-            </div>
           </div>
         </div>
       </div>
