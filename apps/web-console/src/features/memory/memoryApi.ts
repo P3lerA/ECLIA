@@ -87,6 +87,31 @@ export async function updateMemory(args: { id: string; raw: string; strength: nu
   return mapMemoryManageItem(memory);
 }
 
+export type GenesisStatus = {
+  active: { id: string; stage: string; processedSessions: number; processedChunks: number; extractedFacts: number } | null;
+  last: { id: string; stage: string; processedSessions: number; processedChunks: number; extractedFacts: number; error?: string } | null;
+};
+
+export async function startGenesis(opts?: { model?: string }): Promise<{ ok: boolean; error?: string }> {
+  const data = await memoryApiFetch("/genesis/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts ?? {})
+  });
+  if (!data) return { ok: false, error: "Memory service unreachable" };
+  return { ok: Boolean(data.ok), error: data.error };
+}
+
+export async function fetchGenesisStatus(): Promise<GenesisStatus | null> {
+  const data = await memoryApiFetch("/genesis/status");
+  if (!data || data.ok !== true) return null;
+  const s = data.status ?? {};
+  return {
+    active: s.active ?? null,
+    last: s.last ?? null
+  };
+}
+
 export async function deleteMemoryItem(id: string): Promise<boolean> {
   const clean = id.trim();
   if (!clean) return false;

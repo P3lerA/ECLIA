@@ -4,6 +4,7 @@ import { SettingsAdvancedSection } from "../../settings/components/SettingsAdvan
 import { SettingsToggleRow } from "../../settings/components/SettingsToggleRow";
 import { EMBEDDING_MODELS, LANGUAGE_OPTIONS } from "../memoryTypes";
 import type { EmbeddingLanguage, MemoryBase, MemoryDraft, ModelStatus } from "../memoryTypes";
+import type { GenesisStatus } from "../memoryApi";
 
 export type MemorySettingsSectionProps = {
   base: MemoryBase | null;
@@ -23,6 +24,10 @@ export type MemorySettingsSectionProps = {
   onCheckStatus: (model: string) => void;
   onDownloadModel: () => void;
   onDeleteModel: () => void;
+  genesisStatus: GenesisStatus | null;
+  genesisStarting: boolean;
+  genesisError: string | null;
+  onStartGenesis: () => void;
 };
 
 export function MemorySettingsSection(props: MemorySettingsSectionProps) {
@@ -43,7 +48,11 @@ export function MemorySettingsSection(props: MemorySettingsSectionProps) {
     onReloadConfig,
     onCheckStatus,
     onDownloadModel,
-    onDeleteModel
+    onDeleteModel,
+    genesisStatus,
+    genesisStarting,
+    genesisError,
+    onStartGenesis
   } = props;
 
   return (
@@ -292,6 +301,41 @@ export function MemorySettingsSection(props: MemorySettingsSectionProps) {
           </label>
 
           <div className="field" aria-hidden="true" />
+        </div>
+
+        <div className="profileActions" style={{ marginTop: 10, gap: 8, alignItems: "center" }}>
+          {genesisStatus?.active ? (
+            <>
+              <span className="field-sub">
+                {genesisStatus.active.stage === "stage1_extract"
+                  ? `Extracting… ${genesisStatus.active.processedSessions} sessions, ${genesisStatus.active.processedChunks} chunks, ${genesisStatus.active.extractedFacts} facts`
+                  : genesisStatus.active.stage === "stage2_consolidate"
+                    ? `Consolidating… ${genesisStatus.active.extractedFacts} facts`
+                    : `Running (${genesisStatus.active.stage})…`}
+              </span>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="btn subtle"
+                onClick={onStartGenesis}
+                disabled={devDisabled || genesisStarting}
+              >
+                {genesisStarting ? "Starting…" : "Run Genesis"}
+              </button>
+
+              {genesisError ? (
+                <span className="field-sub" style={{ color: "var(--danger)" }}>{genesisError}</span>
+              ) : genesisStatus?.last ? (
+                <span className="field-sub" style={{ color: genesisStatus.last.stage === "error" ? "var(--danger)" : "var(--success, #4a4)" }}>
+                  {genesisStatus.last.stage === "error"
+                    ? `Error: ${genesisStatus.last.error ?? "unknown"}`
+                    : `Done — ${genesisStatus.last.extractedFacts} facts extracted, ${genesisStatus.last.processedSessions} sessions`}
+                </span>
+              ) : null}
+            </>
+          )}
         </div>
       </div>
 

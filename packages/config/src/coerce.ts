@@ -173,7 +173,7 @@ export function coerceConfig(raw: Record<string, any>): EcliaConfig {
   const apiRaw = isRecord(raw.api) ? raw.api : {};
   const memoryRaw = isRecord((raw as any).memory) ? ((raw as any).memory as any) : {};
   const memoryGenesisRaw = isRecord((memoryRaw as any).genesis) ? (((memoryRaw as any).genesis as any) ?? {}) : {};
-  const memoryEmitRaw = isRecord((memoryRaw as any).emit) ? (((memoryRaw as any).emit as any) ?? {}) : {};
+  const memoryExtractRaw = isRecord((memoryRaw as any).extract) ? (((memoryRaw as any).extract as any) ?? {}) : {};
   const debugRaw = isRecord((raw as any).debug) ? ((raw as any).debug as any) : {};
   const skillsRaw = isRecord((raw as any).skills) ? ((raw as any).skills as any) : {};
   const personaRaw = isRecord((raw as any).persona) ? ((raw as any).persona as any) : {};
@@ -339,13 +339,24 @@ export function coerceConfig(raw: Record<string, any>): EcliaConfig {
       genesis: {
         turns_per_call: clampInt((memoryGenesisRaw as any).turns_per_call, 1, 64, base.memory.genesis.turns_per_call)
       },
-      emit: {
+      extract: {
         tool_messages: ((): any => {
-          const v = typeof (memoryEmitRaw as any).tool_messages === "string" ? String((memoryEmitRaw as any).tool_messages).trim() : "";
-          return v === "truncate" || v === "drop" ? v : base.memory.emit.tool_messages;
+          const v =
+            typeof (memoryExtractRaw as any).tool_messages === "string" ? String((memoryExtractRaw as any).tool_messages).trim() : "";
+          return v === "truncate" || v === "drop" ? v : base.memory.extract.tool_messages;
         })(),
-        tool_max_chars_per_msg: clampInt((memoryEmitRaw as any).tool_max_chars_per_msg, 0, 50_000, base.memory.emit.tool_max_chars_per_msg),
-        tool_max_total_chars: clampInt((memoryEmitRaw as any).tool_max_total_chars, 0, 200_000, base.memory.emit.tool_max_total_chars)
+        tool_max_chars_per_msg: clampInt(
+          (memoryExtractRaw as any).tool_max_chars_per_msg,
+          0,
+          50_000,
+          base.memory.extract.tool_max_chars_per_msg
+        ),
+        tool_max_total_chars: clampInt(
+          (memoryExtractRaw as any).tool_max_total_chars,
+          0,
+          200_000,
+          base.memory.extract.tool_max_total_chars
+        )
       }
     },
     debug: {

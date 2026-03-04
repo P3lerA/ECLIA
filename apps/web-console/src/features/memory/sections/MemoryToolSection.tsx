@@ -28,10 +28,10 @@ export function MemoryToolSection(props: MemoryToolSectionProps) {
             <div className="field-label">Tool messages</div>
             <select
               className="select"
-              value={draft.emitToolMessages}
+              value={draft.extractToolMessages}
               onChange={(e) => {
                 const v = e.target.value === "truncate" ? "truncate" : "drop";
-                setDraft((d) => ({ ...d, emitToolMessages: v }));
+                setDraft((d) => ({ ...d, extractToolMessages: v }));
               }}
               disabled={devDisabled}
             >
@@ -51,12 +51,12 @@ export function MemoryToolSection(props: MemoryToolSectionProps) {
             <div className="field-label">Max chars per tool message</div>
             <input
               className="select"
-              value={draft.emitToolMaxCharsPerMsg}
-              onChange={(e) => setDraft((d) => ({ ...d, emitToolMaxCharsPerMsg: e.target.value }))}
+              value={draft.extractToolMaxCharsPerMsg}
+              onChange={(e) => setDraft((d) => ({ ...d, extractToolMaxCharsPerMsg: e.target.value }))}
               placeholder="1200"
               inputMode="numeric"
               spellCheck={false}
-              disabled={devDisabled || draft.emitToolMessages === "drop"}
+              disabled={devDisabled || draft.extractToolMessages === "drop"}
             />
             <div className="field-sub">Only used when Tool messages = Truncate and keep.</div>
           </label>
@@ -65,12 +65,12 @@ export function MemoryToolSection(props: MemoryToolSectionProps) {
             <div className="field-label">Max total tool chars</div>
             <input
               className="select"
-              value={draft.emitToolMaxTotalChars}
-              onChange={(e) => setDraft((d) => ({ ...d, emitToolMaxTotalChars: e.target.value }))}
+              value={draft.extractToolMaxTotalChars}
+              onChange={(e) => setDraft((d) => ({ ...d, extractToolMaxTotalChars: e.target.value }))}
               placeholder="5000"
               inputMode="numeric"
               spellCheck={false}
-              disabled={devDisabled || draft.emitToolMessages === "drop"}
+              disabled={devDisabled || draft.extractToolMessages === "drop"}
             />
             <div className="field-sub">Hard cap for all tool text kept in the transcript tail.</div>
           </label>
@@ -78,7 +78,7 @@ export function MemoryToolSection(props: MemoryToolSectionProps) {
       </div>
 
       <div className="devNoteText muted">
-        Tip: edit <code>_system_memory_emit.local.md</code> to control the extraction model's system prompt.
+        Tip: edit <code>_system_memory_extract.local.md</code> to control the extraction model's system prompt.
       </div>
     </>
   );

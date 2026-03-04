@@ -24,7 +24,7 @@ export type ConfigApiRequestBody = {
     genesis?: {
       turns_per_call?: number;
     };
-    emit?: {
+    extract?: {
       tool_messages?: "drop" | "truncate";
       tool_max_chars_per_msg?: number;
       tool_max_total_chars?: number;
@@ -152,7 +152,7 @@ export type ConfigApiConfig = {
     genesis?: {
       turns_per_call?: number;
     };
-    emit?: {
+    extract?: {
       tool_messages?: "drop" | "truncate";
       tool_max_chars_per_msg?: number;
       tool_max_total_chars?: number;

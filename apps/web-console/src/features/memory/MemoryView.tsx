@@ -6,7 +6,8 @@ import { EcliaLogo } from "../common/EcliaLogo";
 import { fetchDevConfig, saveDevConfig } from "../settings/settingsInteractions";
 import type { ConfigRequestBody, ConfigResponse } from "../settings/settingsTypes";
 import { isValidPort, portNumber } from "../settings/settingsUtils";
-import { checkModelCached, createMemory, deleteMemoryItem, deleteModel, downloadModel, listMemories } from "./memoryApi";
+import { checkModelCached, createMemory, deleteMemoryItem, deleteModel, downloadModel, fetchGenesisStatus, listMemories, startGenesis } from "./memoryApi";
+import type { GenesisStatus } from "./memoryApi";
 import { MemoryManageSection } from "./sections/MemoryManageSection";
 import { MemorySettingsSection } from "./sections/MemorySettingsSection";
 import { MemoryToolSection } from "./sections/MemoryToolSection";
@@ -40,6 +41,51 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
   const [newStrength, setNewStrength] = React.useState("1");
   const [newError, setNewError] = React.useState<string | null>(null);
   const [newSaving, setNewSaving] = React.useState(false);
+
+  const [genesisStatus, setGenesisStatus] = React.useState<GenesisStatus | null>(null);
+  const [genesisStarting, setGenesisStarting] = React.useState(false);
+  const [genesisError, setGenesisError] = React.useState<string | null>(null);
+  const genesisPollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const pollGenesis = React.useCallback(async () => {
+    const s = await fetchGenesisStatus();
+    if (s) setGenesisStatus(s);
+    // Stop polling when no longer running.
+    if (s && !s.active && genesisPollRef.current) {
+      clearInterval(genesisPollRef.current);
+      genesisPollRef.current = null;
+    }
+  }, []);
+
+  const handleStartGenesis = React.useCallback(async () => {
+    setGenesisStarting(true);
+    setGenesisError(null);
+    const result = await startGenesis();
+    setGenesisStarting(false);
+    if (!result.ok) {
+      setGenesisError(result.error ?? "Failed to start genesis");
+      return;
+    }
+    // Start polling.
+    void pollGenesis();
+    if (genesisPollRef.current) clearInterval(genesisPollRef.current);
+    genesisPollRef.current = setInterval(() => void pollGenesis(), 3000);
+  }, [pollGenesis]);
+
+  // Fetch genesis status on mount + cleanup polling.
+  React.useEffect(() => {
+    void pollGenesis();
+    return () => {
+      if (genesisPollRef.current) clearInterval(genesisPollRef.current);
+    };
+  }, [pollGenesis]);
+
+  // Resume polling if active.
+  React.useEffect(() => {
+    if (genesisStatus?.active && !genesisPollRef.current) {
+      genesisPollRef.current = setInterval(() => void pollGenesis(), 3000);
+    }
+  }, [genesisStatus, pollGenesis]);
 
   const checkStatus = React.useCallback(async (model: string) => {
     const clean = model.trim();
@@ -171,9 +217,9 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
     const embDirty = draft.embeddingsModel.trim() !== base.embeddingsModel;
     const genesisTurnsDirty = intOrNull(draft.genesisTurnsPerCall, 1, 64) !== base.genesisTurnsPerCall;
 
-    const emitModeDirty = draft.emitToolMessages !== base.emitToolMessages;
-    const emitMaxCharsDirty = intOrNull(draft.emitToolMaxCharsPerMsg, 0, 50_000) !== base.emitToolMaxCharsPerMsg;
-    const emitMaxTotalDirty = intOrNull(draft.emitToolMaxTotalChars, 0, 200_000) !== base.emitToolMaxTotalChars;
+    const extractModeDirty = draft.extractToolMessages !== base.extractToolMessages;
+    const extractMaxCharsDirty = intOrNull(draft.extractToolMaxCharsPerMsg, 0, 50_000) !== base.extractToolMaxCharsPerMsg;
+    const extractMaxTotalDirty = intOrNull(draft.extractToolMaxTotalChars, 0, 200_000) !== base.extractToolMaxTotalChars;
 
     return (
       draft.enabled !== base.enabled ||
@@ -184,9 +230,9 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
       timeoutDirty ||
       embDirty ||
       genesisTurnsDirty ||
-      emitModeDirty ||
-      emitMaxCharsDirty ||
-      emitMaxTotalDirty
+      extractModeDirty ||
+      extractMaxCharsDirty ||
+      extractMaxTotalDirty
     );
   }, [base, draft]);
 
@@ -201,10 +247,12 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
     const embOk = draft.embeddingsModel.trim().length > 0;
     const genesisTurnsOk = intOrNull(draft.genesisTurnsPerCall, 1, 64) !== null;
 
-    const emitMaxCharsOk = intOrNull(draft.emitToolMaxCharsPerMsg, 0, 50_000) !== null;
-    const emitMaxTotalOk = intOrNull(draft.emitToolMaxTotalChars, 0, 200_000) !== null;
+    const extractMaxCharsOk = intOrNull(draft.extractToolMaxCharsPerMsg, 0, 50_000) !== null;
+    const extractMaxTotalOk = intOrNull(draft.extractToolMaxTotalChars, 0, 200_000) !== null;
 
-    return hostOk && portOk && recentOk && limitOk && timeoutOk && embOk && genesisTurnsOk && emitMaxCharsOk && emitMaxTotalOk;
+    return (
+      hostOk && portOk && recentOk && limitOk && timeoutOk && embOk && genesisTurnsOk && extractMaxCharsOk && extractMaxTotalOk
+    );
   }, [draft]);
 
   const canSave = dirty && valid && !saving && !cfgLoading && Boolean(base);
@@ -231,8 +279,8 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
     const recallLimit = intOrNull(draft.recallLimit, 0, 200);
     const timeoutMs = intOrNull(draft.timeoutMs, 50, 60_000);
     const genesisTurnsPerCall = intOrNull(draft.genesisTurnsPerCall, 1, 64);
-    const emitToolMaxCharsPerMsg = intOrNull(draft.emitToolMaxCharsPerMsg, 0, 50_000);
-    const emitToolMaxTotalChars = intOrNull(draft.emitToolMaxTotalChars, 0, 200_000);
+    const extractToolMaxCharsPerMsg = intOrNull(draft.extractToolMaxCharsPerMsg, 0, 50_000);
+    const extractToolMaxTotalChars = intOrNull(draft.extractToolMaxTotalChars, 0, 200_000);
 
     if (
       draft.enabled &&
@@ -241,8 +289,8 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
         recallLimit === null ||
         timeoutMs === null ||
         genesisTurnsPerCall === null ||
-        emitToolMaxCharsPerMsg === null ||
-        emitToolMaxTotalChars === null)
+        extractToolMaxCharsPerMsg === null ||
+        extractToolMaxTotalChars === null)
     )
       return;
 
@@ -256,10 +304,10 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
         timeout_ms: timeoutMs ?? base.timeoutMs,
         embeddings: { model: draft.embeddingsModel.trim() },
         genesis: { turns_per_call: genesisTurnsPerCall ?? base.genesisTurnsPerCall },
-        emit: {
-          tool_messages: draft.emitToolMessages,
-          tool_max_chars_per_msg: emitToolMaxCharsPerMsg ?? base.emitToolMaxCharsPerMsg,
-          tool_max_total_chars: emitToolMaxTotalChars ?? base.emitToolMaxTotalChars
+        extract: {
+          tool_messages: draft.extractToolMessages,
+          tool_max_chars_per_msg: extractToolMaxCharsPerMsg ?? base.extractToolMaxCharsPerMsg,
+          tool_max_total_chars: extractToolMaxTotalChars ?? base.extractToolMaxTotalChars
         }
       } as any
     };
@@ -405,6 +453,10 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
                 onCheckStatus={(model) => void checkStatus(model)}
                 onDownloadModel={() => void handleDownload()}
                 onDeleteModel={() => void handleDelete()}
+                genesisStatus={genesisStatus}
+                genesisStarting={genesisStarting}
+                genesisError={genesisError}
+                onStartGenesis={() => void handleStartGenesis()}
               />
             ) : null}
 

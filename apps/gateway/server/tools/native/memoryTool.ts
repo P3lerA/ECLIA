@@ -2,29 +2,26 @@ import { safeJsonStringify } from "../../httpUtils.js";
 
 export const MEMORY_TOOL_SCHEMA = {
   type: "object",
-  additionalProperties: false,
   properties: {
-    memories: {
+    action: { type: "string", enum: ["extract", "delete", "merge"] },
+    // extract
+    text: { type: "string", minLength: 1, maxLength: 2000 },
+    timestamps: {
       type: "array",
       minItems: 1,
-      maxItems: 50,
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          text: { type: "string", minLength: 1, maxLength: 2000 },
-          timestamps: {
-            type: "array",
-            minItems: 1,
-            maxItems: 64,
-            items: { type: "integer", minimum: 0 }
-          }
-        },
-        required: ["text", "timestamps"]
-      }
-    }
-  },
-  required: ["memories"]
+      maxItems: 64,
+      items: { type: "integer", minimum: 0 }
+    },
+    // delete / merge
+    ids: {
+      type: "array",
+      minItems: 1,
+      maxItems: 200,
+      items: { type: "integer", minimum: 1 }
+    },
+    // merge
+    content: { type: "string", minLength: 1, maxLength: 4000 }
+  }
 } as const;
 
 export async function invokeMemoryTool(args: {

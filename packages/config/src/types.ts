@@ -98,15 +98,15 @@ export type EcliaConfig = {
     };
 
     /**
-     * Memory emit pipeline (LLM-based extraction calls).
+     * Memory extraction pipeline (LLM-based).
      *
      * These settings control how much tool output noise is allowed into the
      * role-structured transcript context when the memory service asks the model
      * to extract memories.
      */
-    emit: {
+    extract: {
       /**
-       * Strategy for handling role=tool messages when building emit context.
+       * Strategy for handling role=tool messages when building extraction context.
        *
        * - "drop": remove tool messages entirely (recommended; least noisy)
        * - "truncate": keep tool messages, but aggressively clip them
@@ -146,7 +146,7 @@ export type EcliaConfig = {
     /**
      * When enabled, the gateway will attempt to recover tool calls from assistant
      * plaintext output (e.g. "Tool exec (calling): ...") if the upstream provider
-     * fails to emit structured tool_calls.
+     * fails to produce structured tool_calls.
      *
      * WARNING: This is a best-effort fallback intended for debugging and compatibility.
      */
@@ -431,7 +431,7 @@ export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
     genesis: {
       turns_per_call: 20
     },
-    emit: {
+    extract: {
       tool_messages: "drop",
       tool_max_chars_per_msg: 1200,
       tool_max_total_chars: 5000

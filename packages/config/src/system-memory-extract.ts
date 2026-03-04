@@ -4,18 +4,16 @@ import path from "node:path";
 import { findProjectRoot } from "./root.js";
 import { renderSystemInstructionTemplate } from "./system-instruction.js";
 
-const SYSTEM_MEMORY_EMIT_TEMPLATE_FILE = "_system_memory_emit.md";
-const SYSTEM_MEMORY_EMIT_TEMPLATE_LOCAL_FILE = "_system_memory_emit.local.md";
+const SYSTEM_MEMORY_EXTRACT_TEMPLATE_FILE = "_system_memory_extract.md";
+const SYSTEM_MEMORY_EXTRACT_TEMPLATE_LOCAL_FILE = "_system_memory_extract.local.md";
 
 // Fallback only when the committed template file is missing.
-const DEFAULT_SYSTEM_MEMORY_EMIT_TEMPLATE_FILE_CONTENT = `You are ECLIA's memory emitter.
+const DEFAULT_SYSTEM_MEMORY_EXTRACT_TEMPLATE_FILE_CONTENT = `You are a memory extractor. Given a truncated conversation transcript, extract long-term user-relevant facts.
 
-Given a truncated conversation transcript (role-structured), extract long-term user-relevant facts.
+For each fact worth remembering, call the \`memory\` tool:
+{ "text": "...", "timestamps": [0] }
 
-If there are memory items worth storing, call tool \`memory\` with JSON:
-{ "memories": [ { "text": "...", "timestamps": [0] } ] }
-
-If there is nothing worth storing, reply with: NONE
+One fact per call. If nothing is worth remembering, reply: NONE
 `;
 
 function tryReadText(filePath: string): string | null {
@@ -30,26 +28,26 @@ function tryReadText(filePath: string): string | null {
 }
 
 /**
- * Ensure root-level memory emit template files exist:
- * - _system_memory_emit.md (committed default)
- * - _system_memory_emit.local.md (gitignored local override, initialized from base)
+ * Ensure root-level memory extraction template files exist:
+ * - _system_memory_extract.md (committed default)
+ * - _system_memory_extract.local.md (gitignored local override, initialized from base)
  */
-export function ensureSystemMemoryEmitTemplateFiles(rootDir: string = findProjectRoot(process.cwd())): {
+export function ensureSystemMemoryExtractTemplateFiles(rootDir: string = findProjectRoot(process.cwd())): {
   rootDir: string;
   templatePath: string;
   localPath: string;
   createdTemplate: boolean;
   createdLocal: boolean;
 } {
-  const templatePath = path.join(rootDir, SYSTEM_MEMORY_EMIT_TEMPLATE_FILE);
-  const localPath = path.join(rootDir, SYSTEM_MEMORY_EMIT_TEMPLATE_LOCAL_FILE);
+  const templatePath = path.join(rootDir, SYSTEM_MEMORY_EXTRACT_TEMPLATE_FILE);
+  const localPath = path.join(rootDir, SYSTEM_MEMORY_EXTRACT_TEMPLATE_LOCAL_FILE);
 
   let createdTemplate = false;
   let createdLocal = false;
 
   if (!fs.existsSync(templatePath)) {
     try {
-      fs.writeFileSync(templatePath, DEFAULT_SYSTEM_MEMORY_EMIT_TEMPLATE_FILE_CONTENT, { encoding: "utf-8", flag: "wx" });
+      fs.writeFileSync(templatePath, DEFAULT_SYSTEM_MEMORY_EXTRACT_TEMPLATE_FILE_CONTENT, { encoding: "utf-8", flag: "wx" });
       createdTemplate = true;
     } catch {
       // best-effort
@@ -69,15 +67,15 @@ export function ensureSystemMemoryEmitTemplateFiles(rootDir: string = findProjec
   return { rootDir, templatePath, localPath, createdTemplate, createdLocal };
 }
 
-export function readSystemMemoryEmitTemplate(rootDir: string = findProjectRoot(process.cwd())): {
+export function readSystemMemoryExtractTemplate(rootDir: string = findProjectRoot(process.cwd())): {
   rootDir: string;
   templatePath: string;
   localPath: string;
   text: string;
   source: "local" | "base" | "none";
 } {
-  const templatePath = path.join(rootDir, SYSTEM_MEMORY_EMIT_TEMPLATE_FILE);
-  const localPath = path.join(rootDir, SYSTEM_MEMORY_EMIT_TEMPLATE_LOCAL_FILE);
+  const templatePath = path.join(rootDir, SYSTEM_MEMORY_EXTRACT_TEMPLATE_FILE);
+  const localPath = path.join(rootDir, SYSTEM_MEMORY_EXTRACT_TEMPLATE_LOCAL_FILE);
 
   const localText = tryReadText(localPath);
   if (localText !== null) return { rootDir, templatePath, localPath, text: localText, source: "local" };
@@ -88,7 +86,7 @@ export function readSystemMemoryEmitTemplate(rootDir: string = findProjectRoot(p
   return { rootDir, templatePath, localPath, text: "", source: "none" };
 }
 
-export function renderSystemMemoryEmitTemplate(
+export function renderSystemMemoryExtractTemplate(
   template: string,
   vars: {
     userPreferredName?: string;

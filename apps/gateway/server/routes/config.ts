@@ -239,8 +239,8 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
         }
       }
 
-      if (Object.prototype.hasOwnProperty.call(body.memory, "emit")) {
-        const eRaw = (body.memory as any).emit;
+      if (Object.prototype.hasOwnProperty.call(body.memory, "extract")) {
+        const eRaw = (body.memory as any).extract;
         if (eRaw && typeof eRaw === "object") {
           const ePatch: any = {};
           if (Object.prototype.hasOwnProperty.call(eRaw, "tool_messages")) {
@@ -252,7 +252,7 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
           if (Object.prototype.hasOwnProperty.call(eRaw, "tool_max_total_chars")) {
             ePatch.tool_max_total_chars = (eRaw as any).tool_max_total_chars;
           }
-          if (Object.keys(ePatch).length) memPatch.emit = ePatch;
+          if (Object.keys(ePatch).length) memPatch.extract = ePatch;
         }
       }
 
@@ -323,13 +323,13 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
         }
       }
 
-      if (Object.prototype.hasOwnProperty.call(memPatch, "emit")) {
-        const e = (memPatch as any).emit;
+      if (Object.prototype.hasOwnProperty.call(memPatch, "extract")) {
+        const e = (memPatch as any).extract;
         if (e && typeof e === "object") {
           if (Object.prototype.hasOwnProperty.call(e, "tool_messages")) {
             const s = typeof (e as any).tool_messages === "string" ? String((e as any).tool_messages).trim() : "";
             if (s !== "drop" && s !== "truncate") {
-              return json(res, 400, { ok: false, error: "bad_request", hint: "memory.emit.tool_messages must be 'drop' or 'truncate'." });
+              return json(res, 400, { ok: false, error: "bad_request", hint: "memory.extract.tool_messages must be 'drop' or 'truncate'." });
             }
             (e as any).tool_messages = s;
           }
@@ -342,7 +342,7 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
                   : NaN;
             const i = Number.isFinite(n) ? Math.trunc(n) : NaN;
             if (!Number.isFinite(i) || i < 0 || i > 50_000) {
-              return json(res, 400, { ok: false, error: "bad_request", hint: "memory.emit.tool_max_chars_per_msg must be 0–50000." });
+              return json(res, 400, { ok: false, error: "bad_request", hint: "memory.extract.tool_max_chars_per_msg must be 0–50000." });
             }
             (e as any).tool_max_chars_per_msg = i;
           }
@@ -355,7 +355,7 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
                   : NaN;
             const i = Number.isFinite(n) ? Math.trunc(n) : NaN;
             if (!Number.isFinite(i) || i < 0 || i > 200_000) {
-              return json(res, 400, { ok: false, error: "bad_request", hint: "memory.emit.tool_max_total_chars must be 0–200000." });
+              return json(res, 400, { ok: false, error: "bad_request", hint: "memory.extract.tool_max_total_chars must be 0–200000." });
             }
             (e as any).tool_max_total_chars = i;
           }

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 export type { ManagedMemoryDto, MemoryDb, RecallMemoryDto } from "./db/types.js";
 export { R_DIM } from "./db/vector.js";
 export { openMemoryDb } from "./db/openAndMigrate.js";
-export { createFact, deleteFact, listFactsManage, updateFact } from "./db/factRepo.js";
+export { createFact, deleteFact, listFactsManage, mergeFacts, updateFact } from "./db/factRepo.js";
 export { logActivation, makeFactNodeId, recallFacts } from "./db/recallRepo.js";
 
 export function makeRandomRequestId(): string {

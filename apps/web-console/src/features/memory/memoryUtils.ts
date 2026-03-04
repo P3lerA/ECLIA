@@ -49,7 +49,7 @@ export function intOrNull(s: string, min: number, max: number): number | null {
 export function readMemoryBase(cfg: any): MemoryBase {
   const mem = (cfg as any)?.memory ?? {};
   const genesis = (mem as any)?.genesis ?? {};
-  const emit = (mem as any)?.emit ?? {};
+  const extract = (mem as any)?.extract ?? {};
 
   const enabled = Boolean(mem?.enabled ?? false);
   const host = asStr(mem?.host).trim() || "127.0.0.1";
@@ -71,14 +71,14 @@ export function readMemoryBase(cfg: any): MemoryBase {
   const genesisTurnsRaw = Number(asStr((genesis as any)?.turns_per_call));
   const genesisTurnsPerCall = Number.isFinite(genesisTurnsRaw) ? Math.trunc(genesisTurnsRaw) : 20;
 
-  const toolMessagesRaw = typeof (emit as any)?.tool_messages === "string" ? String((emit as any).tool_messages).trim() : "";
-  const emitToolMessages: any = toolMessagesRaw === "truncate" || toolMessagesRaw === "drop" ? toolMessagesRaw : "drop";
+  const toolMessagesRaw = typeof (extract as any)?.tool_messages === "string" ? String((extract as any).tool_messages).trim() : "";
+  const extractToolMessages: any = toolMessagesRaw === "truncate" || toolMessagesRaw === "drop" ? toolMessagesRaw : "drop";
 
-  const toolMaxCharsRaw = Number(asStr((emit as any)?.tool_max_chars_per_msg));
-  const emitToolMaxCharsPerMsg = Number.isFinite(toolMaxCharsRaw) ? Math.trunc(toolMaxCharsRaw) : 1200;
+  const toolMaxCharsRaw = Number(asStr((extract as any)?.tool_max_chars_per_msg));
+  const extractToolMaxCharsPerMsg = Number.isFinite(toolMaxCharsRaw) ? Math.trunc(toolMaxCharsRaw) : 1200;
 
-  const toolMaxTotalRaw = Number(asStr((emit as any)?.tool_max_total_chars));
-  const emitToolMaxTotalChars = Number.isFinite(toolMaxTotalRaw) ? Math.trunc(toolMaxTotalRaw) : 5000;
+  const toolMaxTotalRaw = Number(asStr((extract as any)?.tool_max_total_chars));
+  const extractToolMaxTotalChars = Number.isFinite(toolMaxTotalRaw) ? Math.trunc(toolMaxTotalRaw) : 5000;
 
   return {
     enabled,
@@ -89,9 +89,9 @@ export function readMemoryBase(cfg: any): MemoryBase {
     timeoutMs,
     embeddingsModel: embModel,
     genesisTurnsPerCall,
-    emitToolMessages,
-    emitToolMaxCharsPerMsg,
-    emitToolMaxTotalChars
+    extractToolMessages,
+    extractToolMaxCharsPerMsg,
+    extractToolMaxTotalChars
   };
 }
 
@@ -105,9 +105,9 @@ export function baseToDraft(base: MemoryBase): MemoryDraft {
     timeoutMs: String(base.timeoutMs),
     embeddingsModel: String(base.embeddingsModel ?? "").trim() || "all-MiniLM-L6-v2",
     genesisTurnsPerCall: String(base.genesisTurnsPerCall ?? 20),
-    emitToolMessages: base.emitToolMessages ?? "drop",
-    emitToolMaxCharsPerMsg: String(base.emitToolMaxCharsPerMsg ?? 1200),
-    emitToolMaxTotalChars: String(base.emitToolMaxTotalChars ?? 5000)
+    extractToolMessages: base.extractToolMessages ?? "drop",
+    extractToolMaxCharsPerMsg: String(base.extractToolMaxCharsPerMsg ?? 1200),
+    extractToolMaxTotalChars: String(base.extractToolMaxTotalChars ?? 5000)
   };
 }
 

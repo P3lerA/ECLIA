@@ -16,8 +16,10 @@ import {
   handleEmbeddingsDelete
 } from "./handlers/embeddingsHandlers.js";
 import { handleMemoryTool } from "./handlers/memoryToolHandlers.js";
-import { handleEmitRequest } from "./handlers/emitHandlers.js";
+import { handleExtractRequest } from "./handlers/extractHandlers.js";
+import { handleGenesisRun, handleGenesisStatus } from "./handlers/genesisHandlers.js";
 import { createToolSessionLogger } from "./tools/toolSessionLogger.js";
+import { createGenesisState } from "./genesisState.js";
 
 async function start() {
   const { rootDir, config } = loadEcliaConfig(process.cwd());
@@ -44,6 +46,8 @@ async function start() {
   });
 
   const toolLogger = createToolSessionLogger({ rootDir, sessionId: "memory-tool" });
+
+  const genesis = createGenesisState();
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
@@ -79,12 +83,27 @@ async function start() {
       });
     }
 
-    if (req.method === "POST" && pathname === "/emit") {
-      return await handleEmitRequest(req, res);
+    if (req.method === "POST" && pathname === "/extract") {
+      return await handleExtractRequest(req, res);
     }
 
     if (req.method === "POST" && pathname === "/tools/memory") {
-      return await handleMemoryTool(req, res, { toolLogger });
+      return await handleMemoryTool(req, res, {
+        toolLogger,
+        genesis,
+        db,
+        ensureSidecar: sidecarManager.ensureSidecar,
+        embeddingsModel,
+        timeoutMs: timeout
+      });
+    }
+
+    if (req.method === "POST" && pathname === "/genesis/run") {
+      return await handleGenesisRun(req, res, { genesis, db });
+    }
+
+    if (req.method === "GET" && pathname === "/genesis/status") {
+      return await handleGenesisStatus(res, { genesis });
     }
 
     if (req.method === "GET" && pathname === "/memories") return await handleListMemories(req, res, { db });
@@ -131,7 +150,8 @@ async function start() {
     console.log(`[memory] listening on http://${host}:${port}`);
     console.log(`[memory] store: libsql file=${db.dbPath}`);
     console.log(`[memory] endpoint: POST /recall`);
-    console.log(`[memory] emit: POST /emit (dev/admin)`);
+    console.log(`[memory] extract: POST /extract (dev/admin)`);
+    console.log(`[memory] genesis: POST /genesis/run  GET /genesis/status`);
     console.log(`[memory] tool: POST /tools/memory  (audit: .eclia/memory/tool-sessions/${toolLogger.sessionId}.ndjson)`);
     console.log(`[memory] manage: GET/POST/PATCH/DELETE /memories`);
     if (sidecar) {

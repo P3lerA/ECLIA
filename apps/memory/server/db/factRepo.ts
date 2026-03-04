@@ -239,6 +239,121 @@ export async function updateFact(args: {
   }
 }
 
+export async function mergeFacts(args: {
+  db: MemoryDb;
+  sourceIds: number[];
+  raw: string;
+  strength?: number;
+  vectorS?: Float32Array | null;
+}): Promise<{ created: ManagedMemoryDto; deletedIds: number[] }> {
+  const sourceIds = args.sourceIds.filter((id) => Number.isFinite(id) && id > 0);
+  if (sourceIds.length < 2) throw new Error("mergeFacts requires at least 2 source IDs");
+
+  const raw = String(args.raw ?? "").trim();
+  if (!raw) throw new Error("raw is required");
+
+  const strength = typeof args.strength === "number" && Number.isFinite(args.strength) ? args.strength : 1;
+  const r = makeRandomUnitVector(R_DIM);
+  scaleVectorToNorm(r, strength);
+
+  const ts = isoNow();
+  const rJson = toVectorJson(r);
+  const sJson = args.vectorS && args.vectorS.length ? toVectorJson(args.vectorS) : null;
+
+  const tx = await args.db.client.transaction("write");
+  try {
+    // 1. Create new merged fact.
+    const factRes = await tx.execute({
+      sql: sJson
+        ? "INSERT INTO Fact (raw, vector_S, vector_R) VALUES (?, vector32(?), vector32(?));"
+        : "INSERT INTO Fact (raw, vector_S, vector_R) VALUES (?, NULL, vector32(?));",
+      args: sJson ? [raw, sJson, rJson] : [raw, rJson]
+    });
+    const newId = Number(factRes.lastInsertRowid ?? 0);
+    const newNodeId = `fact:${newId}`;
+
+    // Trace for the new fact.
+    const traceRes = await tx.execute({
+      sql: "INSERT INTO Traces (timestamp, type, node_id, node_kind) VALUES (?, 'new', ?, 'fact');",
+      args: [ts, newId]
+    });
+    const traceId = Number(traceRes.lastInsertRowid ?? 0);
+    await tx.execute({
+      sql: "INSERT INTO Trace_Changes (trace_id, before_raw, after_raw) VALUES (?, NULL, ?);",
+      args: [traceId, raw]
+    });
+
+    // 2. Reassign activation records from source facts to the new fact.
+    const oldNodeIds = sourceIds.map((id) => `fact:${id}`);
+    const placeholders = oldNodeIds.map(() => "?").join(", ");
+    await tx.execute({
+      sql: `UPDATE Activation_Nodes SET node_id = ? WHERE node_id IN (${placeholders});`,
+      args: [newNodeId, ...oldNodeIds]
+    });
+
+    // 3. Delete source facts (with traces).
+    const deletedIds: number[] = [];
+    for (const srcId of sourceIds) {
+      const cur = await tx.execute({
+        sql: "SELECT raw FROM Fact WHERE node_id = ? LIMIT 1;",
+        args: [srcId]
+      });
+      const row = cur.rows[0];
+      if (!row) continue;
+
+      const beforeRaw = asStr(row.raw);
+      const dTraceRes = await tx.execute({
+        sql: "INSERT INTO Traces (timestamp, type, node_id, node_kind) VALUES (?, 'delete', ?, 'fact');",
+        args: [ts, srcId]
+      });
+      const dTraceId = Number(dTraceRes.lastInsertRowid ?? 0);
+      await tx.execute({
+        sql: "INSERT INTO Trace_Changes (trace_id, before_raw, after_raw) VALUES (?, ?, NULL);",
+        args: [dTraceId, beforeRaw]
+      });
+      await tx.execute({
+        sql: "DELETE FROM Fact WHERE node_id = ?;",
+        args: [srcId]
+      });
+      deletedIds.push(srcId);
+    }
+
+    await tx.commit();
+
+    // Fetch the created fact DTO.
+    const rows = await args.db.client.execute({
+      sql: `
+        SELECT
+          f.node_id AS id,
+          f.raw AS raw,
+          (SELECT MIN(t.timestamp) FROM Traces t WHERE t.node_id = f.node_id) AS created_ts,
+          (SELECT MAX(t.timestamp) FROM Traces t WHERE t.node_id = f.node_id) AS updated_ts,
+          COALESCE(vector_distance_l2(f.vector_R, vector32(?)), 0) AS strength
+        FROM Fact f
+        WHERE f.node_id = ?
+        LIMIT 1;
+      `,
+      args: [ZERO_R_JSON, newId]
+    });
+    const created = rows.rows[0];
+    if (!created) throw new Error("merge insert failed");
+    return { created: toManagedDto(created), deletedIds };
+  } catch (e) {
+    try {
+      await tx.rollback();
+    } catch {
+      // ignore
+    }
+    throw e;
+  } finally {
+    try {
+      await tx.close();
+    } catch {
+      // ignore
+    }
+  }
+}
+
 export async function deleteFact(args: { db: MemoryDb; id: string }): Promise<boolean> {
   const idNum = Number(String(args.id ?? "").trim());
   if (!Number.isFinite(idNum) || idNum <= 0) return false;

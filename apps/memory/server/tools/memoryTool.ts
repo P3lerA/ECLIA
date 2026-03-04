@@ -1,23 +1,35 @@
 export const MEMORY_TOOL_NAME = "memory";
 
-export type MemoryEmitItem = {
+export type MemoryExtractCandidate = {
   text: string;
   timestamps: number[];
 };
 
-export type MemoryEmitArgs = {
-  memories: MemoryEmitItem[];
+export type MemoryDeleteArgs = {
+  action: "delete";
+  ids: number[];
 };
 
-export type MemoryEmitValidationError = {
+export type MemoryMergeArgs = {
+  action: "merge";
+  ids: number[];
+  content: string;
+};
+
+export type MemoryToolArgs =
+  | ({ action: "extract" } & MemoryExtractCandidate)
+  | MemoryDeleteArgs
+  | MemoryMergeArgs;
+
+export type MemoryToolValidationError = {
   ok: false;
   error: string;
   issues: string[];
 };
 
-export type MemoryEmitValidationOk = {
+export type MemoryToolValidationOk = {
   ok: true;
-  value: MemoryEmitArgs;
+  value: MemoryToolArgs;
 };
 
 function isRecord(v: unknown): v is Record<string, any> {
@@ -37,104 +49,189 @@ function asInt(v: unknown): number | null {
   return i;
 }
 
-function uniqSortedInts(xs: number[]): number[] {
-  const out = Array.from(new Set(xs)).sort((a, b) => a - b);
-  return out;
+function parseTimestampsFromString(s: string): number[] | null {
+  const t = String(s ?? "").trim();
+  if (!t) return null;
+
+  const parseCsv = (csv: string): number[] | null => {
+    const parts = csv
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (!parts.length) return [];
+    const out: number[] = [];
+    for (const p of parts) {
+      if (!/^\d+$/.test(p)) return null;
+      const n = Number(p);
+      if (!Number.isSafeInteger(n) || n < 0) return null;
+      out.push(n);
+    }
+    return out;
+  };
+
+  // Single integer as string.
+  if (/^\d+$/.test(t)) return [Number(t)];
+
+  // Comma-separated integers.
+  if (/^\d+(\s*,\s*\d+)*$/.test(t)) return parseCsv(t);
+
+  // JSON-ish bracket list: [1, 2, 3]
+  if (/^\[\s*\d+(\s*,\s*\d+)*\s*\]$/.test(t)) {
+    const inner = t.replace(/^\[\s*/, "").replace(/\s*\]$/, "");
+    return parseCsv(inner);
+  }
+
+  // Some models double-quote the list string: "[1,2]".
+  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+    const unq = t.slice(1, -1);
+    return parseTimestampsFromString(unq);
+  }
+
+  return null;
 }
 
-/**
- * Strict validation + normalization for the memory tool.
- *
- * This is intentionally conservative: if the model produces malformed output,
- * reject the whole call so the caller can request a retry.
- */
-export function validateMemoryEmitArgs(raw: unknown): MemoryEmitValidationOk | MemoryEmitValidationError {
+function uniqSortedInts(xs: number[]): number[] {
+  return Array.from(new Set(xs)).sort((a, b) => a - b);
+}
+
+function parseIds(raw: unknown): number[] | null {
+  let list: unknown[] | null = null;
+  if (Array.isArray(raw)) {
+    list = raw;
+  } else if (typeof raw === "number") {
+    list = [raw];
+  } else if (typeof raw === "string") {
+    const parsed = parseTimestampsFromString(raw);
+    if (parsed !== null) list = parsed;
+  }
+  if (!list) return null;
+  const out: number[] = [];
+  for (const v of list) {
+    const n = asInt(v);
+    if (n === null || n <= 0) return null;
+    out.push(n);
+  }
+  return out.length ? uniqSortedInts(out) : null;
+}
+
+// ---------------------------------------------------------------------------
+
+function validateExtractArgs(raw: unknown): MemoryToolValidationOk | MemoryToolValidationError {
   const issues: string[] = [];
 
-  if (!isRecord(raw)) {
-    return { ok: false, error: "invalid_args", issues: ["body must be a JSON object"] };
-  }
+  const obj = raw as any;
 
-  const memoriesRaw = (raw as any).memories;
-  if (!Array.isArray(memoriesRaw)) {
-    return { ok: false, error: "invalid_args", issues: ["memories must be an array"] };
-  }
-
-  if (memoriesRaw.length === 0) {
-    return { ok: false, error: "invalid_args", issues: ["memories must not be empty"] };
-  }
-
-  const MAX_ITEMS = 50;
   const MAX_TEXT_CHARS = 2000;
   const MAX_TS_PER_ITEM = 64;
 
-  if (memoriesRaw.length > MAX_ITEMS) {
-    return { ok: false, error: "invalid_args", issues: [`memories must have at most ${MAX_ITEMS} items`] };
+  const text = asText(obj?.text);
+  if (!text) {
+    issues.push("text is required");
+  } else if (text.length > MAX_TEXT_CHARS) {
+    issues.push(`text exceeds ${MAX_TEXT_CHARS} characters`);
   }
 
-  const memories: MemoryEmitItem[] = [];
+  // NOTE: Some upstream models frequently serialize numeric arrays as strings
+  // (e.g. "[1772235673, 1772239924]"). Coerce those forms into a real number[]
+  // so the model doesn't get stuck retrying on a superficial type mismatch.
+  const tsRaw = obj?.timestamps;
+  let tsList: unknown[] | null = null;
+  if (Array.isArray(tsRaw)) {
+    tsList = tsRaw;
+  } else if (typeof tsRaw === "number") {
+    tsList = [tsRaw];
+  } else if (typeof tsRaw === "string") {
+    const parsed = parseTimestampsFromString(tsRaw);
+    if (parsed !== null) tsList = parsed;
+  }
 
-  for (let i = 0; i < memoriesRaw.length; i++) {
-    const itemIssues: string[] = [];
-    const m = memoriesRaw[i];
-    if (!isRecord(m)) {
-      itemIssues.push(`memories[${i}] must be an object`);
-      issues.push(...itemIssues);
-      continue;
-    }
+  if (!tsList) {
+    issues.push("timestamps must be an array");
+  } else if (tsList.length === 0) {
+    issues.push("timestamps must not be empty");
+  } else if (tsList.length > MAX_TS_PER_ITEM) {
+    issues.push(`timestamps must have at most ${MAX_TS_PER_ITEM} entries`);
+  }
 
-    const text = asText((m as any).text);
-    if (!text) {
-      itemIssues.push(`memories[${i}].text is required`);
-    } else if (text.length > MAX_TEXT_CHARS) {
-      itemIssues.push(`memories[${i}].text exceeds ${MAX_TEXT_CHARS} characters`);
-    }
-
-    const tsRaw = (m as any).timestamps;
-    if (!Array.isArray(tsRaw)) {
-      itemIssues.push(`memories[${i}].timestamps must be an array`);
-      issues.push(...itemIssues);
-      continue;
-    }
-
-    if (tsRaw.length === 0) {
-      itemIssues.push(`memories[${i}].timestamps must not be empty`);
-      issues.push(...itemIssues);
-      continue;
-    }
-
-    if (tsRaw.length > MAX_TS_PER_ITEM) {
-      itemIssues.push(`memories[${i}].timestamps must have at most ${MAX_TS_PER_ITEM} entries`);
-      issues.push(...itemIssues);
-      continue;
-    }
-
-    const ts: number[] = [];
-    for (let j = 0; j < tsRaw.length; j++) {
-      const v = asInt(tsRaw[j]);
+  const ts: number[] = [];
+  if (tsList) {
+    for (let j = 0; j < tsList.length; j++) {
+      const v = asInt(tsList[j]);
       if (v === null || v < 0) {
-        itemIssues.push(`memories[${i}].timestamps[${j}] must be an integer >= 0`);
+        issues.push(`timestamps[${j}] must be an integer >= 0`);
         continue;
       }
       ts.push(v);
     }
-
-    if (itemIssues.length) {
-      issues.push(...itemIssues);
-      continue;
-    }
-
-    memories.push({ text, timestamps: uniqSortedInts(ts) });
   }
 
   if (issues.length) return { ok: false, error: "invalid_args", issues };
-  return { ok: true, value: { memories } };
+  return { ok: true, value: { action: "extract", text, timestamps: uniqSortedInts(ts) } };
+}
+
+function validateDeleteArgs(raw: unknown): MemoryToolValidationOk | MemoryToolValidationError {
+  const obj = raw as any;
+  const MAX_IDS = 200;
+
+  const ids = parseIds(obj?.ids);
+  if (!ids) {
+    return { ok: false, error: "invalid_args", issues: ["ids must be a non-empty array of positive integers"] };
+  }
+  if (ids.length > MAX_IDS) {
+    return { ok: false, error: "invalid_args", issues: [`ids must have at most ${MAX_IDS} entries`] };
+  }
+
+  return { ok: true, value: { action: "delete", ids } };
+}
+
+function validateMergeArgs(raw: unknown): MemoryToolValidationOk | MemoryToolValidationError {
+  const issues: string[] = [];
+  const obj = raw as any;
+  const MAX_IDS = 200;
+  const MAX_CONTENT_CHARS = 4000;
+
+  const ids = parseIds(obj?.ids);
+  if (!ids) {
+    issues.push("ids must be a non-empty array of positive integers");
+  } else if (ids.length < 2) {
+    issues.push("ids must contain at least 2 entries to merge");
+  } else if (ids.length > MAX_IDS) {
+    issues.push(`ids must have at most ${MAX_IDS} entries`);
+  }
+
+  const content = asText(obj?.content);
+  if (!content) {
+    issues.push("content is required");
+  } else if (content.length > MAX_CONTENT_CHARS) {
+    issues.push(`content exceeds ${MAX_CONTENT_CHARS} characters`);
+  }
+
+  if (issues.length) return { ok: false, error: "invalid_args", issues };
+  return { ok: true, value: { action: "merge", ids: ids!, content } };
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Strict validation + normalization for the memory tool.
+ */
+export function validateMemoryToolArgs(raw: unknown): MemoryToolValidationOk | MemoryToolValidationError {
+  if (!isRecord(raw)) {
+    return { ok: false, error: "invalid_args", issues: ["body must be a JSON object"] };
+  }
+
+  const actionRaw = (raw as any).action;
+  const action = typeof actionRaw === "string" ? actionRaw.trim().toLowerCase() : "";
+
+  if (action === "delete") return validateDeleteArgs(raw);
+  if (action === "merge") return validateMergeArgs(raw);
+
+  // Default: extract (backward-compatible — stage 1 callers omit action).
+  return validateExtractArgs(raw);
 }
 
 /**
- * OpenAI-compatible tool schema (for future genesis stages).
- *
- * NOTE: kept here so the caller doesn't need to duplicate the JSON schema.
+ * OpenAI-compatible tool schema.
  */
 export function memoryToolSchema() {
   return {
@@ -142,32 +239,32 @@ export function memoryToolSchema() {
     function: {
       name: MEMORY_TOOL_NAME,
       description:
-        "Emit extracted long-term memory candidates as structured items. Use this ONLY for facts worth remembering.",
+        "Manage long-term memory. " +
+        "extract (default): store one memory candidate. " +
+        "delete: remove facts by id. " +
+        "merge: combine multiple facts into one new fact.",
       parameters: {
         type: "object",
-        additionalProperties: false,
         properties: {
-          memories: {
+          action: { type: "string", enum: ["extract", "delete", "merge"] },
+          // extract
+          text: { type: "string", minLength: 1, maxLength: 2000 },
+          timestamps: {
             type: "array",
             minItems: 1,
-            maxItems: 50,
-            items: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                text: { type: "string", minLength: 1, maxLength: 2000 },
-                timestamps: {
-                  type: "array",
-                  minItems: 1,
-                  maxItems: 64,
-                  items: { type: "integer", minimum: 0 }
-                }
-              },
-              required: ["text", "timestamps"]
-            }
-          }
-        },
-        required: ["memories"]
+            maxItems: 64,
+            items: { type: "integer", minimum: 0 }
+          },
+          // delete / merge
+          ids: {
+            type: "array",
+            minItems: 1,
+            maxItems: 200,
+            items: { type: "integer", minimum: 1 }
+          },
+          // merge
+          content: { type: "string", minLength: 1, maxLength: 4000 }
+        }
       }
     }
   } as const;

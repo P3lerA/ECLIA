@@ -16,9 +16,9 @@ export type MemoryBase = {
   timeoutMs: number;
   embeddingsModel: string;
   genesisTurnsPerCall: number;
-  emitToolMessages: "drop" | "truncate";
-  emitToolMaxCharsPerMsg: number;
-  emitToolMaxTotalChars: number;
+  extractToolMessages: "drop" | "truncate";
+  extractToolMaxCharsPerMsg: number;
+  extractToolMaxTotalChars: number;
 };
 
 export type MemoryDraft = {
@@ -30,9 +30,9 @@ export type MemoryDraft = {
   timeoutMs: string;
   embeddingsModel: string;
   genesisTurnsPerCall: string;
-  emitToolMessages: "drop" | "truncate";
-  emitToolMaxCharsPerMsg: string;
-  emitToolMaxTotalChars: string;
+  extractToolMessages: "drop" | "truncate";
+  extractToolMaxCharsPerMsg: string;
+  extractToolMaxTotalChars: string;
 };
 
 export type MemoryManageItem = {
@@ -84,7 +84,7 @@ export const DEFAULT_MEMORY_DRAFT: MemoryDraft = {
   timeoutMs: "1200",
   embeddingsModel: "all-MiniLM-L6-v2",
   genesisTurnsPerCall: "20",
-  emitToolMessages: "drop",
-  emitToolMaxCharsPerMsg: "1200",
-  emitToolMaxTotalChars: "5000"
+  extractToolMessages: "drop",
+  extractToolMaxCharsPerMsg: "1200",
+  extractToolMaxTotalChars: "5000"
 };

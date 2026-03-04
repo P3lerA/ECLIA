@@ -1,8 +1,8 @@
 import type { MemoryDb, RecallMemoryDto } from "./types.js";
 import { toVectorJson } from "./vector.js";
 
-function isoNow(): string {
-  return new Date().toISOString();
+function epochNowSec(): number {
+  return Math.trunc(Date.now() / 1000);
 }
 
 function clampInt(v: unknown, min: number, max: number, fallback: number): number {
@@ -63,12 +63,18 @@ export async function recallFacts(args: {
 
 export async function logActivation(args: {
   db: MemoryDb;
+  /** Unix timestamp in seconds. Defaults to now. */
+  timestampSec?: number;
   nodes: Array<{ nodeId: string; strength: number }>;
 }): Promise<void> {
   const nodes = Array.isArray(args.nodes) ? args.nodes : [];
   if (!nodes.length) return;
 
-  const ts = isoNow();
+  const ts = (() => {
+    const n = args.timestampSec;
+    const sec = typeof n === "number" && Number.isFinite(n) ? Math.trunc(n) : epochNowSec();
+    return String(sec);
+  })();
   const tx = await args.db.client.transaction("write");
 
   try {

@@ -43,8 +43,8 @@ model = "all-MiniLM-L6-v2"
 # Range: 1–64
 turns_per_call = 20
 
-[memory.emit]
-# Memory emit pipeline (LLM extraction calls).
+[memory.extract]
+# Memory extraction pipeline (LLM extraction calls).
 # Tool messages are often extremely noisy; default is to drop them entirely.
 tool_messages = "drop"  # "drop" | "truncate"
 

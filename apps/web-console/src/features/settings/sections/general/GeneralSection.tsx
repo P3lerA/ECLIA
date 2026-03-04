@@ -172,7 +172,7 @@ export function GeneralSection(props: GeneralSectionProps) {
           title="Parse Assistant Output"
           description={
             <>
-              Attempt to recover tool calls from assistant plaintext output when the provider fails to emit structured
+              Attempt to recover tool calls from assistant plaintext output when the provider fails to produce structured
               tool calls. Writes warnings to <code>.eclia/debug/&lt;sessionId&gt;/warnings.ndjson</code> and shows a
               warning in approval prompts.
             </>
