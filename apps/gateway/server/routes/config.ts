@@ -213,6 +213,9 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
       if (Object.prototype.hasOwnProperty.call(body.memory, "recall_limit")) {
         memPatch.recall_limit = (body.memory as any).recall_limit;
       }
+      if (Object.prototype.hasOwnProperty.call(body.memory, "recall_min_score")) {
+        memPatch.recall_min_score = (body.memory as any).recall_min_score;
+      }
       if (Object.prototype.hasOwnProperty.call(body.memory, "timeout_ms")) {
         memPatch.timeout_ms = (body.memory as any).timeout_ms;
       }
@@ -280,6 +283,13 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
           return json(res, 400, { ok: false, error: "bad_request", hint: "memory.recall_limit must be 0–200." });
         }
         memPatch.recall_limit = i;
+      }
+      if (Object.prototype.hasOwnProperty.call(memPatch, "recall_min_score")) {
+        const n = typeof memPatch.recall_min_score === "number" ? memPatch.recall_min_score : typeof memPatch.recall_min_score === "string" ? Number(memPatch.recall_min_score) : NaN;
+        if (!Number.isFinite(n) || n < 0 || n > 1) {
+          return json(res, 400, { ok: false, error: "bad_request", hint: "memory.recall_min_score must be 0–1." });
+        }
+        memPatch.recall_min_score = n;
       }
       if (Object.prototype.hasOwnProperty.call(memPatch, "timeout_ms")) {
         const n = typeof memPatch.timeout_ms === "number" ? memPatch.timeout_ms : typeof memPatch.timeout_ms === "string" ? Number(memPatch.timeout_ms) : NaN;

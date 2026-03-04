@@ -260,6 +260,17 @@ export async function apiResetSession(sessionId: string): Promise<SessionMeta> {
   return j.session;
 }
 
+export type SessionStatus =
+  | { active: true; phase: string; startedAt: number; updatedAt: number }
+  | { active: false };
+
+export async function apiGetSessionStatus(sessionId: string): Promise<SessionStatus> {
+  const r = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/status`, { method: "GET" });
+  const j = (await r.json()) as any;
+  if (j.active) return { active: true, phase: j.phase, startedAt: j.startedAt, updatedAt: j.updatedAt };
+  return { active: false };
+}
+
 export async function apiDeleteSession(sessionId: string): Promise<void> {
   const r = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
   const j = (await r.json()) as DeleteSessionResponse;

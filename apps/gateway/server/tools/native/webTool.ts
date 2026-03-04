@@ -10,18 +10,12 @@
 
 import type { ToolAccessMode } from "../policy.js";
 import type { ToolSafetyCheck } from "../approvalFlow.js";
-import { DEFAULT_WEB_PROVIDER, WEB_PROVIDER_IDS, type WebProviderId } from "@eclia/config";
+import { DEFAULT_WEB_PROVIDER } from "@eclia/config";
 
 export const WEB_TOOL_SCHEMA: any = {
   type: "object",
   additionalProperties: true,
   properties: {
-    provider: {
-      type: "string",
-      enum: [...WEB_PROVIDER_IDS],
-      default: DEFAULT_WEB_PROVIDER,
-      description: "Web provider."
-    },
     mode: {
       type: "string",
       enum: ["search", "extract"],
@@ -48,31 +42,13 @@ export const WEB_TOOL_SCHEMA: any = {
       description: "Time filter."
     },
     start_date: { type: "string", description: "Start date YYYY-MM-DD." },
-    end_date: { type: "string", description: "End date YYYY-MM-DD." },
-    // Extract options (Tavily compatible)
-    extract_depth: { type: "string", enum: ["basic", "advanced"], description: "Extraction depth." },
-    format: { type: "string", enum: ["markdown", "text"], description: "Extraction format." },
-    timeout: { type: "number", description: "Provider timeout." },
-    // Output shaping (gateway-side)
-    max_chars_per_content: {
-      type: "integer",
-      minimum: 500,
-      maximum: 200000,
-      description: "Truncate each document's extracted content to this many characters (gateway-side)."
-    },
-    max_total_chars: {
-      type: "integer",
-      minimum: 1000,
-      maximum: 500000,
-      description: "Truncate total extracted content across all results (gateway-side)."
-    }
+    end_date: { type: "string", description: "End date YYYY-MM-DD." }
   }
 };
 
 export type WebToolMode = "search" | "extract";
 
 export type NormalizedWebToolArgs = {
-  provider: WebProviderId;
   mode: WebToolMode;
   unsupported_mode?: string;
 
@@ -84,16 +60,9 @@ export type NormalizedWebToolArgs = {
   start_date?: string;
   end_date?: string;
 
-  // Extract/Crawl
+  // Extract
   url?: string;
   urls?: string[];
-  extract_depth?: "basic" | "advanced";
-  format?: "markdown" | "text";
-          timeout?: number;
-
-  // Output shaping
-  max_chars_per_content?: number;
-  max_total_chars?: number;
 };
 
 function coerceNonEmptyString(v: unknown): string {
@@ -118,15 +87,6 @@ function clampInt(v: unknown, min: number, max: number): number | undefined {
   return n;
 }
 
-function coerceNumber(v: unknown): number | undefined {
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "string" && v.trim()) {
-    const n = Number(v);
-    if (Number.isFinite(n)) return n;
-  }
-  return undefined;
-}
-
 function coerceStringArray(v: unknown): string[] | undefined {
   if (!Array.isArray(v)) return undefined;
   const out: string[] = [];
@@ -145,7 +105,6 @@ function coerceEnum<T extends string>(v: unknown, allowed: readonly T[]): T | un
 export function parseWebArgs(raw: unknown): NormalizedWebToolArgs {
   const obj = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as any) : {};
 
-  const provider = (coerceEnum(obj.provider, WEB_PROVIDER_IDS) ?? DEFAULT_WEB_PROVIDER) as WebProviderId;
   const modeRaw = coerceNonEmptyString(obj.mode);
   const mode = (coerceEnum(modeRaw, ["search", "extract"] as const) ?? "search") as WebToolMode;
   const unsupported_mode = modeRaw && modeRaw != mode ? modeRaw : undefined;
@@ -155,9 +114,7 @@ export function parseWebArgs(raw: unknown): NormalizedWebToolArgs {
   const urls = urlsList ?? (urlsFromSingle ? [urlsFromSingle] : undefined);
 
   return {
-    provider,
     mode,
-
     unsupported_mode,
 
     query: coerceNonEmptyString(obj.query) || coerceNonEmptyString(obj.q) || undefined,
@@ -167,12 +124,7 @@ export function parseWebArgs(raw: unknown): NormalizedWebToolArgs {
     start_date: coerceNonEmptyString(obj.start_date ?? obj.startDate) || undefined,
     end_date: coerceNonEmptyString(obj.end_date ?? obj.endDate) || undefined,
     url: urlsFromSingle || undefined,
-    urls,
-    extract_depth: coerceEnum(obj.extract_depth ?? obj.extractDepth, ["basic", "advanced"] as const),
-    format: coerceEnum(obj.format, ["markdown", "text"] as const),
-    timeout: coerceNumber(obj.timeout),
-    max_chars_per_content: clampInt(obj.max_chars_per_content ?? obj.maxCharsPerContent, 500, 200_000),
-    max_total_chars: clampInt(obj.max_total_chars ?? obj.maxTotalChars, 1_000, 500_000)
+    urls
   };
 }
 
@@ -332,20 +284,6 @@ export async function invokeWebTool(args: {
   parsed: NormalizedWebToolArgs;
   rawConfig?: any;
 }): Promise<{ ok: boolean; result: any }> {
-  // Phase 1: Tavily only.
-  if (args.parsed.provider !== DEFAULT_WEB_PROVIDER) {
-    return {
-      ok: false,
-      result: {
-        type: "web_result",
-        ok: false,
-        provider: args.parsed.provider,
-        mode: args.parsed.mode,
-        error: { code: "unsupported_provider", message: `Unsupported web provider: ${args.parsed.provider}` }
-      }
-    };
-  }
-
   const auth = resolveTavilyAuth(args.rawConfig);
   if (!auth) {
     return {
@@ -362,8 +300,10 @@ export async function invokeWebTool(args: {
         }
       }
     };
-  }  const maxCharsPerContent = args.parsed.max_chars_per_content ?? 20_000;
-  const maxTotalChars = args.parsed.max_total_chars ?? 120_000;
+  }
+
+  const maxCharsPerContent = 20_000;
+  const maxTotalChars = 120_000;
 
   if (args.parsed.unsupported_mode) {
     return {
@@ -470,14 +410,13 @@ export async function invokeWebTool(args: {
 
     const body: any = {
       urls,
-      extract_depth: args.parsed.extract_depth ?? "basic",
-      format: args.parsed.format ?? "markdown"
+      extract_depth: "basic",
+      format: "markdown"
     };
 
-    if (typeof args.parsed.timeout === "number") body.timeout = args.parsed.timeout;
     if (args.parsed.query) body.query = args.parsed.query;
 
-    const timeoutMs = Math.max(10_000, Math.min(120_000, Math.round((args.parsed.timeout ?? 60) * 1_000)));
+    const timeoutMs = 60_000;
     const r = await tavilyPostJson({ endpoint: "/extract", body, auth, timeoutMs });
     if (!r.ok) {
       return {

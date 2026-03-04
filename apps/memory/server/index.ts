@@ -20,6 +20,9 @@ import { handleExtractRequest } from "./handlers/extractHandlers.js";
 import { handleGenesisRun, handleGenesisStatus } from "./handlers/genesisHandlers.js";
 import { createToolSessionLogger } from "./tools/toolSessionLogger.js";
 import { createGenesisState } from "./genesisState.js";
+import { getEmbeddingsMeta, setEmbeddingsMeta } from "./db/metaRepo.js";
+import { getEmbeddingsHealth } from "./embeddingClient.js";
+import { reembedAllFacts } from "./reembed.js";
 
 async function start() {
   const { rootDir, config } = loadEcliaConfig(process.cwd());
@@ -36,6 +39,9 @@ async function start() {
   const timeoutMs = typeof timeoutRaw === "number" ? timeoutRaw : typeof timeoutRaw === "string" ? Number(timeoutRaw) : 1200;
   const timeout = Number.isFinite(timeoutMs) ? Math.trunc(timeoutMs) : 1200;
 
+  const minScoreRaw = (config as any)?.memory?.recall_min_score;
+  const recallMinScore = typeof minScoreRaw === "number" && Number.isFinite(minScoreRaw) ? minScoreRaw : 0.6;
+
   const db = await openMemoryDb({ rootDir, embeddingsModel });
 
   const sidecarManager = createSidecarManager({
@@ -44,6 +50,35 @@ async function start() {
     host: "127.0.0.1",
     port: embeddingsPort
   });
+
+  // --- Startup Meta Validation ---
+  if (embeddingsModel) {
+    const meta = await getEmbeddingsMeta(db.client);
+
+    if (meta.model !== null && meta.model !== embeddingsModel) {
+      // Model changed → re-embed all facts
+      console.log(`[memory] embeddings model changed: stored="${meta.model}" configured="${embeddingsModel}"`);
+      const baseUrl = await sidecarManager.ensureSidecar(embeddingsModel);
+      if (!baseUrl) {
+        console.error("[memory] FATAL: cannot start sidecar for re-embedding");
+        process.exitCode = 1;
+        return;
+      }
+      await reembedAllFacts({ client: db.client, sidecarBaseUrl: baseUrl, model: embeddingsModel, timeoutMs: 30_000 });
+    } else if (meta.model === null) {
+      // Fresh DB — try to write meta from sidecar health
+      const baseUrl = await sidecarManager.ensureSidecar(embeddingsModel);
+      if (baseUrl) {
+        const health = await getEmbeddingsHealth({ baseUrl, timeoutMs: 5_000 });
+        if (health && health.dim > 0) {
+          await setEmbeddingsMeta(db.client, embeddingsModel, health.dim);
+          console.log(`[memory] meta initialized: model=${embeddingsModel} dim=${health.dim}`);
+        }
+      }
+    } else {
+      console.log(`[memory] meta OK: model=${meta.model} dim=${meta.dim}`);
+    }
+  }
 
   const toolLogger = createToolSessionLogger({ rootDir, sessionId: "memory-tool" });
 
@@ -79,7 +114,8 @@ async function start() {
         db,
         ensureSidecar: sidecarManager.ensureSidecar,
         embeddingsModel,
-        timeoutMs: timeout
+        timeoutMs: timeout,
+        recallMinScore
       });
     }
 

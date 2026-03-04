@@ -89,6 +89,13 @@ function clampInt(v: unknown, min: number, max: number, fallback: number): numbe
   return i;
 }
 
+function clampFloat(v: unknown, min: number, max: number, fallback: number): number {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return fallback;
+  if (n < min || n > max) return fallback;
+  return n;
+}
+
 function coerceHost(v: unknown, fallback: string): string {
   if (typeof v !== "string") return fallback;
   const s = v.trim();
@@ -332,6 +339,7 @@ export function coerceConfig(raw: Record<string, any>): EcliaConfig {
       port: clampPort((memoryRaw as any).port, base.memory.port),
       recent_turns: clampInt((memoryRaw as any).recent_turns, 0, 64, base.memory.recent_turns),
       recall_limit: clampInt((memoryRaw as any).recall_limit, 0, 200, base.memory.recall_limit),
+      recall_min_score: clampFloat((memoryRaw as any).recall_min_score, 0, 1, base.memory.recall_min_score),
       timeout_ms: clampInt((memoryRaw as any).timeout_ms, 50, 60_000, base.memory.timeout_ms),
       embeddings: {
         model: coerceString(((memoryRaw as any) as any)?.embeddings?.model, base.memory.embeddings.model)

@@ -154,6 +154,7 @@ export type ChatEvent =
   | { type: "delta"; at: number; text: string }
   | { type: "tool_call"; at: number; callId?: string; name: string; args: unknown }
   | { type: "tool_result"; at: number; callId?: string; name: string; ok: boolean; result: unknown }
+  | { type: "phase"; at: number; phase: string; tools?: string[] }
   | { type: "done"; at: number }
   | { type: "error"; at: number; message: string };
 

@@ -10,7 +10,8 @@ import { MemoryView } from "./features/memory/MemoryView";
 import { BackgroundRoot } from "./features/background/BackgroundRoot";
 import { applyTheme, subscribeSystemThemeChange, writeStoredThemeMode } from "./theme/theme";
 import { writeStoredPrefs } from "./persist/prefs";
-import { apiGetSession, apiListSessions, toUiSession } from "./core/api/sessions";
+import { apiGetSession, apiGetSessionStatus, apiListSessions, toUiSession } from "./core/api/sessions";
+import { makeId } from "./core/ids";
 import { apiFetch } from "./core/api/apiFetch";
 import { AUTH_REQUIRED_EVENT } from "./core/api/gatewayAuth";
 import { GatewayTokenView } from "./features/auth/GatewayTokenView";
@@ -267,7 +268,7 @@ function AppInner() {
   }, [dispatch, state.settings.sessionSyncEnabled, authEpoch, authRequired, authReady]);
 
   // Load messages for the session in the URL on-demand.
-  // (Navigation is router-driven; state should not "pull" the app into a session.)
+  // If the gateway is actively processing a request, show the phase indicator and poll until done.
   React.useEffect(() => {
     if (authRequired || !authReady) return;
     if (!state.settings.sessionSyncEnabled) return;
@@ -283,6 +284,51 @@ function AppInner() {
         const ui = toUiSession(session);
         dispatch({ type: "session/update", sessionId: sid, patch: { ...ui, localOnly: false } });
         dispatch({ type: "messages/set", sessionId: sid, messages, hasMore });
+
+        // Check if the gateway is still processing this session (refresh recovery).
+        try {
+          const status = await apiGetSessionStatus(sid);
+          if (cancelled) return;
+
+          if (status.active) {
+            // Show a streaming placeholder with the current phase.
+            dispatch({ type: "assistant/stream/start", sessionId: sid, messageId: makeId() });
+            dispatch({ type: "session/setPhase", sessionId: sid, phase: status.phase });
+
+            // Poll until the request completes.
+            const poll = async () => {
+              while (!cancelled) {
+                await new Promise((r) => setTimeout(r, 2000));
+                if (cancelled) break;
+                try {
+                  const s = await apiGetSessionStatus(sid);
+                  if (cancelled) break;
+                  if (!s.active) {
+                    // Request finished — reload messages and clear phase.
+                    dispatch({ type: "session/setPhase", sessionId: sid, phase: null });
+                    dispatch({ type: "assistant/stream/finalize", sessionId: sid });
+                    try {
+                      const fresh = await apiGetSession(sid);
+                      if (!cancelled) {
+                        dispatch({ type: "messages/set", sessionId: sid, messages: fresh.messages, hasMore: fresh.hasMore });
+                      }
+                    } catch { /* ignore */ }
+                    break;
+                  }
+                  dispatch({ type: "session/setPhase", sessionId: sid, phase: s.phase });
+                } catch {
+                  // Status endpoint unreachable — stop polling.
+                  dispatch({ type: "session/setPhase", sessionId: sid, phase: null });
+                  dispatch({ type: "assistant/stream/finalize", sessionId: sid });
+                  break;
+                }
+              }
+            };
+            poll();
+          }
+        } catch {
+          // Status endpoint not available (older gateway) — no recovery.
+        }
       } catch {
         // Ignore (session may be local-only, or gateway offline).
       }

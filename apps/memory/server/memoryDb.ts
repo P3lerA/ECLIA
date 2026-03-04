@@ -5,6 +5,7 @@ export { R_DIM } from "./db/vector.js";
 export { openMemoryDb } from "./db/openAndMigrate.js";
 export { createFact, deleteFact, listFactsManage, mergeFacts, updateFact } from "./db/factRepo.js";
 export { logActivation, makeFactNodeId, recallFacts } from "./db/recallRepo.js";
+export { getEmbeddingsMeta, setEmbeddingsMeta, writeMetaIfNeeded } from "./db/metaRepo.js";
 
 export function makeRandomRequestId(): string {
   try {

@@ -103,6 +103,13 @@ function normalizeEvent(eventName: string | null, payload: any): ChatEvent | nul
         ok: Boolean(payload.ok),
         result: payload.result
       };
+    case "phase":
+      return {
+        type: "phase",
+        at,
+        phase: String(payload.phase ?? ""),
+        tools: Array.isArray(payload.tools) ? payload.tools.map(String) : undefined
+      };
     case "done":
       return { type: "done", at };
     case "error":

@@ -20,6 +20,7 @@ export type GenesisState = {
   noteProcessedSession: (n?: number) => void;
   noteProcessedChunk: (n?: number) => void;
   noteExtracted: (n?: number) => void;
+  setExtractedFacts: (n: number) => void;
   finishOk: () => void;
   finishError: (err: unknown) => void;
   status: () => { active: GenesisRunStatus | null; last: GenesisRunStatus | null };
@@ -95,6 +96,12 @@ export function createGenesisState(): GenesisState {
     noteExtracted: (n = 1) => {
       if (!active) return;
       active.extractedFacts += Math.max(0, Math.trunc(n));
+      bump();
+    },
+
+    setExtractedFacts: (n: number) => {
+      if (!active) return;
+      active.extractedFacts = Math.max(0, Math.trunc(n));
       bump();
     },
 

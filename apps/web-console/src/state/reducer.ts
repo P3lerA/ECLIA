@@ -102,6 +102,7 @@ export type AppState = {
 
   messagesBySession: Record<string, Message[]>;
   hasMoreBySession: Record<string, boolean>;
+  phaseBySession: Record<string, string | null>;
 
   settings: AppSettings;
   gpu: AppGPU;
@@ -142,6 +143,7 @@ export type Action =
   | { type: "assistant/appendBlocksToLast"; sessionId: string; blocks: Block[] }
   | { type: "assistant/addBlocks"; sessionId: string; blocks: Block[] }
   | { type: "messages/clear"; sessionId: string }
+  | { type: "session/setPhase"; sessionId: string; phase: string | null }
   | { type: "inspector/tab"; tab: InspectorTabId }
   | { type: "log/push"; item: LogItem };
 
@@ -475,6 +477,15 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         sessions,
         messagesBySession: { ...state.messagesBySession, [action.sessionId]: [...list, msg] }
+      };
+    }
+
+    case "session/setPhase": {
+      const cur = state.phaseBySession[action.sessionId];
+      if (cur === action.phase) return state;
+      return {
+        ...state,
+        phaseBySession: { ...state.phaseBySession, [action.sessionId]: action.phase }
       };
     }
 

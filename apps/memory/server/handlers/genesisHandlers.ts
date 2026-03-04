@@ -66,6 +66,10 @@ export async function handleGenesisRun(
         model
       });
 
+      // Update fact count to reflect post-consolidation state.
+      const finalFacts = await listFactsManage({ db: ctx.db, limit: 500 });
+      ctx.genesis.setExtractedFacts(finalFacts.length);
+
       ctx.genesis.finishOk();
     } catch (err) {
       ctx.genesis.finishError(err);

@@ -2,12 +2,23 @@ import React from "react";
 import type { Block, Message } from "../../core/types";
 import { runtime } from "../../core/runtime";
 
+function phaseLabel(phase: string | null | undefined): string {
+  switch (phase) {
+    case "recalling": return "recalling\u2026";
+    case "generating": return "streaming";
+    case "tool_executing": return "calling tool\u2026";
+    default: return "streaming";
+  }
+}
+
 export const MessageBubble = React.memo(function MessageBubble({
   msg,
-  plainOutput
+  plainOutput,
+  phase
 }: {
   msg: Message;
   plainOutput: boolean;
+  phase?: string | null;
 }) {
 
   const roleLabel =
@@ -40,7 +51,7 @@ export const MessageBubble = React.memo(function MessageBubble({
         <div className="role">
           <span className={dotClass} />
           {roleLabel}
-          {msg.streaming ? <span className="muted">· streaming</span> : null}
+          {msg.streaming ? <span className="muted">· {phaseLabel(phase)}</span> : null}
         </div>
 
         {blocks.map((b, i) => {

@@ -13,6 +13,7 @@ export type MemoryBase = {
   port: number;
   recentTurns: number;
   recallLimit: number;
+  recallMinScore: number;
   timeoutMs: number;
   embeddingsModel: string;
   genesisTurnsPerCall: number;
@@ -27,6 +28,7 @@ export type MemoryDraft = {
   port: string;
   recentTurns: string;
   recallLimit: string;
+  recallMinScore: string;
   timeoutMs: string;
   embeddingsModel: string;
   genesisTurnsPerCall: string;
@@ -81,6 +83,7 @@ export const DEFAULT_MEMORY_DRAFT: MemoryDraft = {
   port: "8788",
   recentTurns: "8",
   recallLimit: "20",
+  recallMinScore: "0.6",
   timeoutMs: "1200",
   embeddingsModel: "all-MiniLM-L6-v2",
   genesisTurnsPerCall: "20",

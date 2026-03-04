@@ -2,6 +2,7 @@ import http from "node:http";
 
 import { SessionStore } from "../sessionStore.js";
 import { json, readJson, safeDecodeSegment, safeInt } from "../httpUtils.js";
+import { getActiveRequest } from "../activeRequests.js";
 
 export async function handleSessions(req: http.IncomingMessage, res: http.ServerResponse, store: SessionStore) {
   const u = new URL(req.url ?? "/", "http://localhost");
@@ -46,6 +47,25 @@ export async function handleSessions(req: http.IncomingMessage, res: http.Server
     } catch {
       return json(res, 400, { ok: false, error: "invalid_session_id" });
     }
+  }
+
+  // /api/sessions/:id/status
+  const mStatus = pathname.match(/^\/api\/sessions\/([^/]+)\/status$/);
+  if (mStatus && req.method === "GET") {
+    const id = safeDecodeSegment(mStatus[1]);
+    if (!id) return json(res, 400, { ok: false, error: "invalid_session_id" });
+
+    const active = getActiveRequest(id);
+    if (active) {
+      return json(res, 200, {
+        ok: true,
+        active: true,
+        phase: active.phase,
+        startedAt: active.startedAt,
+        updatedAt: active.updatedAt
+      });
+    }
+    return json(res, 200, { ok: true, active: false });
   }
 
   // /api/sessions/:id

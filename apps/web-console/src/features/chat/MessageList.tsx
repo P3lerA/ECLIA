@@ -2,7 +2,7 @@ import React from "react";
 import type { Message } from "../../core/types";
 import { MessageBubble } from "./MessageBubble";
 import { apiGetSession } from "../../core/api/sessions";
-import { useAppDispatch, useHasMore } from "../../state/AppState";
+import { useAppDispatch, useAppState, useHasMore } from "../../state/AppState";
 
 const STICKY_THRESHOLD_PX = 48;
 
@@ -29,6 +29,7 @@ export function MessageList({
 }) {
   const ref = React.useRef<HTMLDivElement | null>(null);
   const dispatch = useAppDispatch();
+  const phase = useAppState().phaseBySession[sessionId] ?? null;
   const hasMore = useHasMore(sessionId);
   const loadingMoreRef = React.useRef(false);
   const [loadingMore, setLoadingMore] = React.useState(false);
@@ -169,7 +170,12 @@ export function MessageList({
         </div>
       )}
       {messages.map((m) => (
-        <MessageBubble key={m.id} msg={m} plainOutput={plainOutput} />
+        <MessageBubble
+          key={m.id}
+          msg={m}
+          plainOutput={plainOutput}
+          phase={m.streaming ? phase : undefined}
+        />
       ))}
     </div>
   );

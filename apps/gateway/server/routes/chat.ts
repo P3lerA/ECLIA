@@ -27,6 +27,7 @@ import { buildSkillsInstructionPart } from "../instructions/skillsInstruction.js
 import { readGitInfo } from "../gitInfo.js";
 
 import { recallMemories, type RecallTranscriptMessage, type RetrievedMemory } from "../memoryClient.js";
+import { setActiveRequest, clearActiveRequest } from "../activeRequests.js";
 
 import { appendSessionWarning } from "../debug/warnings.js";
 import { parseAssistantToolCallsFromText } from "../tools/assistantOutputParse.js";
@@ -575,6 +576,15 @@ export async function handleChat(
 
     const skipMemoryRecall = Boolean((body as any).skipMemoryRecall);
 
+    // Start SSE early so we can emit phase events during recall.
+    const { stopKeepAlive } = beginSse(res);
+
+    // Phase: recalling
+    if (!skipMemoryRecall && streamMode === "full") {
+      send(res, "phase", { phase: "recalling" });
+      setActiveRequest(sessionId, "recalling");
+    }
+
     // Optional: memory recall (best-effort).
     // Request includes the last N user-turns transcript so the memory service can fallback to
     // keyword search when this session has no stored memories yet.
@@ -643,7 +653,6 @@ export async function handleChat(
     }
 
 
-    const { stopKeepAlive } = beginSse(res);
     // NOTE: keep meta minimal; turn-level stats are persisted in transcript.ndjson.
     send(res, "meta", { sessionId, model: routeModel, usedTokens });
 
@@ -684,6 +693,10 @@ export async function handleChat(
     try {
       // Multi-turn tool loop
       while (!clientClosed) {
+        // Phase: generating
+        if (streamMode === "full") send(res, "phase", { phase: "generating" });
+        setActiveRequest(sessionId, "generating");
+
         const turn = await backend.provider.streamTurn({
           headers,
           messages: upstreamMessages,
@@ -767,6 +780,13 @@ export async function handleChat(
         // Append the provider-specific assistant tool-call message to the upstream transcript.
         upstreamMessages.push(backend.provider.buildAssistantToolCallMessage({ assistantText, toolCalls }));
 
+        // Phase: tool_executing
+        if (streamMode === "full") {
+          const toolNames = toolCalls.map((c) => c.name);
+          send(res, "phase", { phase: "tool_executing", tools: toolNames });
+        }
+        setActiveRequest(sessionId, "tool_executing");
+
         const { toolMessages } = await runToolCalls({
           store,
           approvals,
@@ -814,12 +834,15 @@ export async function handleChat(
         lastModel: canonicalRouteModel || backend.upstreamModel
       });
 
+      clearActiveRequest(sessionId);
+
       if (!res.writableEnded) {
         send(res, "done", {});
         stopKeepAlive();
         res.end();
       }
     } catch (e: any) {
+      clearActiveRequest(sessionId);
       const msg = String(e?.message ?? e);
 
       // If the client disconnected, don't bother writing to the response, but still touch session meta.

@@ -37,6 +37,7 @@ export function makeInitialState(): AppState {
     // Messages are loaded on-demand from the gateway.
     messagesBySession: {},
     hasMoreBySession: {},
+    phaseBySession: {},
 
     settings: {
       textureDisabled: Boolean(prefs.textureDisabled ?? false),

@@ -4,7 +4,7 @@ export type MemoryDb = {
   client: Client;
   /** Absolute path on disk (for local file databases). */
   dbPath: string;
-  /** Effective embeddings model name used to namespace this database file. */
+  /** The currently configured embeddings model. */
   embeddingsModel: string;
 };
 

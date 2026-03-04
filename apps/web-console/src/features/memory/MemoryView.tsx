@@ -8,12 +8,14 @@ import type { ConfigRequestBody, ConfigResponse } from "../settings/settingsType
 import { isValidPort, portNumber } from "../settings/settingsUtils";
 import { checkModelCached, createMemory, deleteMemoryItem, deleteModel, downloadModel, fetchGenesisStatus, listMemories, startGenesis } from "./memoryApi";
 import type { GenesisStatus } from "./memoryApi";
+import { buildModelRouteOptions } from "../settings/settingsUtils";
+import type { ModelRouteOption } from "../settings/settingsUtils";
 import { MemoryManageSection } from "./sections/MemoryManageSection";
 import { MemorySettingsSection } from "./sections/MemorySettingsSection";
 import { MemoryToolSection } from "./sections/MemoryToolSection";
 import { DEFAULT_MEMORY_DRAFT, MEMORY_SECTIONS } from "./memoryTypes";
 import type { EmbeddingLanguage, MemoryBase, MemoryDraft, MemoryManageItem, MemorySectionId, ModelStatus } from "./memoryTypes";
-import { baseToDraft, inferLanguage, intOrNull, parseStrength, readMemoryBase } from "./memoryUtils";
+import { baseToDraft, floatOrNull, inferLanguage, intOrNull, parseStrength, readMemoryBase } from "./memoryUtils";
 
 /**
  * Memory settings uses an explicit "Save" to commit changes.
@@ -45,6 +47,8 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
   const [genesisStatus, setGenesisStatus] = React.useState<GenesisStatus | null>(null);
   const [genesisStarting, setGenesisStarting] = React.useState(false);
   const [genesisError, setGenesisError] = React.useState<string | null>(null);
+  const [genesisModel, setGenesisModel] = React.useState("");
+  const [modelRouteOptions, setModelRouteOptions] = React.useState<ModelRouteOption[]>([]);
   const genesisPollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
   const pollGenesis = React.useCallback(async () => {
@@ -60,7 +64,7 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
   const handleStartGenesis = React.useCallback(async () => {
     setGenesisStarting(true);
     setGenesisError(null);
-    const result = await startGenesis();
+    const result = await startGenesis(genesisModel ? { model: genesisModel } : undefined);
     setGenesisStarting(false);
     if (!result.ok) {
       setGenesisError(result.error ?? "Failed to start genesis");
@@ -70,7 +74,7 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
     void pollGenesis();
     if (genesisPollRef.current) clearInterval(genesisPollRef.current);
     genesisPollRef.current = setInterval(() => void pollGenesis(), 3000);
-  }, [pollGenesis]);
+  }, [genesisModel, pollGenesis]);
 
   // Fetch genesis status on mount + cleanup polling.
   React.useEffect(() => {
@@ -165,10 +169,16 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
       const response = (await fetchDevConfig()) as ConfigResponse;
       if (!response?.ok) throw new Error((response as any)?.hint || (response as any)?.error || "Failed to load config.");
 
-      const nextBase = readMemoryBase((response as any).config);
+      const cfg = (response as any).config;
+      const nextBase = readMemoryBase(cfg);
       setBase(nextBase);
       setDraft(baseToDraft(nextBase));
       setEmbLang(inferLanguage(nextBase.embeddingsModel));
+
+      const oai = cfg?.inference?.openai_compat?.profiles;
+      const anth = cfg?.inference?.anthropic?.profiles;
+      const codex = cfg?.inference?.codex_oauth?.profiles;
+      setModelRouteOptions(buildModelRouteOptions(oai, anth, codex));
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Failed to load config.";
       setCfgError(msg);
@@ -213,6 +223,7 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
     const portDirty = portNumber(draft.port) !== base.port;
     const recentDirty = intOrNull(draft.recentTurns, 0, 64) !== base.recentTurns;
     const limitDirty = intOrNull(draft.recallLimit, 0, 200) !== base.recallLimit;
+    const minScoreDirty = floatOrNull(draft.recallMinScore, 0, 1) !== base.recallMinScore;
     const timeoutDirty = intOrNull(draft.timeoutMs, 50, 60_000) !== base.timeoutMs;
     const embDirty = draft.embeddingsModel.trim() !== base.embeddingsModel;
     const genesisTurnsDirty = intOrNull(draft.genesisTurnsPerCall, 1, 64) !== base.genesisTurnsPerCall;
@@ -227,6 +238,7 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
       portDirty ||
       recentDirty ||
       limitDirty ||
+      minScoreDirty ||
       timeoutDirty ||
       embDirty ||
       genesisTurnsDirty ||
@@ -243,6 +255,7 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
     const portOk = isValidPort(draft.port);
     const recentOk = intOrNull(draft.recentTurns, 0, 64) !== null;
     const limitOk = intOrNull(draft.recallLimit, 0, 200) !== null;
+    const minScoreOk = floatOrNull(draft.recallMinScore, 0, 1) !== null;
     const timeoutOk = intOrNull(draft.timeoutMs, 50, 60_000) !== null;
     const embOk = draft.embeddingsModel.trim().length > 0;
     const genesisTurnsOk = intOrNull(draft.genesisTurnsPerCall, 1, 64) !== null;
@@ -251,7 +264,7 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
     const extractMaxTotalOk = intOrNull(draft.extractToolMaxTotalChars, 0, 200_000) !== null;
 
     return (
-      hostOk && portOk && recentOk && limitOk && timeoutOk && embOk && genesisTurnsOk && extractMaxCharsOk && extractMaxTotalOk
+      hostOk && portOk && recentOk && limitOk && minScoreOk && timeoutOk && embOk && genesisTurnsOk && extractMaxCharsOk && extractMaxTotalOk
     );
   }, [draft]);
 
@@ -277,6 +290,7 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
     const port = portNumber(draft.port);
     const recentTurns = intOrNull(draft.recentTurns, 0, 64);
     const recallLimit = intOrNull(draft.recallLimit, 0, 200);
+    const recallMinScore = floatOrNull(draft.recallMinScore, 0, 1);
     const timeoutMs = intOrNull(draft.timeoutMs, 50, 60_000);
     const genesisTurnsPerCall = intOrNull(draft.genesisTurnsPerCall, 1, 64);
     const extractToolMaxCharsPerMsg = intOrNull(draft.extractToolMaxCharsPerMsg, 0, 50_000);
@@ -287,6 +301,7 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
       (!port ||
         recentTurns === null ||
         recallLimit === null ||
+        recallMinScore === null ||
         timeoutMs === null ||
         genesisTurnsPerCall === null ||
         extractToolMaxCharsPerMsg === null ||
@@ -301,6 +316,7 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
         port: port ?? base.port,
         recent_turns: recentTurns ?? base.recentTurns,
         recall_limit: recallLimit ?? base.recallLimit,
+        recall_min_score: recallMinScore ?? base.recallMinScore,
         timeout_ms: timeoutMs ?? base.timeoutMs,
         embeddings: { model: draft.embeddingsModel.trim() },
         genesis: { turns_per_call: genesisTurnsPerCall ?? base.genesisTurnsPerCall },
@@ -456,6 +472,9 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
                 genesisStatus={genesisStatus}
                 genesisStarting={genesisStarting}
                 genesisError={genesisError}
+                genesisModel={genesisModel}
+                setGenesisModel={setGenesisModel}
+                modelRouteOptions={modelRouteOptions}
                 onStartGenesis={() => void handleStartGenesis()}
               />
             ) : null}

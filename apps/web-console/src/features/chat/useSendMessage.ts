@@ -96,6 +96,10 @@ export function useSendMessage() {
           }
         });
 
+        if (evt.type === "phase") {
+          dispatch({ type: "session/setPhase", sessionId, phase: evt.phase });
+        }
+
         if (evt.type === "delta") {
           dispatch({ type: "assistant/stream/append", sessionId, text: evt.text });
         }
@@ -148,6 +152,7 @@ export function useSendMessage() {
 
         if (evt.type === "done") {
           dispatch({ type: "assistant/stream/finalize", sessionId });
+          dispatch({ type: "session/setPhase", sessionId, phase: null });
         }
 
         if (evt.type === "error") {
@@ -157,6 +162,7 @@ export function useSendMessage() {
             blocks: [{ type: "text", text: `[error] ${evt.message}` }]
           });
           dispatch({ type: "assistant/stream/finalize", sessionId });
+          dispatch({ type: "session/setPhase", sessionId, phase: null });
         }
       };
 
@@ -190,6 +196,7 @@ export function useSendMessage() {
           blocks: [{ type: "text", text: `[error] ${msg}` }]
         });
         dispatch({ type: "assistant/stream/finalize", sessionId });
+        dispatch({ type: "session/setPhase", sessionId, phase: null });
       } finally {
         // Best-effort: re-sync this session from the gateway so IDs/blocks stay canonical.
         if (state.settings.sessionSyncEnabled) {

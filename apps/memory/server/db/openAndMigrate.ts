@@ -1,22 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { createHash } from "node:crypto";
 import { createClient } from "@libsql/client";
 import type { Client } from "@libsql/client";
 import type { MemoryDb } from "./types.js";
-
-function safeModelSlug(model: string): string {
-  const clean = String(model ?? "").trim() || "default";
-  const slug = clean
-    .replace(/\//g, "--")
-    .replace(/[^a-zA-Z0-9._-]+/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 80);
-
-  const hash = createHash("sha1").update(clean).digest("hex").slice(0, 10);
-  return slug ? `${slug}_${hash}` : `model_${hash}`;
-}
 
 function toLibsqlFileUrl(absPath: string): string {
   // Turso docs show "file:path/to/db-file.db" (no file://). We normalize to
@@ -95,6 +81,27 @@ async function migrate(client: Client) {
       vector_R BLOB
     );
   `);
+
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS Meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+}
+
+export async function getMeta(client: Client, key: string): Promise<string | null> {
+  const res = await client.execute({ sql: "SELECT value FROM Meta WHERE key = ? LIMIT 1;", args: [key] });
+  const row = res.rows[0];
+  if (!row) return null;
+  return typeof row.value === "string" ? row.value : String(row.value ?? "");
+}
+
+export async function setMeta(client: Client, key: string, value: string): Promise<void> {
+  await client.execute({
+    sql: "INSERT INTO Meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+    args: [key, value]
+  });
 }
 
 export async function openMemoryDb(args: { rootDir: string; embeddingsModel: string }): Promise<MemoryDb> {
@@ -104,12 +111,28 @@ export async function openMemoryDb(args: { rootDir: string; embeddingsModel: str
   const dir = path.join(rootDir, ".eclia", "memory");
   fs.mkdirSync(dir, { recursive: true });
 
-  const dbFile = `${safeModelSlug(embeddingsModel)}.db`;
-  const dbPath = path.join(dir, dbFile);
+  const dbPath = path.join(dir, "memory.db");
+
+  // Legacy migration: rename old model-slug DB to memory.db if it's the only one.
+  if (!fs.existsSync(dbPath)) {
+    const existing = fs.readdirSync(dir).filter(
+      (f) => f.endsWith(".db") && !f.endsWith("-wal") && !f.endsWith("-shm")
+    );
+    if (existing.length === 1) {
+      const legacyPath = path.join(dir, existing[0]);
+      console.log(`[memory] migrating legacy DB: ${existing[0]} -> memory.db`);
+      fs.renameSync(legacyPath, dbPath);
+      const legacyWal = legacyPath + "-wal";
+      const legacyShm = legacyPath + "-shm";
+      if (fs.existsSync(legacyWal)) fs.renameSync(legacyWal, dbPath + "-wal");
+      if (fs.existsSync(legacyShm)) fs.renameSync(legacyShm, dbPath + "-shm");
+    } else if (existing.length > 1) {
+      console.warn(`[memory] multiple legacy DB files found in ${dir}; using fresh memory.db`);
+    }
+  }
 
   const client = createClient({
     url: toLibsqlFileUrl(dbPath),
-    // match upstream default (20) unless configured elsewhere
     concurrency: 20
   });
 

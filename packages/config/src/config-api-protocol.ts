@@ -17,6 +17,7 @@ export type ConfigApiRequestBody = {
     port?: number;
     recent_turns?: number;
     recall_limit?: number;
+    recall_min_score?: number;
     timeout_ms?: number;
     embeddings?: {
       model?: string;
@@ -145,6 +146,7 @@ export type ConfigApiConfig = {
     port?: number;
     recent_turns?: number;
     recall_limit?: number;
+    recall_min_score?: number;
     timeout_ms?: number;
     embeddings?: {
       model?: string;

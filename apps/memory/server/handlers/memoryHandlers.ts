@@ -1,5 +1,6 @@
 import http from "node:http";
 import { embedTexts } from "../embeddingClient.js";
+import { writeMetaIfNeeded } from "../db/metaRepo.js";
 import { asString, clampInt, json, readJson } from "../httpUtils.js";
 import {
   listFactsManage,
@@ -39,6 +40,7 @@ export async function handleRecall(
   res: http.ServerResponse,
   ctx: {
     db: MemoryDb;
+    recallMinScore?: number;
   } & EmbeddingsCtx
 ) {
   const body = (await readJson(req)) as Partial<RecallRequest>;
@@ -57,12 +59,15 @@ export async function handleRecall(
   let qVec: Float32Array | null = null;
   const modelName = ctx.embeddingsModel;
   const liveUrl = modelName ? await ctx.ensureSidecar(modelName) : null;
+  console.log(`[memory] recall: modelName=${modelName} liveUrl=${liveUrl}`);
   if (liveUrl) {
-    const embedded = await embedTexts({ baseUrl: liveUrl, texts: [userText], normalize: false, timeoutMs: ctx.timeoutMs });
+    const embedded = await embedTexts({ baseUrl: liveUrl, texts: [userText], timeoutMs: ctx.timeoutMs });
+    console.log(`[memory] recall: embedded ok=${!!embedded} vectors=${embedded?.vectors?.length} vec0type=${embedded?.vectors?.[0]?.constructor?.name} vec0len=${embedded?.vectors?.[0]?.length}`);
     if (embedded?.vectors?.[0]) qVec = embedded.vectors[0];
   }
+  console.log(`[memory] recall: qVec=${qVec ? `Float32Array(${qVec.length})` : "null"}`);
 
-  const memories = await recallFacts({ db: ctx.db, queryVector: qVec, limit });
+  const memories = await recallFacts({ db: ctx.db, queryVector: qVec, limit, minScore: ctx.recallMinScore });
 
   void logActivation({
     db: ctx.db,
@@ -110,7 +115,10 @@ export async function handleCreateMemory(
   const liveUrl = modelName ? await ctx.ensureSidecar(modelName) : null;
   if (liveUrl) {
     const embedded = await embedTexts({ baseUrl: liveUrl, texts: [raw], normalize: false, timeoutMs: ctx.timeoutMs });
-    if (embedded?.vectors?.[0]) vectorS = embedded.vectors[0];
+    if (embedded?.vectors?.[0]) {
+      vectorS = embedded.vectors[0];
+      if (embedded.dim > 0) writeMetaIfNeeded(ctx.db.client, modelName, embedded.dim).catch(() => {});
+    }
   }
 
   const m = await createFact({
@@ -144,8 +152,10 @@ export async function handleUpdateMemory(
       const liveUrl = modelName ? await ctx.ensureSidecar(modelName) : null;
       if (liveUrl) {
         const embedded = await embedTexts({ baseUrl: liveUrl, texts: [next], normalize: false, timeoutMs: ctx.timeoutMs });
-        if (embedded?.vectors?.[0]) vectorS = embedded.vectors[0];
-        else vectorS = null;
+        if (embedded?.vectors?.[0]) {
+          vectorS = embedded.vectors[0];
+          if (embedded.dim > 0) writeMetaIfNeeded(ctx.db.client, modelName, embedded.dim).catch(() => {});
+        } else vectorS = null;
       } else {
         vectorS = null;
       }

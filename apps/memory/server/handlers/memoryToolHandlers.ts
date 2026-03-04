@@ -7,6 +7,7 @@ import type { GenesisState } from "../genesisState.js";
 import type { MemoryDb } from "../memoryDb.js";
 import { createFact, deleteFact, logActivation, makeFactNodeId, mergeFacts } from "../memoryDb.js";
 import { embedTexts } from "../embeddingClient.js";
+import { writeMetaIfNeeded } from "../db/metaRepo.js";
 
 export async function handleMemoryTool(
   req: http.IncomingMessage,
@@ -145,7 +146,7 @@ async function handleMerge(
 // ---------------------------------------------------------------------------
 
 async function computeEmbedding(
-  ctx: { ensureSidecar: (model: string) => Promise<string | null>; embeddingsModel: string; timeoutMs: number },
+  ctx: { db: MemoryDb; ensureSidecar: (model: string) => Promise<string | null>; embeddingsModel: string; timeoutMs: number },
   text: string
 ): Promise<Float32Array | null> {
   const modelName = String(ctx.embeddingsModel ?? "").trim();
@@ -156,7 +157,11 @@ async function computeEmbedding(
 
   try {
     const r = await embedTexts({ baseUrl, texts: [text], timeoutMs: ctx.timeoutMs });
-    return r && Array.isArray(r.vectors) && Array.isArray(r.vectors[0]) ? new Float32Array(r.vectors[0]) : null;
+    if (r?.vectors?.[0] instanceof Float32Array) {
+      if (r.dim > 0) writeMetaIfNeeded(ctx.db.client, modelName, r.dim).catch(() => {});
+      return r.vectors[0];
+    }
+    return null;
   } catch {
     return null;
   }

@@ -3,24 +3,40 @@ import { safeJsonStringify } from "../../httpUtils.js";
 export const MEMORY_TOOL_SCHEMA = {
   type: "object",
   properties: {
-    action: { type: "string", enum: ["extract", "delete", "merge"] },
+    action: {
+      type: "string",
+      enum: ["extract", "delete", "merge"],
+      description: "Operation to perform. Defaults to 'extract' if omitted."
+    },
     // extract
-    text: { type: "string", minLength: 1, maxLength: 2000 },
+    text: {
+      type: "string",
+      minLength: 1,
+      maxLength: 2000,
+      description: "(extract) The memory fact to store."
+    },
     timestamps: {
       type: "array",
       minItems: 1,
       maxItems: 64,
-      items: { type: "integer", minimum: 0 }
+      items: { type: "integer", minimum: 0 },
+      description: "(extract) Unix timestamps (seconds) of the messages this fact was derived from."
     },
     // delete / merge
     ids: {
       type: "array",
       minItems: 1,
       maxItems: 200,
-      items: { type: "integer", minimum: 1 }
+      items: { type: "integer", minimum: 1 },
+      description: "(delete, merge) Fact IDs to delete or merge."
     },
     // merge
-    content: { type: "string", minLength: 1, maxLength: 4000 }
+    content: {
+      type: "string",
+      minLength: 1,
+      maxLength: 4000,
+      description: "(merge) The merged fact text that replaces the source facts."
+    }
   }
 } as const;
 

@@ -5,6 +5,8 @@ import { SettingsToggleRow } from "../../settings/components/SettingsToggleRow";
 import { EMBEDDING_MODELS, LANGUAGE_OPTIONS } from "../memoryTypes";
 import type { EmbeddingLanguage, MemoryBase, MemoryDraft, ModelStatus } from "../memoryTypes";
 import type { GenesisStatus } from "../memoryApi";
+import { ModelRouteSelect } from "../../settings/components/ModelRouteSelect";
+import type { ModelRouteOption } from "../../settings/settingsUtils";
 
 export type MemorySettingsSectionProps = {
   base: MemoryBase | null;
@@ -27,6 +29,9 @@ export type MemorySettingsSectionProps = {
   genesisStatus: GenesisStatus | null;
   genesisStarting: boolean;
   genesisError: string | null;
+  genesisModel: string;
+  setGenesisModel: (model: string) => void;
+  modelRouteOptions: ModelRouteOption[];
   onStartGenesis: () => void;
 };
 
@@ -52,6 +57,9 @@ export function MemorySettingsSection(props: MemorySettingsSectionProps) {
     genesisStatus,
     genesisStarting,
     genesisError,
+    genesisModel,
+    setGenesisModel,
+    modelRouteOptions,
     onStartGenesis
   } = props;
 
@@ -80,43 +88,6 @@ export function MemorySettingsSection(props: MemorySettingsSectionProps) {
           Memory settings are invalid. Provide a host, valid port, numeric limits, and an embeddings model.
         </div>
       ) : null}
-
-      <div className="card">
-        <div className="card-title">Connection</div>
-
-        <div className="grid2">
-          <label className="field">
-            <div className="field-label">Host</div>
-            <input
-              className="select"
-              value={draft.host}
-              onChange={(e) => setDraft((d) => ({ ...d, host: e.target.value }))}
-              placeholder="127.0.0.1"
-              spellCheck={false}
-              disabled={devDisabled}
-            />
-          </label>
-
-          <label className="field">
-            <div className="field-label">Port</div>
-            <input
-              className="select"
-              value={draft.port}
-              onChange={(e) => setDraft((d) => ({ ...d, port: e.target.value }))}
-              placeholder="8788"
-              inputMode="numeric"
-              spellCheck={false}
-              disabled={devDisabled}
-            />
-          </label>
-        </div>
-
-        <div className="profileActions" style={{ marginTop: 10 }}>
-          <button type="button" className="btn subtle" onClick={onReloadConfig} disabled={cfgLoading || saving}>
-            Reload
-          </button>
-        </div>
-      </div>
 
       <div className="card">
         <div className="card-title">Recall</div>
@@ -148,6 +119,20 @@ export function MemorySettingsSection(props: MemorySettingsSectionProps) {
               disabled={devDisabled}
             />
             <div className="field-sub">Maximum memory items requested per recall.</div>
+          </label>
+
+          <label className="field">
+            <div className="field-label">Min score</div>
+            <input
+              className="select"
+              value={draft.recallMinScore}
+              onChange={(e) => setDraft((d) => ({ ...d, recallMinScore: e.target.value }))}
+              placeholder="0.6"
+              inputMode="decimal"
+              spellCheck={false}
+              disabled={devDisabled}
+            />
+            <div className="field-sub">Cosine similarity threshold (0–1). Below this, memories are not injected.</div>
           </label>
         </div>
 
@@ -300,7 +285,16 @@ export function MemorySettingsSection(props: MemorySettingsSectionProps) {
             <div className="field-sub">Chunk size (in user-turns) for Stage 1/2 extraction prompts.</div>
           </label>
 
-          <div className="field" aria-hidden="true" />
+          <label className="field">
+            <div className="field-label">Model</div>
+            <ModelRouteSelect
+              value={genesisModel}
+              onChange={setGenesisModel}
+              options={modelRouteOptions}
+              disabled={devDisabled || Boolean(genesisStatus?.active)}
+            />
+            <div className="field-sub">Model to use for genesis. Default uses the active inference profile.</div>
+          </label>
         </div>
 
         <div className="profileActions" style={{ marginTop: 10, gap: 8, alignItems: "center" }}>
@@ -331,11 +325,48 @@ export function MemorySettingsSection(props: MemorySettingsSectionProps) {
                 <span className="field-sub" style={{ color: genesisStatus.last.stage === "error" ? "var(--danger)" : "var(--success, #4a4)" }}>
                   {genesisStatus.last.stage === "error"
                     ? `Error: ${genesisStatus.last.error ?? "unknown"}`
-                    : `Done — ${genesisStatus.last.extractedFacts} facts extracted, ${genesisStatus.last.processedSessions} sessions`}
+                    : `Done — ${genesisStatus.last.extractedFacts} facts, ${genesisStatus.last.processedSessions} sessions`}
                 </span>
               ) : null}
             </>
           )}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-title">Connection</div>
+
+        <div className="grid2">
+          <label className="field">
+            <div className="field-label">Host</div>
+            <input
+              className="select"
+              value={draft.host}
+              onChange={(e) => setDraft((d) => ({ ...d, host: e.target.value }))}
+              placeholder="127.0.0.1"
+              spellCheck={false}
+              disabled={devDisabled}
+            />
+          </label>
+
+          <label className="field">
+            <div className="field-label">Port</div>
+            <input
+              className="select"
+              value={draft.port}
+              onChange={(e) => setDraft((d) => ({ ...d, port: e.target.value }))}
+              placeholder="8788"
+              inputMode="numeric"
+              spellCheck={false}
+              disabled={devDisabled}
+            />
+          </label>
+        </div>
+
+        <div className="profileActions" style={{ marginTop: 10 }}>
+          <button type="button" className="btn subtle" onClick={onReloadConfig} disabled={cfgLoading || saving}>
+            Reload
+          </button>
         </div>
       </div>
 

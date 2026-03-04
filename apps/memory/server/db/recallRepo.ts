@@ -20,45 +20,49 @@ export async function recallFacts(args: {
   db: MemoryDb;
   queryVector?: Float32Array | null;
   limit?: number;
+  minScore?: number;
 }): Promise<RecallMemoryDto[]> {
   const limit = clampInt(args.limit, 0, 200, 20);
+  const minScore = typeof args.minScore === "number" && Number.isFinite(args.minScore) ? args.minScore : 0;
   const q = args.queryVector && args.queryVector.length ? toVectorJson(args.queryVector) : null;
 
   if (q) {
-    const res = await args.db.client.execute({
-      sql: `
-        SELECT
-          node_id AS id,
-          raw,
-          (1 - vector_distance_cos(vector_S, vector32(?))) AS score
-        FROM Fact
-        WHERE vector_S IS NOT NULL
-        ORDER BY vector_distance_cos(vector_S, vector32(?)) ASC
-        LIMIT ?;
-      `,
-      args: [q, q, limit]
-    });
+    try {
+      const res = await args.db.client.execute({
+        sql: `
+          SELECT
+            node_id AS id,
+            raw,
+            (1 - vector_distance_cos(vector_S, vector32(?))) AS score
+          FROM Fact
+          WHERE vector_S IS NOT NULL
+          ORDER BY vector_distance_cos(vector_S, vector32(?)) ASC
+          LIMIT ?;
+        `,
+        args: [q, q, limit]
+      });
 
-    const rows = res.rows
-      .map((r: any) => ({
-        id: asStr(r?.id).trim(),
-        raw: asStr(r?.raw),
-        score: typeof r?.score === "number" && Number.isFinite(r.score) ? r.score : Number(r?.score)
-      }))
-      .filter((m) => m.id && m.raw.trim());
+      console.log(`[memory] recallFacts: minScore=${minScore} vector query returned ${res.rows.length} rows, first score raw:`, res.rows[0] ? { score: (res.rows[0] as any).score, type: typeof (res.rows[0] as any).score } : "none");
 
-    if (rows.length) return rows.map((m) => ({ ...m, score: Number.isFinite(m.score) ? m.score : null }));
+      const rows = res.rows
+        .map((r: any) => ({
+          id: asStr(r?.id).trim(),
+          raw: asStr(r?.raw),
+          score: typeof r?.score === "number" && Number.isFinite(r.score) ? r.score : Number(r?.score)
+        }))
+        .filter((m) => m.id && m.raw.trim())
+        .map((m) => ({ ...m, score: Number.isFinite(m.score) ? m.score : null }))
+        .filter((m) => m.score === null || m.score >= minScore);
+
+      // Vector search succeeded — return results (may be empty if all below minScore).
+      return rows;
+    } catch (err) {
+      console.error(`[memory] recallFacts: vector query FAILED:`, err);
+    }
   }
 
-  // Fallback: newest facts by id.
-  const res = await args.db.client.execute({
-    sql: "SELECT node_id AS id, raw FROM Fact ORDER BY node_id DESC LIMIT ?;",
-    args: [limit]
-  });
-
-  return res.rows
-    .map((r: any) => ({ id: asStr(r?.id).trim(), raw: asStr(r?.raw), score: null }))
-    .filter((m) => m.id && m.raw.trim());
+  // No query vector or vector query failed — return empty (don't inject unscored memories).
+  return [];
 }
 
 export async function logActivation(args: {

@@ -114,8 +114,10 @@ async function main() {
       function: {
         name: MEMORY_TOOL_NAME,
         description:
-          "Emit extracted long-term memory candidates as structured items. " +
-          "This is an internal tool used by the memory service.",
+          "Manage long-term memory. " +
+          "action=extract (default): store a memory fact. Requires 'text' and 'timestamps'. " +
+          "action=delete: remove facts by id. Requires 'ids'. " +
+          "action=merge: combine multiple facts into one new fact. Requires 'ids' and 'content'.",
         parameters: MEMORY_TOOL_SCHEMA
       }
     }

@@ -62,6 +62,13 @@ export type EcliaConfig = {
     recall_limit: number;
 
     /**
+     * Minimum cosine-similarity score for a recalled memory to be injected.
+     *
+     * Range: 0–1.  Memories below this threshold are discarded.
+     */
+    recall_min_score: number;
+
+    /**
      * Gateway HTTP timeout for /recall requests (milliseconds).
      *
      * Range: 50–60000
@@ -426,6 +433,7 @@ export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
     port: 8788,
     recent_turns: 8,
     recall_limit: 20,
+    recall_min_score: 0.6,
     timeout_ms: 1200,
     embeddings: { model: "all-MiniLM-L6-v2" },
     genesis: {

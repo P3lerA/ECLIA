@@ -46,6 +46,13 @@ export function intOrNull(s: string, min: number, max: number): number | null {
   return i;
 }
 
+export function floatOrNull(s: string, min: number, max: number): number | null {
+  const n = Number(s);
+  if (!Number.isFinite(n)) return null;
+  if (n < min || n > max) return null;
+  return n;
+}
+
 export function readMemoryBase(cfg: any): MemoryBase {
   const mem = (cfg as any)?.memory ?? {};
   const genesis = (mem as any)?.genesis ?? {};
@@ -62,6 +69,9 @@ export function readMemoryBase(cfg: any): MemoryBase {
 
   const recallLimitRaw = Number(asStr(mem?.recall_limit));
   const recallLimit = Number.isFinite(recallLimitRaw) ? Math.trunc(recallLimitRaw) : 20;
+
+  const recallMinScoreRaw = Number(mem?.recall_min_score ?? "");
+  const recallMinScore = Number.isFinite(recallMinScoreRaw) ? recallMinScoreRaw : 0.6;
 
   const timeoutRaw = Number(asStr(mem?.timeout_ms));
   const timeoutMs = Number.isFinite(timeoutRaw) ? Math.trunc(timeoutRaw) : 1200;
@@ -86,6 +96,7 @@ export function readMemoryBase(cfg: any): MemoryBase {
     port,
     recentTurns,
     recallLimit,
+    recallMinScore,
     timeoutMs,
     embeddingsModel: embModel,
     genesisTurnsPerCall,
@@ -102,6 +113,7 @@ export function baseToDraft(base: MemoryBase): MemoryDraft {
     port: String(base.port),
     recentTurns: String(base.recentTurns),
     recallLimit: String(base.recallLimit),
+    recallMinScore: String(base.recallMinScore),
     timeoutMs: String(base.timeoutMs),
     embeddingsModel: String(base.embeddingsModel ?? "").trim() || "all-MiniLM-L6-v2",
     genesisTurnsPerCall: String(base.genesisTurnsPerCall ?? 20),

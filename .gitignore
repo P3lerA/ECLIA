@@ -8,6 +8,7 @@ dist-ssr
 eclia.config.local.toml
 .eclia/
 .codex/
+.claude/
 
 # Python virtualenvs
 **/.venv/
