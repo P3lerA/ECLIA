@@ -24,6 +24,8 @@ export type GenesisState = {
   finishOk: () => void;
   finishError: (err: unknown) => void;
   status: () => { active: GenesisRunStatus | null; last: GenesisRunStatus | null };
+  setCurrentSourceSession: (sessionId: string) => void;
+  getCurrentSourceSession: () => string | null;
 };
 
 function isoNow(): string {
@@ -52,6 +54,7 @@ function asErrString(err: unknown): string {
 export function createGenesisState(): GenesisState {
   let active: GenesisRunStatus | null = null;
   let last: GenesisRunStatus | null = null;
+  let currentSourceSession: string | null = null;
 
   const bump = () => {
     if (!active) return;
@@ -134,6 +137,9 @@ export function createGenesisState(): GenesisState {
       active = null;
     },
 
-    status: () => ({ active, last })
+    status: () => ({ active, last }),
+
+    setCurrentSourceSession: (sessionId: string) => { currentSourceSession = sessionId; },
+    getCurrentSourceSession: () => currentSourceSession
   };
 }

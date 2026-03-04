@@ -43,6 +43,9 @@ export type MemoryManageItem = {
   createdAt: number;
   updatedAt: number;
   strength: number;
+  activationCount: number;
+  lastActivatedAt: number;
+  originSession: string;
 };
 
 export type MemorySectionId = "settings" | "manage" | "tool";

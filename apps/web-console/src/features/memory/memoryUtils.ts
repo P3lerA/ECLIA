@@ -129,6 +129,9 @@ export function mapMemoryManageItem(row: any): MemoryManageItem {
     raw: asStr(row?.raw),
     createdAt: Number(row?.createdAt) || 0,
     updatedAt: Number(row?.updatedAt) || 0,
-    strength: Number(row?.strength) || 0
+    strength: Number(row?.strength) || 0,
+    activationCount: Number(row?.activationCount) || 0,
+    lastActivatedAt: Number(row?.lastActivatedAt) || 0,
+    originSession: asStr(row?.originSession)
   };
 }

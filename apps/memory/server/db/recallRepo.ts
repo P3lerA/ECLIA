@@ -69,6 +69,7 @@ export async function logActivation(args: {
   db: MemoryDb;
   /** Unix timestamp in seconds. Defaults to now. */
   timestampSec?: number;
+  sourceSession: string;
   nodes: Array<{ nodeId: string; strength: number }>;
 }): Promise<void> {
   const nodes = Array.isArray(args.nodes) ? args.nodes : [];
@@ -93,8 +94,8 @@ export async function logActivation(args: {
       if (!nodeId) continue;
       const strength = Number.isFinite(n.strength) ? Number(n.strength) : 0;
       await tx.execute({
-        sql: "INSERT INTO Activation_Nodes (activation_id, node_id, strength) VALUES (?, ?, ?);",
-        args: [activationId, nodeId, strength]
+        sql: "INSERT INTO Activation_Nodes (activation_id, node_id, strength, source_session) VALUES (?, ?, ?, ?);",
+        args: [activationId, nodeId, strength, args.sourceSession]
       });
     }
 

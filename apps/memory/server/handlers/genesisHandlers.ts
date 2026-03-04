@@ -101,7 +101,7 @@ async function runGenesisStage1Extract(args: {
 
   const maxCharsPerMsg = 1200;
   const maxTotalChars = 10_000;
-  const contextTokenLimit = 2000;
+  const contextTokenLimit = 20000;
 
   const systemPrompt = buildExtractSystemPrompt(rootDir, config);
 
@@ -128,6 +128,7 @@ async function runGenesisStage1Extract(args: {
   const turnsPerCall = args.turnsPerCallOverride > 0 ? args.turnsPerCallOverride : turnsPerCallFromCfg;
 
   for (const s of targets) {
+    args.genesis.setCurrentSourceSession(s.id);
     const { transcript } = await fetchGatewayTranscript({ gatewayUrl, sessionId: s.id, tail: args.tail });
     const timed = transcriptRecordsToTimedMessages(transcript);
     const groups = groupTurns(timed.filter((m) => m.msg.role !== "system"));

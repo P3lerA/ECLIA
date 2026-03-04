@@ -98,8 +98,11 @@ export function MemoryItemDisclosure(props: MemoryItemDisclosureProps) {
             spellCheck={false}
             disabled={disabled || saving}
           />
-          <div className="field-sub">Low-dim relation vector norm (editable for debugging).</div>
         </label>
+      </div>
+
+      <div className="field-sub" style={{ marginTop: 6 }}>
+        <b>Activations:</b> {item.activationCount} · <b>Last activated:</b> {formatTs(item.lastActivatedAt)} · <b>Origin:</b> {item.originSession || "—"}
       </div>
 
       <label className="field" style={{ marginTop: 10 }}>

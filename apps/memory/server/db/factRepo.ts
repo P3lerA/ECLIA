@@ -18,17 +18,27 @@ function parseIsoMs(v: unknown): number {
   return Number.isFinite(t) ? t : 0;
 }
 
+function parseEpochSecMs(v: unknown): number {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) * 1000 : 0;
+}
+
 function asStr(v: unknown): string {
   return typeof v === "string" ? v : v == null ? "" : String(v);
 }
 
 function toManagedDto(row: any): ManagedMemoryDto {
+  const acRaw = row?.activation_count;
+  const activationCount = typeof acRaw === "number" ? acRaw : typeof acRaw === "bigint" ? Number(acRaw) : Number(acRaw) || 0;
   return {
     id: asStr(row?.id).trim(),
     raw: asStr(row?.raw),
     createdAt: parseIsoMs(row?.created_ts),
     updatedAt: parseIsoMs(row?.updated_ts),
-    strength: typeof row?.strength === "number" && Number.isFinite(row.strength) ? row.strength : Number(row?.strength) || 0
+    strength: typeof row?.strength === "number" && Number.isFinite(row.strength) ? row.strength : Number(row?.strength) || 0,
+    activationCount,
+    lastActivatedAt: parseEpochSecMs(row?.last_activated_at),
+    originSession: asStr(row?.origin_session)
   };
 }
 
@@ -49,7 +59,10 @@ export async function listFactsManage(args: {
         f.raw AS raw,
         (SELECT MIN(t.timestamp) FROM Traces t WHERE t.node_id = f.node_id) AS created_ts,
         (SELECT MAX(t.timestamp) FROM Traces t WHERE t.node_id = f.node_id) AS updated_ts,
-        COALESCE(vector_distance_l2(f.vector_R, vector32(?)), 0) AS strength
+        COALESCE(vector_distance_l2(f.vector_R, vector32(?)), 0) AS strength,
+        (SELECT COUNT(*) FROM Activation_Nodes an WHERE an.node_id = 'fact:' || f.node_id) AS activation_count,
+        (SELECT MAX(a.timestamp) FROM Activation a JOIN Activation_Nodes an ON an.activation_id = a.id WHERE an.node_id = 'fact:' || f.node_id) AS last_activated_at,
+        (SELECT an2.source_session FROM Activation a2 JOIN Activation_Nodes an2 ON an2.activation_id = a2.id WHERE an2.node_id = 'fact:' || f.node_id ORDER BY a2.timestamp ASC LIMIT 1) AS origin_session
       FROM Fact f
       WHERE (? = '' OR lower(f.raw) LIKE '%' || lower(?) || '%')
       ORDER BY COALESCE(created_ts, '') DESC, f.node_id DESC

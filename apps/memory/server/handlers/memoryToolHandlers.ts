@@ -52,9 +52,13 @@ export async function handleMemoryTool(
 
   const { action } = vr.value;
 
+  // Determine the source session: genesis knows the real source; otherwise use __eclia.sessionId from gateway.
+  const ecliaSessionId = typeof (body as any)?.__eclia?.sessionId === "string" ? (body as any).__eclia.sessionId : "";
+  const sourceSession = (ctx.genesis?.isRunning() && ctx.genesis.getCurrentSourceSession()) || ecliaSessionId;
+
   if (action === "delete") return handleDelete(res, ctx, vr.value.ids);
   if (action === "merge") return handleMerge(res, ctx, vr.value.ids, vr.value.content);
-  return handleExtract(res, ctx, vr.value.text, vr.value.timestamps);
+  return handleExtract(res, ctx, vr.value.text, vr.value.timestamps, sourceSession);
 }
 
 // ---------------------------------------------------------------------------
@@ -63,7 +67,8 @@ async function handleExtract(
   res: http.ServerResponse,
   ctx: { genesis?: GenesisState; db: MemoryDb; ensureSidecar: (model: string) => Promise<string | null>; embeddingsModel: string; timeoutMs: number },
   text: string,
-  timestamps: number[]
+  timestamps: number[],
+  sourceSession: string
 ) {
   if (!text || !timestamps.length) {
     return json(res, 200, { ok: true, tool: MEMORY_TOOL_NAME, stored: false, reason: "empty_candidate" });
@@ -82,7 +87,7 @@ async function handleExtract(
     .filter((tsSec: number) => tsSec > 0);
 
   for (const tsSec of validTimestamps) {
-    await logActivation({ db: ctx.db, timestampSec: tsSec, nodes: [{ nodeId, strength: 1 }] });
+    await logActivation({ db: ctx.db, timestampSec: tsSec, sourceSession, nodes: [{ nodeId, strength: 1 }] });
   }
 
   if (ctx.genesis && ctx.genesis.isRunning()) {

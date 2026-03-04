@@ -56,6 +56,7 @@ async function migrate(client: Client) {
       activation_id INTEGER NOT NULL,
       node_id TEXT NOT NULL,
       strength REAL NOT NULL,
+      source_session TEXT NOT NULL,
       FOREIGN KEY(activation_id) REFERENCES Activation(id) ON DELETE CASCADE
     );
   `);

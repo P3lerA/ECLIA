@@ -71,6 +71,7 @@ export async function handleRecall(
 
   void logActivation({
     db: ctx.db,
+    sourceSession: sessionId,
     nodes: memories.map((m) => ({ nodeId: makeFactNodeId(m.id), strength: typeof m.score === "number" ? m.score : 0 }))
   });
 
