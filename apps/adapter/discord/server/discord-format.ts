@@ -4,7 +4,7 @@ import path from "node:path";
 import { isEcliaRef, uriFromRef, tryParseArtifactUriToRepoRelPath } from "@eclia/tool-protocol";
 import type { ChatInputCommandInteraction, Message } from "discord.js";
 
-import type { TranscriptRecord } from "../../gateway.js";
+import type { TranscriptRecord } from "@eclia/gateway-client";
 
 // ---------------------------------------------------------------------------
 // Types

@@ -19,6 +19,9 @@ importers:
       '@eclia/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@eclia/gateway-client':
+        specifier: workspace:*
+        version: link:../../packages/gateway-client
       '@eclia/tool-protocol':
         specifier: workspace:*
         version: link:../../packages/tool-protocol
@@ -32,6 +35,9 @@ importers:
       '@eclia/config':
         specifier: workspace:*
         version: link:../../../packages/config
+      '@eclia/gateway-client':
+        specifier: workspace:*
+        version: link:../../../packages/gateway-client
       '@eclia/tool-protocol':
         specifier: workspace:*
         version: link:../../../packages/tool-protocol
@@ -54,6 +60,9 @@ importers:
       '@eclia/config':
         specifier: workspace:*
         version: link:../../../packages/config
+      '@eclia/gateway-client':
+        specifier: workspace:*
+        version: link:../../../packages/gateway-client
       '@eclia/tool-protocol':
         specifier: workspace:*
         version: link:../../../packages/tool-protocol
@@ -98,9 +107,15 @@ importers:
       '@eclia/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@eclia/gateway-client':
+        specifier: workspace:*
+        version: link:../../packages/gateway-client
       '@eclia/tool-protocol':
         specifier: workspace:*
         version: link:../../packages/tool-protocol
+      '@eclia/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
     devDependencies:
       '@types/node':
         specifier: ^20.19.31
@@ -117,6 +132,12 @@ importers:
       '@eclia/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@eclia/gateway-client':
+        specifier: workspace:*
+        version: link:../../packages/gateway-client
+      '@eclia/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
       '@libsql/client':
         specifier: ^0.17.0
         version: 0.17.0
@@ -175,6 +196,12 @@ importers:
       '@eclia/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@eclia/gateway-client':
+        specifier: workspace:*
+        version: link:../../packages/gateway-client
+      '@eclia/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
       '@types/node':
         specifier: ^20.19.0
         version: 20.19.35
@@ -216,13 +243,41 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  packages/gateway-client:
+    dependencies:
+      '@eclia/config':
+        specifier: workspace:*
+        version: link:../config
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.31
+        version: 20.19.35
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   packages/tool-protocol: {}
+
+  packages/utils:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.31
+        version: 20.19.35
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
 
   plugins/listener/email:
     dependencies:
       '@eclia/config':
         specifier: workspace:*
         version: link:../../../packages/config
+      '@eclia/gateway-client':
+        specifier: workspace:*
+        version: link:../../../packages/gateway-client
+      '@eclia/utils':
+        specifier: workspace:*
+        version: link:../../../packages/utils
       imapflow:
         specifier: ^1.0.196
         version: 1.2.10

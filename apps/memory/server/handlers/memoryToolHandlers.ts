@@ -1,6 +1,7 @@
 import http from "node:http";
 
-import { json, now, readJson } from "../httpUtils.js";
+import { json, readJson } from "@eclia/gateway-client/utils";
+import { now } from "../httpUtils.js";
 import type { ToolSessionLogger } from "../tools/toolSessionLogger.js";
 import { MEMORY_TOOL_NAME, validateMemoryToolArgs } from "../tools/memoryTool.js";
 import type { GenesisState } from "../genesisState.js";

@@ -1,4 +1,5 @@
 import type { Message, Session } from "../types";
+import type { TranscriptRecordV1, OpenAICompatMessage, OpenAICompatToolCall } from "@eclia/gateway-client";
 import { apiFetch } from "./apiFetch";
 
 export type SessionMeta = {
@@ -21,7 +22,7 @@ export type CreateSessionResponse =
   | { ok: false; error: string; hint?: string };
 
 export type GetSessionResponse =
-  | { ok: true; session: SessionMeta; transcript: TranscriptRecord[]; totalCount?: number; hasMore?: boolean }
+  | { ok: true; session: SessionMeta; transcript: TranscriptRecordV1[]; totalCount?: number; hasMore?: boolean }
   | { ok: false; error: string; hint?: string };
 
 export type ResetSessionResponse =
@@ -76,36 +77,7 @@ export async function apiGetSession(
   return { session: j.session, messages: transcriptToMessages(j.transcript), hasMore: Boolean(j.hasMore) };
 }
 
-// ---- Transcript types (mirrors gateway/server/transcriptTypes.ts) ----
-
-type OpenAICompatToolCall = {
-  id: string;
-  type: "function";
-  function: { name: string; arguments: string };
-};
-
-type OpenAICompatMessage =
-  | { role: "system"; content: any }
-  | { role: "user"; content: any }
-  | { role: "assistant"; content: any; tool_calls?: OpenAICompatToolCall[] }
-  | { role: "tool"; tool_call_id: string; content: any };
-
-type TranscriptTurn = {
-  turnId?: string;
-  tokenLimit: number;
-  usedTokens: number;
-  upstream?: { routeKey: string; model: string; baseUrl: string };
-  git?: { commit: string | null; branch: string | null; dirty: boolean | null };
-  runtime?: { temperature: number | null; topP: number | null; topK: number | null; maxOutputTokens: number | null };
-  toolAccessMode?: "full" | "safe";
-};
-
-type TranscriptRecord =
-  | { v: 1; id: string; ts: number; type: "msg"; msg: OpenAICompatMessage }
-  | { v: 1; id: string; ts: number; type: "reset" }
-  | { v: 1; id: string; ts: number; type: "turn"; turn: TranscriptTurn };
-
-function transcriptToMessages(records: TranscriptRecord[]): Message[] {
+function transcriptToMessages(records: TranscriptRecordV1[]): Message[] {
   const out: Message[] = [];
 
   // Map tool_call_id -> tool name (from the assistant tool_calls).

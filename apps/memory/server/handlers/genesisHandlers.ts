@@ -2,12 +2,13 @@ import http from "node:http";
 
 import { loadEcliaConfig, readSystemMemoryConsolidateTemplate, renderSystemMemoryConsolidateTemplate } from "@eclia/config";
 
-import { json, readJson, asString, clampInt } from "../httpUtils.js";
+import { json, readJson } from "@eclia/gateway-client/utils";
+import { asString, clampInt } from "@eclia/utils";
 import type { GenesisState } from "../genesisState.js";
 import type { MemoryDb } from "../memoryDb.js";
 import { listFactsManage } from "../memoryDb.js";
 import { transcriptRecordsToTimedMessages, groupTurns, chunkTurns, aggressiveTruncateForExtract, fetchGatewayTranscript, loadExtractToolConfig, buildExtractSystemPrompt } from "../extractCommon.js";
-import { ensureGatewaySession, guessGatewayUrl, runGatewayChat, withGatewayAuth } from "../../../adapter/gateway.js";
+import { ensureGatewaySession, guessGatewayUrl, runGatewayChat, withGatewayAuth } from "@eclia/gateway-client";
 
 async function fetchGatewaySessions(gatewayUrl: string): Promise<{ sessions: { id: string; title: string }[] }> {
   const url = `${gatewayUrl}/api/sessions`;

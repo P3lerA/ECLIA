@@ -4,12 +4,13 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "pnpm -C ../../../packages/config build && tsx server/index.ts",
+    "dev": "pnpm -C ../../../packages/config build && pnpm -C ../../../packages/gateway-client build && tsx server/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:watch": "tsc -p tsconfig.json --noEmit -w --preserveWatchOutput"
   },
   "dependencies": {
     "@eclia/config": "workspace:*",
+    "@eclia/gateway-client": "workspace:*",
     "@eclia/tool-protocol": "workspace:*",
     "node-telegram-bot-api": "^0.67.0"
   },

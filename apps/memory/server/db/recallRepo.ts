@@ -1,19 +1,9 @@
 import type { MemoryDb, RecallMemoryDto } from "./types.js";
 import { toVectorJson } from "./vector.js";
+import { asString as asStr, clampInt } from "@eclia/utils";
 
 function epochNowSec(): number {
   return Math.trunc(Date.now() / 1000);
-}
-
-function clampInt(v: unknown, min: number, max: number, fallback: number): number {
-  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
-  if (!Number.isFinite(n)) return fallback;
-  const i = Math.trunc(n);
-  return Math.max(min, Math.min(max, i));
-}
-
-function asStr(v: unknown): string {
-  return typeof v === "string" ? v : v == null ? "" : String(v);
 }
 
 export async function recallFacts(args: {

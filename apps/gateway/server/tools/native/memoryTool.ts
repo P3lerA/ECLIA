@@ -1,4 +1,4 @@
-import { safeJsonStringify } from "../../httpUtils.js";
+import { safeJsonStringify } from "@eclia/utils";
 
 export const MEMORY_TOOL_SCHEMA = {
   type: "object",

@@ -1,3 +1,5 @@
+import { isRecord } from "@eclia/utils";
+
 export const MEMORY_TOOL_NAME = "memory";
 
 export type MemoryExtractCandidate = {
@@ -31,10 +33,6 @@ export type MemoryToolValidationOk = {
   ok: true;
   value: MemoryToolArgs;
 };
-
-function isRecord(v: unknown): v is Record<string, any> {
-  return Boolean(v) && typeof v === "object" && !Array.isArray(v);
-}
 
 function asText(v: unknown): string {
   if (typeof v !== "string") return "";

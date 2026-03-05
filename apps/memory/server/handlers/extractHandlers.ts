@@ -2,9 +2,10 @@ import http from "node:http";
 
 import { loadEcliaConfig } from "@eclia/config";
 
-import { json, readJson, asString, clampInt } from "../httpUtils.js";
+import { json, readJson } from "@eclia/gateway-client/utils";
+import { asString, clampInt } from "@eclia/utils";
 import { transcriptRecordsToTimedMessages, takeLastNTurns, aggressiveTruncateForExtract, fetchGatewayTranscript, loadExtractToolConfig, buildExtractSystemPrompt } from "../extractCommon.js";
-import { ensureGatewaySession, guessGatewayUrl, runGatewayChat } from "../../../adapter/gateway.js";
+import { ensureGatewaySession, guessGatewayUrl, runGatewayChat } from "@eclia/gateway-client";
 
 export async function handleExtractRequest(req: http.IncomingMessage, res: http.ServerResponse) {
   const body = await readJson(req);

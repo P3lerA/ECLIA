@@ -12,7 +12,7 @@ import {
   MessageFlags
 } from "discord.js";
 
-import { env, hasEnv, boolEnv, normalizeIdList, json, readJson, makeAdapterLogger } from "../../utils.js";
+import { env, hasEnv, boolEnv, normalizeIdList, json, readJson, makeAdapterLogger } from "@eclia/gateway-client/utils";
 import {
   guessGatewayUrl,
   getGatewayToken,
@@ -20,7 +20,7 @@ import {
   coerceStreamMode,
   runGatewayChat,
   fetchArtifactBytes
-} from "../../gateway.js";
+} from "@eclia/gateway-client";
 import {
   type SendRequest,
   sessionIdForDiscord,

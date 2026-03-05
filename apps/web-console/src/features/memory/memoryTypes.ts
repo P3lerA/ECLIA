@@ -64,7 +64,8 @@ export const EMBEDDING_MODELS: Record<EmbeddingLanguage, CuratedModel[]> = {
   multi: [
     { value: "paraphrase-multilingual-MiniLM-L12-v2", label: "multilingual-MiniLM-L12-v2 — 50+ languages" },
     { value: "distiluse-base-multilingual-cased-v2", label: "distiluse-multilingual-v2 — 15 languages, light" },
-    { value: "paraphrase-multilingual-mpnet-base-v2", label: "multilingual-mpnet-base-v2 — higher quality" }
+    { value: "paraphrase-multilingual-mpnet-base-v2", label: "multilingual-mpnet-base-v2 — higher quality" },
+    { value: "BAAI/bge-m3", label: "BGE-M3 — strong multilingual retrieval" }
   ]
 };
 

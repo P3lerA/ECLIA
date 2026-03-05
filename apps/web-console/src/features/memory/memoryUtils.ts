@@ -1,9 +1,6 @@
 import type { EmbeddingLanguage, MemoryBase, MemoryDraft, MemoryManageItem } from "./memoryTypes";
 import { EMBEDDING_MODELS } from "./memoryTypes";
-
-function asStr(v: unknown): string {
-  return typeof v === "string" ? v : typeof v === "number" ? String(v) : "";
-}
+import { asString } from "@eclia/utils";
 
 /** Infer language category from a model name. */
 export function inferLanguage(model: string): EmbeddingLanguage {
@@ -13,7 +10,7 @@ export function inferLanguage(model: string): EmbeddingLanguage {
 
   const lower = model.toLowerCase();
   if (lower.includes("chinese") || lower.includes("text2vec")) return "zh";
-  if (lower.includes("multilingual") || lower.includes("multi-")) return "multi";
+  if (lower.includes("multilingual") || lower.includes("multi-") || lower.includes("bge-m3")) return "multi";
   return "en";
 }
 
@@ -59,35 +56,35 @@ export function readMemoryBase(cfg: any): MemoryBase {
   const extract = (mem as any)?.extract ?? {};
 
   const enabled = Boolean(mem?.enabled ?? false);
-  const host = asStr(mem?.host).trim() || "127.0.0.1";
+  const host = asString(mem?.host).trim() || "127.0.0.1";
 
-  const portRaw = Number(asStr(mem?.port));
+  const portRaw = Number(asString(mem?.port));
   const port = Number.isInteger(portRaw) && portRaw > 0 && portRaw <= 65535 ? portRaw : 8788;
 
-  const recentTurnsRaw = Number(asStr(mem?.recent_turns));
+  const recentTurnsRaw = Number(asString(mem?.recent_turns));
   const recentTurns = Number.isFinite(recentTurnsRaw) ? Math.trunc(recentTurnsRaw) : 8;
 
-  const recallLimitRaw = Number(asStr(mem?.recall_limit));
+  const recallLimitRaw = Number(asString(mem?.recall_limit));
   const recallLimit = Number.isFinite(recallLimitRaw) ? Math.trunc(recallLimitRaw) : 20;
 
   const recallMinScoreRaw = Number(mem?.recall_min_score ?? "");
   const recallMinScore = Number.isFinite(recallMinScoreRaw) ? recallMinScoreRaw : 0.6;
 
-  const timeoutRaw = Number(asStr(mem?.timeout_ms));
+  const timeoutRaw = Number(asString(mem?.timeout_ms));
   const timeoutMs = Number.isFinite(timeoutRaw) ? Math.trunc(timeoutRaw) : 1200;
 
-  const embModel = asStr(mem?.embeddings?.model).trim() || "all-MiniLM-L6-v2";
+  const embModel = asString(mem?.embeddings?.model).trim() || "all-MiniLM-L6-v2";
 
-  const genesisTurnsRaw = Number(asStr((genesis as any)?.turns_per_call));
+  const genesisTurnsRaw = Number(asString((genesis as any)?.turns_per_call));
   const genesisTurnsPerCall = Number.isFinite(genesisTurnsRaw) ? Math.trunc(genesisTurnsRaw) : 20;
 
   const toolMessagesRaw = typeof (extract as any)?.tool_messages === "string" ? String((extract as any).tool_messages).trim() : "";
   const extractToolMessages: any = toolMessagesRaw === "truncate" || toolMessagesRaw === "drop" ? toolMessagesRaw : "drop";
 
-  const toolMaxCharsRaw = Number(asStr((extract as any)?.tool_max_chars_per_msg));
+  const toolMaxCharsRaw = Number(asString((extract as any)?.tool_max_chars_per_msg));
   const extractToolMaxCharsPerMsg = Number.isFinite(toolMaxCharsRaw) ? Math.trunc(toolMaxCharsRaw) : 1200;
 
-  const toolMaxTotalRaw = Number(asStr((extract as any)?.tool_max_total_chars));
+  const toolMaxTotalRaw = Number(asString((extract as any)?.tool_max_total_chars));
   const extractToolMaxTotalChars = Number.isFinite(toolMaxTotalRaw) ? Math.trunc(toolMaxTotalRaw) : 5000;
 
   return {
@@ -125,13 +122,13 @@ export function baseToDraft(base: MemoryBase): MemoryDraft {
 
 export function mapMemoryManageItem(row: any): MemoryManageItem {
   return {
-    id: asStr(row?.id).trim(),
-    raw: asStr(row?.raw),
+    id: asString(row?.id).trim(),
+    raw: asString(row?.raw),
     createdAt: Number(row?.createdAt) || 0,
     updatedAt: Number(row?.updatedAt) || 0,
     strength: Number(row?.strength) || 0,
     activationCount: Number(row?.activationCount) || 0,
     lastActivatedAt: Number(row?.lastActivatedAt) || 0,
-    originSession: asStr(row?.originSession)
+    originSession: asString(row?.originSession)
   };
 }

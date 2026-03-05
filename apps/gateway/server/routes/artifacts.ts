@@ -3,7 +3,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 
-import { json } from "../httpUtils.js";
+import { json } from "@eclia/gateway-client/utils";
 
 function guessMimeFromPath(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();

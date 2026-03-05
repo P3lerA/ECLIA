@@ -5,8 +5,8 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { loadEcliaConfig } from "@eclia/config";
 
-import { makeAdapterLogger } from "../../../../apps/adapter/utils.js";
-import { ensureGatewaySession, guessGatewayUrl, runGatewayChat } from "../../../../apps/adapter/gateway.js";
+import { makeAdapterLogger } from "@eclia/gateway-client/utils";
+import { ensureGatewaySession, guessGatewayUrl, runGatewayChat } from "@eclia/gateway-client";
 
 import {
   buildTriagePrompt,
@@ -16,6 +16,8 @@ import {
   type EmailNotifyTarget,
   type EmailSummary
 } from "./email-format.js";
+
+import { asString as asStr } from "@eclia/utils";
 
 const log = makeAdapterLogger("listener-email");
 const EMAIL_STATE_DIR = [".eclia", "plugin", "listener-email"] as const;
@@ -38,10 +40,6 @@ type AccountStateV1 = { v: 1; lastUid: number };
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
-}
-
-function asStr(v: unknown): string {
-  return typeof v === "string" ? v : typeof v === "number" ? String(v) : "";
 }
 
 function coerceAccount(raw: any, fallbackId: string): EmailListenerAccountConfig | null {

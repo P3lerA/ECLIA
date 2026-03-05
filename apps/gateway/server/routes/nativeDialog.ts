@@ -2,7 +2,7 @@ import http from "node:http";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { json } from "../httpUtils.js";
+import { json } from "@eclia/gateway-client/utils";
 
 const execFileAsync = promisify(execFile);
 

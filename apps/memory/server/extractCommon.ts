@@ -1,17 +1,9 @@
 import { readSystemMemoryExtractTemplate, renderSystemMemoryExtractTemplate } from "@eclia/config";
 
-import { clampInt } from "./httpUtils.js";
-import { withGatewayAuth } from "../../adapter/gateway.js";
+import { clampInt } from "@eclia/utils";
+import { withGatewayAuth, type TranscriptRecordV1, type OpenAICompatMessage } from "@eclia/gateway-client";
 
-export type TranscriptRecordV1 = any;
-
-export type OpenAICompatMessage = {
-  role: "system" | "user" | "assistant" | "tool";
-  content: any;
-  name?: string;
-  tool_call_id?: string;
-  tool_calls?: any;
-};
+export type { TranscriptRecordV1, OpenAICompatMessage };
 
 export type TimedMessage = {
   tsSec: number;

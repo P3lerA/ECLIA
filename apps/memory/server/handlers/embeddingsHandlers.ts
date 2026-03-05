@@ -1,5 +1,6 @@
 import http from "node:http";
-import { asString, json, readJson } from "../httpUtils.js";
+import { json, readJson } from "@eclia/gateway-client/utils";
+import { asString } from "@eclia/utils";
 import { isModelCached, proxySidecar } from "../sidecarManager.js";
 
 type EmbeddingsCtx = {

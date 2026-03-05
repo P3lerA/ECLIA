@@ -1,15 +1,9 @@
 import type { ManagedMemoryDto, MemoryDb } from "./types.js";
 import { makeRandomUnitVector, parseVectorJson, R_DIM, scaleVectorToNorm, toVectorJson, ZERO_R_JSON } from "./vector.js";
+import { asString as asStr, clampInt } from "@eclia/utils";
 
 function isoNow(): string {
   return new Date().toISOString();
-}
-
-function clampInt(v: unknown, min: number, max: number, fallback: number): number {
-  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
-  if (!Number.isFinite(n)) return fallback;
-  const i = Math.trunc(n);
-  return Math.max(min, Math.min(max, i));
 }
 
 function parseIsoMs(v: unknown): number {
@@ -21,10 +15,6 @@ function parseIsoMs(v: unknown): number {
 function parseEpochSecMs(v: unknown): number {
   const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
   return Number.isFinite(n) && n > 0 ? Math.trunc(n) * 1000 : 0;
-}
-
-function asStr(v: unknown): string {
-  return typeof v === "string" ? v : v == null ? "" : String(v);
 }
 
 function toManagedDto(row: any): ManagedMemoryDto {

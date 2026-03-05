@@ -8,8 +8,7 @@
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "resolveJsonModule": true,
-    "rootDir": ".."
+    "resolveJsonModule": true
   },
-  "include": ["server", "../utils.ts", "../gateway.ts"]
+  "include": ["server"]
 }

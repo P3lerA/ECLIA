@@ -10,7 +10,7 @@ import {
   type EcliaConfigPatch
 } from "@eclia/config";
 
-import { json, readJson } from "../httpUtils.js";
+import { json, readJson } from "@eclia/gateway-client/utils";
 import { spawnCodexAppServerRpc } from "../upstream/codexAppServerRpc.js";
 import { formatCodexError } from "../upstream/codexErrors.js";
 

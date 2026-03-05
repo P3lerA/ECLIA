@@ -1,7 +1,8 @@
 import http from "node:http";
 import { embedTexts } from "../embeddingClient.js";
 import { writeMetaIfNeeded } from "../db/metaRepo.js";
-import { asString, clampInt, json, readJson } from "../httpUtils.js";
+import { json, readJson } from "@eclia/gateway-client/utils";
+import { asString, clampInt } from "@eclia/utils";
 import {
   listFactsManage,
   createFact,

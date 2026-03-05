@@ -1,8 +1,6 @@
 import type { OpenAICompatMessage } from "../transcriptTypes.js";
 
-function isRecord(v: unknown): v is Record<string, any> {
-  return Boolean(v && typeof v === "object" && !Array.isArray(v));
-}
+import { isRecord } from "@eclia/utils";
 
 function contentToText(content: any): string {
   if (typeof content === "string") return content;

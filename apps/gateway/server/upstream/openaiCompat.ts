@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import type { UpstreamRequestDebugCapture } from "./provider.js";
 
 import { dumpUpstreamRequestBody } from "../debug/upstreamRequests.js";
+import { safeJsonStringify } from "@eclia/utils";
 
 export type ToolCallAccum = { callId: string; index?: number; name: string; argsRaw: string };
 
@@ -20,14 +21,6 @@ function createToolCallAccState(): ToolCallAccState {
 
 function safeText(v: any): string {
   return typeof v === "string" ? v : "";
-}
-
-function safeJsonStringify(v: unknown): string {
-  try {
-    return JSON.stringify(v);
-  } catch {
-    return String(v);
-  }
 }
 
 function mergePossiblyCumulative(prev: string, nextChunk: string): string {

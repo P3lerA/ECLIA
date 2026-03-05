@@ -1,7 +1,8 @@
 import http from "node:http";
 import { loadEcliaConfig } from "@eclia/config";
 import { openMemoryDb } from "./memoryDb.js";
-import { json, now } from "./httpUtils.js";
+import { json } from "@eclia/gateway-client/utils";
+import { now } from "./httpUtils.js";
 import { createSidecarManager } from "./sidecarManager.js";
 import {
   handleRecall,

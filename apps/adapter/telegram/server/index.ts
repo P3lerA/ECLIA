@@ -12,14 +12,14 @@ import {
   makeAdapterLogger,
   normalizeIdList,
   readJson
-} from "../../utils.js";
+} from "@eclia/gateway-client/utils";
 import {
   fetchArtifactBytes,
   getGatewayToken,
   guessGatewayUrl,
   resetGatewaySession,
   runGatewayChat
-} from "../../gateway.js";
+} from "@eclia/gateway-client";
 
 import {
   extractRefToRepoRelPath,

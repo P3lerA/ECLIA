@@ -1,6 +1,6 @@
 import http from "node:http";
 
-import { json, readJson } from "../httpUtils.js";
+import { json, readJson } from "@eclia/gateway-client/utils";
 import { ToolApprovalHub, type ToolApprovalDecision } from "../tools/approvalHub.js";
 
 export async function handleToolApprovals(req: http.IncomingMessage, res: http.ServerResponse, approvals: ToolApprovalHub) {

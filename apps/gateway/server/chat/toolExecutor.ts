@@ -29,7 +29,7 @@ import { EXEC_TOOL_NAME, SEND_TOOL_NAME, WEB_TOOL_NAME, MEMORY_TOOL_NAME } from 
 import { invokeMemoryTool, safeMemoryToolResultForModel } from "../tools/native/memoryTool.js";
 import type { McpStdioClient } from "../mcp/stdioClient.js";
 import type { ToolCall, ToolResult, UpstreamProvider } from "../upstream/provider.js";
-import { safeJsonStringify } from "../httpUtils.js";
+import { safeJsonStringify } from "@eclia/utils";
 import { sanitizeExecResultForUiAndModel } from "../tools/execResultSanitize.js";
 
 import { guessDiscordAdapterBaseUrl, postDiscordAdapterSend } from "./discordAdapter.js";

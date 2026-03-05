@@ -14,7 +14,7 @@ import {
 
 import { discoverSkills, validateEnabledSkills } from "../skills/registry.js";
 
-import { json, readJson } from "../httpUtils.js";
+import { json, readJson } from "@eclia/gateway-client/utils";
 
 export async function handleConfig(req: http.IncomingMessage, res: http.ServerResponse) {
   const { config, raw, rootDir } = loadEcliaConfig(process.cwd());

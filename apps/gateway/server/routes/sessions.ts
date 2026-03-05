@@ -1,7 +1,8 @@
 import http from "node:http";
 
 import { SessionStore } from "../sessionStore.js";
-import { json, readJson, safeDecodeSegment, safeInt } from "../httpUtils.js";
+import { json, readJson } from "@eclia/gateway-client/utils";
+import { safeDecodeSegment, safeInt } from "../httpUtils.js";
 import { getActiveRequest } from "../activeRequests.js";
 
 export async function handleSessions(req: http.IncomingMessage, res: http.ServerResponse, store: SessionStore) {

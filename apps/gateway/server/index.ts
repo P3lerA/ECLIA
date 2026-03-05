@@ -12,7 +12,7 @@ import { SEND_TOOL_SCHEMA } from "./tools/native/sendTool.js";
 import { WEB_TOOL_SCHEMA } from "./tools/native/webTool.js";
 import { MEMORY_TOOL_SCHEMA } from "./tools/native/memoryTool.js";
 import { McpStdioClient, type McpToolDef } from "./mcp/stdioClient.js";
-import { json } from "./httpUtils.js";
+import { json } from "@eclia/gateway-client/utils";
 
 import { handleArtifacts } from "./routes/artifacts.js";
 import { handleChat } from "./routes/chat.js";

@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "postinstall": "node scripts/setup-sidecar.mjs",
-    "dev": "pnpm -C ../../packages/config build && tsx server/index.ts",
+    "dev": "pnpm -C ../../packages/config build && pnpm -C ../../packages/gateway-client build && tsx server/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:watch": "tsc -p tsconfig.json --noEmit -w --preserveWatchOutput"
   },
   "dependencies": {
     "@eclia/config": "workspace:*",
+    "@eclia/gateway-client": "workspace:*",
+    "@eclia/utils": "workspace:*",
     "@libsql/client": "^0.17.0"
   },
   "devDependencies": {
