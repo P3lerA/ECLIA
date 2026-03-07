@@ -307,49 +307,4 @@ export function sameWebProfiles(
   return true;
 }
 
-export function sameEmailListenerAccounts(
-  draft: SettingsDraft["pluginEmailListenerAccounts"],
-  base: Array<{
-    id: string;
-    host: string;
-    port: number;
-    secure: boolean;
-    user: string;
-    mailbox: string;
-    criterion: string;
-    model: string;
-    notifyKind: "discord" | "telegram";
-    notifyId: string;
-    startFrom: "now" | "all";
-    maxBodyChars: number;
-  }>
-): boolean {
-  if (draft.length !== base.length) return false;
-  for (let i = 0; i < draft.length; i++) {
-    const a = draft[i];
-    const b = base[i];
 
-    const portNum = Number(a.port);
-    const port = Number.isFinite(portNum) ? Math.trunc(portNum) : 993;
-
-    const maxBodyNum = Number(a.maxBodyChars);
-    const maxBodyChars = Number.isFinite(maxBodyNum) ? Math.max(0, Math.trunc(maxBodyNum)) : 12_000;
-
-    if (a.id.trim() !== b.id) return false;
-    if (a.host.trim() !== b.host) return false;
-    if (port !== b.port) return false;
-    if (Boolean(a.secure) !== Boolean(b.secure)) return false;
-    if (a.user.trim() !== b.user) return false;
-
-    const mailbox = a.mailbox.trim() || "INBOX";
-    if (mailbox !== b.mailbox) return false;
-
-    if (a.criterion.trim() !== b.criterion.trim()) return false;
-    if (a.model.trim() !== b.model) return false;
-    if (a.notifyKind !== b.notifyKind) return false;
-    if (a.notifyId.trim() !== b.notifyId) return false;
-    if (a.startFrom !== b.startFrom) return false;
-    if (maxBodyChars !== b.maxBodyChars) return false;
-  }
-  return true;
-}

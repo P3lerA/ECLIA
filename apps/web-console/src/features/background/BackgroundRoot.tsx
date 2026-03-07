@@ -1,9 +1,10 @@
 import React from "react";
-import { useAppDispatch, useAppState } from "../../state/AppState";
+import { useAppDispatch, useAppSelector } from "../../state/AppState";
 import { WebGLContourBackground } from "./WebGLContourBackground";
 
 export function BackgroundRoot() {
-  const state = useAppState();
+  const textureDisabled = useAppSelector((s) => s.settings.textureDisabled);
+  const gpuAvailable = useAppSelector((s) => s.gpu.available);
   const dispatch = useAppDispatch();
 
   const onStatus = React.useCallback(
@@ -14,7 +15,7 @@ export function BackgroundRoot() {
   );
 
   // Solid background only (no texture).
-  if (state.settings.textureDisabled) {
+  if (textureDisabled) {
     return <div className="bg-root" aria-hidden="true" data-texture="off" />;
   }
 
@@ -22,7 +23,7 @@ export function BackgroundRoot() {
   return (
     <div className="bg-root" aria-hidden="true" data-texture="on">
       {/* If GPU is unavailable: do not mount WebGL again (avoid repeated failures). */}
-      {state.gpu.available !== false ? <WebGLContourBackground onStatus={onStatus} /> : null}
+      {gpuAvailable !== false ? <WebGLContourBackground onStatus={onStatus} /> : null}
     </div>
   );
 }

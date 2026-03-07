@@ -237,46 +237,6 @@ export type EcliaConfig = {
     };
   };
 
-  plugins: {
-    /**
-     * Listener-type plugins.
-     */
-    listener: {
-      /**
-       * Email triage daemon.
-       *
-       * Watches IMAP mailboxes using ImapFlow (IDLE) and prompts the configured model
-       * (no context) to decide whether to notify the user via the `send` tool.
-       */
-      email: {
-        enabled: boolean;
-        /** Effective triage template (resolved from plugins/listener/email/_triage.local.md). */
-        triage_prompt?: string;
-        accounts: EmailListenerAccount[];
-      };
-    };
-  };
-};
-
-export type EmailListenerNotifyTarget =
-  | { kind: "discord"; channel_id: string }
-  | { kind: "telegram"; chat_id: string };
-
-export type EmailListenerAccount = {
-  id: string;
-  host: string;
-  port: number;
-  secure: boolean;
-  user: string;
-  pass?: string; // secret (prefer local overrides)
-  mailbox?: string; // default: INBOX
-  criterion: string;
-  model?: string; // route key
-  notify: EmailListenerNotifyTarget;
-  /** Deprecated: kept for compatibility. Runtime always behaves as now (ignore existing mail). */
-  start_from?: "now" | "all";
-  /** Maximum characters to include from the message body. Default: 12000. */
-  max_body_chars?: number;
 };
 
 export type OpenAICompatProfile = {
@@ -417,11 +377,6 @@ export type EcliaConfigPatch = Partial<{
     discord: Partial<EcliaConfig["adapters"]["discord"]>;
     telegram: Partial<EcliaConfig["adapters"]["telegram"]>;
   }>;
-  plugins: Partial<{
-    listener: Partial<{
-      email: Partial<EcliaConfig["plugins"]["listener"]["email"]>;
-    }>;
-  }>;
 }>;
 
 export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
@@ -501,14 +456,6 @@ export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
       enabled: false,
       user_whitelist: [],
       group_whitelist: []
-    }
-  },
-  plugins: {
-    listener: {
-      email: {
-        enabled: false,
-        accounts: []
-      }
     }
   }
 };

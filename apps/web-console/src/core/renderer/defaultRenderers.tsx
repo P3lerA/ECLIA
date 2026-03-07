@@ -5,7 +5,7 @@ import type { CodeBlock, TextBlock, ToolBlock, ThoughtBlock } from "../types";
 import type { BlockRendererRegistry } from "./BlockRendererRegistry";
 import { apiApproveTool, type ToolApprovalDecision } from "../api/tools";
 import { apiArtifactUrl } from "../api/artifacts";
-import { useAppState } from "../../state/AppState";
+import { useAppSelector } from "../../state/AppState";
 import { tryFormatToolPayload } from "./toolPayloadFormat";
 import { ToolNameIcon } from "../tools/ToolNameIcon";
 
@@ -149,7 +149,7 @@ function ArtifactInlineCard({ path, preferredLabel }: { path: string; preferredL
 }
 
 function TextBlockView({ block }: { block: TextBlock }) {
-  const plainOutput = Boolean(useAppState().settings.displayPlainOutput);
+  const plainOutput = useAppSelector((s) => s.settings.displayPlainOutput);
 
   // Plain output mode: do NOT render markdown.
   if (plainOutput) {
@@ -249,7 +249,7 @@ function extractArtifacts(payload: any): any[] {
 }
 
 function ToolBlockView({ block }: { block: ToolBlock }) {
-  const plainOutput = Boolean(useAppState().settings.displayPlainOutput);
+  const plainOutput = useAppSelector((s) => s.settings.displayPlainOutput);
 
   const payload: any = block.payload ?? {};
   const approval = payload?.approval ?? null;
@@ -355,7 +355,7 @@ function ToolBlockView({ block }: { block: ToolBlock }) {
 }
 
 function ToolPayloadRendered({ block, payload }: { block: ToolBlock; payload: any }) {
-  const webResultTruncateChars = useAppState().settings.webResultTruncateChars;
+  const webResultTruncateChars = useAppSelector((s) => s.settings.webResultTruncateChars);
   const formatted = tryFormatToolPayload(block, payload, { webResultTruncateChars });
 
   if (formatted?.kind === "tool_call_raw") {
@@ -518,7 +518,7 @@ function ToolPayloadRendered({ block, payload }: { block: ToolBlock; payload: an
 }
 
 function ThoughtBlockView({ block }: { block: ThoughtBlock }) {
-  const plainOutput = Boolean(useAppState().settings.displayPlainOutput);
+  const plainOutput = useAppSelector((s) => s.settings.displayPlainOutput);
 
   if (plainOutput) {
     return (

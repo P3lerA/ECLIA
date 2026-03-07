@@ -134,7 +134,7 @@ export function ChatView({
                 ariaLabel="Steps"
                 options={STEP_OPTIONS}
                 value={showWork ? "full" : "final"}
-                onChange={(mode) => dispatch({ type: "settings/displayWorkProcess", enabled: mode === "full" })}
+                onChange={(mode) => dispatch({ type: "settings/set", key: "displayWorkProcess", value: mode === "full" })}
               />
               <ThemeModeSwitch compact />
             </div>

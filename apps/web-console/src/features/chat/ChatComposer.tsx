@@ -90,8 +90,9 @@ export function ChatComposer({ onOpenMenu }: { onOpenMenu: () => void }) {
   const accessMode = state.settings.toolAccessMode;
   const toggleAccessMode = React.useCallback(() => {
     dispatch({
-      type: "settings/toolAccessMode",
-      mode: accessMode === "full" ? "safe" : "full"
+      type: "settings/set",
+      key: "toolAccessMode",
+      value: accessMode === "full" ? "safe" : "full"
     });
   }, [accessMode, dispatch]);
 

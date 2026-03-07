@@ -255,7 +255,9 @@ export function WebGLContourBackground({ onStatus }: Props) {
 
     const init = () => {
       lostRef.current = false;
-      confirmedRef.current = false;
+      // Don't reset confirmedRef — if the GPU already passed the smoke test,
+      // context loss (e.g. tab backgrounded) is transient, not a capability issue.
+      lastDarkRef.current = -1;
 
       const gl = canvas.getContext("webgl2", {
         alpha: true,
@@ -395,11 +397,36 @@ export function WebGLContourBackground({ onStatus }: Props) {
       rafRef.current = requestAnimationFrame(tick);
     };
 
+    const scheduleFailsafe = () => {
+      clearFailSafe();
+      timeoutRef.current = window.setTimeout(() => {
+        if (confirmedRef.current || lostRef.current) return;
+        if (document.hidden) {
+          // Tab is hidden — rAF is paused so no frame could render. Retry later.
+          scheduleFailsafe();
+          return;
+        }
+        // eslint-disable-next-line no-console
+        console.warn("[bg] no frame confirmed within timeout, downgrade");
+        lostRef.current = true;
+        onStatus?.(false);
+        cleanupGL();
+      }, 1200);
+    };
+
     const onLost = (e: Event) => {
       e.preventDefault();
       lostRef.current = true;
-      onStatus?.(false);
-      cleanupGL();
+      stop();
+      clearFailSafe();
+      // GL resources are invalid after context loss; null them out.
+      // Don't report failure — browser may restore the context when the tab returns.
+      glRef.current = null;
+      progRef.current = null;
+      vaoRef.current = null;
+      uResRef.current = null;
+      uTimeRef.current = null;
+      uDarkRef.current = null;
     };
 
     const onRestored = () => {
@@ -407,16 +434,7 @@ export function WebGLContourBackground({ onStatus }: Props) {
       try {
         const ok = init();
         if (ok) {
-          // Failsafe: after context restore we need to re-confirm we can render.
-          timeoutRef.current = window.setTimeout(() => {
-            if (!confirmedRef.current && !lostRef.current) {
-              // eslint-disable-next-line no-console
-              console.warn("[bg] no frame confirmed within timeout (restored), downgrade");
-              lostRef.current = true;
-              onStatus?.(false);
-              cleanupGL();
-            }
-          }, 1200);
+          scheduleFailsafe();
 
           renderLoop(performance.now());
         }
@@ -438,15 +456,7 @@ export function WebGLContourBackground({ onStatus }: Props) {
     try {
       const ok = init();
       if (ok) {
-        timeoutRef.current = window.setTimeout(() => {
-          if (!confirmedRef.current && !lostRef.current) {
-            // eslint-disable-next-line no-console
-            console.warn("[bg] no frame confirmed within timeout, downgrade");
-            lostRef.current = true;
-            onStatus?.(false);
-            cleanupGL();
-          }
-        }, 1200);
+        scheduleFailsafe();
 
         renderLoop(performance.now());
       }

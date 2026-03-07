@@ -1,4 +1,4 @@
-import { useAppDispatch, useAppState } from "../../state/AppState";
+import { useAppDispatch, useAppSelector } from "../../state/AppState";
 import { cycleThemeMode, type ThemeMode } from "../../theme/theme";
 
 function iconFor(mode: ThemeMode): string {
@@ -19,10 +19,9 @@ function labelFor(mode: ThemeMode): string {
  * Used on the Landing page next to MENU.
  */
 export function ThemeCycleButton({ className }: { className?: string }) {
-  const state = useAppState();
+  const mode = useAppSelector((s) => s.themeMode);
   const dispatch = useAppDispatch();
 
-  const mode = state.themeMode;
   const next = cycleThemeMode(mode);
 
   return (

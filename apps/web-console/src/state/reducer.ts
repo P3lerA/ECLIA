@@ -2,6 +2,7 @@ import type { Block, InspectorTabId, LogItem, Message, Session } from "../core/t
 import type { TransportId } from "../core/transport/TransportRegistry";
 import { normalizeEnabledToolNames, type ToolName } from "../core/tools/ToolRegistry";
 import type { ThemeMode } from "../theme/theme";
+import { makeId } from "../core/ids";
 
 export type AppSettings = {
   /**
@@ -111,6 +112,11 @@ export type AppState = {
   logsByTab: Record<InspectorTabId, LogItem[]>;
 };
 
+// Type-safe settings/set action — value type is inferred from the key.
+type SettingsSetAction = {
+  [K in keyof AppSettings]: { type: "settings/set"; key: K; value: AppSettings[K] }
+}[keyof AppSettings];
+
 export type Action =
   | { type: "theme/setMode"; mode: ThemeMode }
   | { type: "sessions/replace"; sessions: Session[]; activeSessionId?: string }
@@ -118,22 +124,10 @@ export type Action =
   | { type: "session/add"; session: Session; makeActive?: boolean }
   | { type: "session/update"; sessionId: string; patch: Partial<Session> }
   | { type: "session/select"; sessionId: string }
-  | { type: "session/new" } // create a local-only draft session (no gateway folder until first message)
+  | { type: "session/new" }
   | { type: "model/set"; model: string }
   | { type: "transport/set"; transport: TransportId }
-  | { type: "settings/textureDisabled"; enabled: boolean }
-  | { type: "settings/sessionSyncEnabled"; enabled: boolean }
-  | { type: "settings/contextLimitEnabled"; enabled: boolean }
-  | { type: "settings/contextTokenLimit"; value: number }
-  | { type: "settings/temperature"; value: number | null }
-  | { type: "settings/topP"; value: number | null }
-  | { type: "settings/topK"; value: number | null }
-  | { type: "settings/maxOutputTokens"; value: number | null }
-  | { type: "settings/toolAccessMode"; mode: "full" | "safe" }
-  | { type: "settings/enabledTools"; enabledTools: ToolName[] }
-  | { type: "settings/displayPlainOutput"; enabled: boolean }
-  | { type: "settings/displayWorkProcess"; enabled: boolean }
-  | { type: "settings/webResultTruncateChars"; value: number }
+  | SettingsSetAction
   | { type: "gpu/available"; available: boolean }
   | { type: "message/add"; sessionId: string; message: Message }
   | { type: "messages/set"; sessionId: string; messages: Message[]; hasMore?: boolean }
@@ -216,87 +210,12 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, sessions };
     }
 
-    case "settings/textureDisabled":
-      if (state.settings.textureDisabled === action.enabled) return state;
-      return { ...state, settings: { ...state.settings, textureDisabled: action.enabled } };
-
-    case "settings/sessionSyncEnabled":
-      if (state.settings.sessionSyncEnabled === action.enabled) return state;
-      return { ...state, settings: { ...state.settings, sessionSyncEnabled: action.enabled } };
-
-    case "settings/contextLimitEnabled":
-      if (state.settings.contextLimitEnabled === action.enabled) return state;
-      return { ...state, settings: { ...state.settings, contextLimitEnabled: action.enabled } };
-
-    case "settings/contextTokenLimit": {
-      const v = clampInt(action.value, 256, 1_000_000);
-      if (state.settings.contextTokenLimit === v) return state;
-      return { ...state, settings: { ...state.settings, contextTokenLimit: v } };
-    }
-
-    case "settings/temperature": {
-      const v = clampFloatOrNull(action.value, 0, 2);
-      if (state.settings.temperature === v) return state;
-      return { ...state, settings: { ...state.settings, temperature: v } };
-    }
-
-    case "settings/topP": {
-      const v = clampFloatOrNull(action.value, 0, 1);
-      if (state.settings.topP === v) return state;
-      return { ...state, settings: { ...state.settings, topP: v } };
-    }
-
-    case "settings/topK": {
-      const v = clampIntOrNull(action.value, 1, 1000);
-      if (state.settings.topK === v) return state;
-      return { ...state, settings: { ...state.settings, topK: v } };
-    }
-
-    case "settings/maxOutputTokens": {
-      const v = clampIntOrNull(action.value, 1, 200_000);
-      if (state.settings.maxOutputTokens === v) return state;
-      return { ...state, settings: { ...state.settings, maxOutputTokens: v } };
-    }
-
-    case "settings/toolAccessMode":
-      if (state.settings.toolAccessMode === action.mode) return state;
-      return { ...state, settings: { ...state.settings, toolAccessMode: action.mode } };
-
-    case "settings/enabledTools": {
-      const normalized = normalizeEnabledToolNames(action.enabledTools);
-
-      // Preserve registry order if the caller passed a Set-like list.
-      // Note: normalizeEnabledToolNames() already enforces registry order.
-      const next = normalized;
-
-      const prev = state.settings.enabledTools;
-      if (prev.length === next.length) {
-        let same = true;
-        for (let i = 0; i < prev.length; i++) {
-          if (prev[i] !== next[i]) {
-            same = false;
-            break;
-          }
-        }
-        if (same) return state;
-      }
-
-      // Guard: never allow unknown tool names in state.
-      return { ...state, settings: { ...state.settings, enabledTools: next } };
-    }
-
-    case "settings/displayPlainOutput":
-      if (state.settings.displayPlainOutput === action.enabled) return state;
-      return { ...state, settings: { ...state.settings, displayPlainOutput: action.enabled } };
-
-    case "settings/displayWorkProcess":
-      if (state.settings.displayWorkProcess === action.enabled) return state;
-      return { ...state, settings: { ...state.settings, displayWorkProcess: action.enabled } };
-
-    case "settings/webResultTruncateChars": {
-      const v = clampInt(action.value, 200, 200_000);
-      if (state.settings.webResultTruncateChars === v) return state;
-      return { ...state, settings: { ...state.settings, webResultTruncateChars: v } };
+    case "settings/set": {
+      const { key, value } = action;
+      const sanitize = settingsSanitizers[key] as ((v: any) => any) | undefined;
+      const sanitized = sanitize ? sanitize(value) : value;
+      if (settingsEqual(key, state.settings[key], sanitized)) return state;
+      return { ...state, settings: { ...state.settings, [key]: sanitized } };
     }
 
     case "gpu/available":
@@ -524,6 +443,30 @@ export function reducer(state: AppState, action: Action): AppState {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Settings sanitizers & equality
+// ---------------------------------------------------------------------------
+
+const settingsSanitizers: Partial<Record<keyof AppSettings, (v: any) => any>> = {
+  contextTokenLimit: (v) => clampInt(v, 256, 1_000_000),
+  temperature: (v) => clampFloatOrNull(v, 0, 2),
+  topP: (v) => clampFloatOrNull(v, 0, 1),
+  topK: (v) => clampIntOrNull(v, 1, 1000),
+  maxOutputTokens: (v) => clampIntOrNull(v, 1, 200_000),
+  webResultTruncateChars: (v) => clampInt(v, 200, 200_000),
+  enabledTools: (v) => normalizeEnabledToolNames(v),
+};
+
+function settingsEqual(key: keyof AppSettings, a: unknown, b: unknown): boolean {
+  if (key === "enabledTools") {
+    const aa = a as ToolName[], bb = b as ToolName[];
+    return aa.length === bb.length && aa.every((v, i) => v === bb[i]);
+  }
+  return a === b;
+}
+
+// ---------------------------------------------------------------------------
+
 function ensureSessionStarted(sessions: Session[], sessionId: string): Session[] {
   const idx = sessions.findIndex((s) => s.id === sessionId);
   if (idx < 0) return sessions;
@@ -572,8 +515,3 @@ function clampInt(v: unknown, min: number, max: number): number {
   return Math.max(min, Math.min(max, i));
 }
 
-function makeId(): string {
-  const c: any = globalThis.crypto;
-  if (c && typeof c.randomUUID === "function") return c.randomUUID();
-  return `m_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-}

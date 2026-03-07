@@ -72,7 +72,8 @@ export {
 export {
   ensureLocalConfig,
   loadEcliaConfig,
-  writeLocalEcliaConfig
+  writeLocalEcliaConfig,
+  patchLocalToml
 } from "./store.js";
 
 export { preflightListen } from "./preflight.js";

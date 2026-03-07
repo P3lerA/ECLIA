@@ -2,12 +2,7 @@ import type { AppState } from "./reducer";
 import { readStoredThemeMode } from "../theme/theme";
 import { readStoredPrefs } from "../persist/prefs";
 import { defaultEnabledToolNames, normalizeEnabledToolNames } from "../core/tools/ToolRegistry";
-
-function makeId(): string {
-  const c: any = globalThis.crypto;
-  if (c && typeof c.randomUUID === "function") return c.randomUUID();
-  return `s_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-}
+import { makeId } from "../core/ids";
 
 export function makeInitialState(): AppState {
   const themeMode = readStoredThemeMode();

@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "pnpm -C ../../../packages/config build && pnpm -C ../../../packages/gateway-client build && tsx server/index.ts",
+    "dev": "tsx server/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:watch": "tsc -p tsconfig.json --noEmit -w --preserveWatchOutput"
   },

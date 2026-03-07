@@ -152,6 +152,34 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
+  apps/symphony:
+    dependencies:
+      '@eclia/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@eclia/gateway-client':
+        specifier: workspace:*
+        version: link:../../packages/gateway-client
+      '@eclia/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
+      imapflow:
+        specifier: ^1.0.171
+        version: 1.2.10
+      mailparser:
+        specifier: ^3.7.2
+        version: 3.9.3
+    devDependencies:
+      '@types/mailparser':
+        specifier: ^3.4.5
+        version: 3.4.6
+      tsx:
+        specifier: ^4.19.2
+        version: 4.21.0
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
   apps/toolhost-exec-posix:
     dependencies:
       '@eclia/tool-protocol':

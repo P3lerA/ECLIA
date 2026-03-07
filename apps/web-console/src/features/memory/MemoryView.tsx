@@ -2,6 +2,7 @@ import React from "react";
 
 import { ThemeModeSwitch } from "../theme/ThemeModeSwitch";
 import { EcliaLogo } from "../common/EcliaLogo";
+import { SaveDiscardBar } from "../common/SaveDiscardBar";
 
 import { fetchDevConfig, saveDevConfig } from "../settings/settingsInteractions";
 import type { ConfigRequestBody, ConfigResponse } from "../settings/settingsTypes";
@@ -411,22 +412,9 @@ export function MemoryView({ onBack }: { onBack: () => void }) {
         </div>
 
         <div className="settings-head-actions">
-          {dirty ? (
-            <div className="saveIndicator" role="status" aria-live="polite">
-              <span className="saveDot" aria-hidden="true" />
-              Unsaved changes
-            </div>
-          ) : null}
-
-          <button className="btn subtle" onClick={discard} disabled={!dirty || saving} aria-label="Discard changes">
-            Discard
-          </button>
-
-          <button className="btn subtle" onClick={save} disabled={!canSave} aria-label="Save memory settings">
-            {saving ? "Saving…" : "Save"}
-          </button>
-
-          <ThemeModeSwitch compact />
+          <SaveDiscardBar dirty={dirty} saving={saving} canSave={canSave} onSave={save} onDiscard={discard}>
+            <ThemeModeSwitch compact />
+          </SaveDiscardBar>
         </div>
       </div>
 

@@ -382,11 +382,11 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
                   <button
                     className="menu-item"
                     onClick={() => {
-                      navigate("/plugins");
+                      navigate("/symphony");
                       onClose();
                     }}
                   >
-                    <div className="menu-item-main">Plugins</div>
+                    <div className="menu-item-main">Symphony</div>
                   </button>
                 </div>
               </section>

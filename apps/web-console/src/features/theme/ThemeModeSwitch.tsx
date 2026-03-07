@@ -1,4 +1,4 @@
-import { useAppDispatch, useAppState } from "../../state/AppState";
+import { useAppDispatch, useAppSelector } from "../../state/AppState";
 import { SegmentedSwitch, type SegmentedSwitchOption } from "../common/SegmentedSwitch";
 import type { ThemeMode } from "../../theme/theme";
 
@@ -13,7 +13,7 @@ const OPTIONS: SegmentedSwitchOption<ThemeMode>[] = [
  * Used on the Chat page top-right.
  */
 export function ThemeModeSwitch({ compact }: { compact?: boolean }) {
-  const state = useAppState();
+  const themeMode = useAppSelector((s) => s.themeMode);
   const dispatch = useAppDispatch();
 
   return (
@@ -21,7 +21,7 @@ export function ThemeModeSwitch({ compact }: { compact?: boolean }) {
       compact={compact}
       ariaLabel="Theme"
       options={OPTIONS}
-      value={state.themeMode}
+      value={themeMode}
       onChange={(mode) => dispatch({ type: "theme/setMode", mode })}
     />
   );

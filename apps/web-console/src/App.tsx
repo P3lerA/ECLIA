@@ -1,34 +1,15 @@
 import React from "react";
 import { Routes, Route, Navigate, useNavigate, useLocation, useParams } from "react-router-dom";
-import { AppStateProvider, useAppDispatch, useAppState } from "./state/AppState";
+import { useAppDispatch, useAppState } from "./state/AppState";
 import { LandingView } from "./features/landing/LandingView";
 import { ChatView } from "./features/chat/ChatView";
 import { MenuSheet } from "./features/menu/MenuSheet";
 import { SettingsView } from "./features/settings/SettingsView";
-import { PluginsView } from "./features/plugins/PluginsView";
 import { MemoryView } from "./features/memory/MemoryView";
+import { SymphonyView } from "./features/symphony/SymphonyView";
 import { BackgroundRoot } from "./features/background/BackgroundRoot";
-import { applyTheme, subscribeSystemThemeChange, writeStoredThemeMode } from "./theme/theme";
-import { writeStoredPrefs } from "./persist/prefs";
-import { apiGetSession, apiGetSessionStatus, apiListSessions, toUiSession } from "./core/api/sessions";
-import { makeId } from "./core/ids";
-import { apiFetch } from "./core/api/apiFetch";
-import { AUTH_REQUIRED_EVENT } from "./core/api/gatewayAuth";
 import { GatewayTokenView } from "./features/auth/GatewayTokenView";
-
-function safeDecodeSegment(seg: string): string | null {
-  try {
-    return decodeURIComponent(seg);
-  } catch {
-    return null;
-  }
-}
-
-function getSessionIdFromPath(pathname: string): string | null {
-  // /session/<session-id>
-  const m = pathname.match(/^\/session\/([^/?#]+)/);
-  return m?.[1] ? safeDecodeSegment(m[1]) : null;
-}
+import { useAuthGate, useSessionBootstrap, usePersistPrefs } from "./appHooks";
 
 function SessionRoute({ onOpenMenu }: { onOpenMenu: () => void }) {
   const { sessionId } = useParams();
@@ -75,269 +56,15 @@ function SessionRoute({ onOpenMenu }: { onOpenMenu: () => void }) {
 }
 
 function AppInner() {
-  const state = useAppState();
-  const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [authRequired, setAuthRequired] = React.useState(false);
-  const [authReady, setAuthReady] = React.useState(false);
-  const [authEpoch, setAuthEpoch] = React.useState(0);
-  const authCheckedRef = React.useRef(false);
+  const auth = useAuthGate();
+  useSessionBootstrap(auth);
+  usePersistPrefs();
 
   const containerWide =
-    location.pathname.startsWith("/settings") || location.pathname.startsWith("/plugins") || location.pathname.startsWith("/memory");
-
-  const sessionsRef = React.useRef(state.sessions);
-
-  // Startup auth probe: if the gateway requires a token, route to /connect.
-  React.useEffect(() => {
-    if (authCheckedRef.current) return;
-    authCheckedRef.current = true;
-
-    (async () => {
-      try {
-        const r = await apiFetch("/api/config", { method: "GET" });
-        if (r.status === 401) {
-          setAuthRequired(true);
-          setAuthReady(false);
-          if (location.pathname !== "/connect") navigate("/connect", { replace: true });
-          return;
-        }
-
-        // Establish/refresh the scoped artifacts session cookie for this browser.
-        // This keeps artifact URLs clean (no gateway token in query params) while
-        // preserving bearer-token auth for programmatic clients.
-        if (r.ok) {
-          const s = await apiFetch("/api/auth/artifacts-session", { method: "POST" });
-          if (s.status === 401) {
-            setAuthRequired(true);
-            setAuthReady(false);
-            if (location.pathname !== "/connect") navigate("/connect", { replace: true });
-            return;
-          }
-          // Even if the artifacts session endpoint returns a non-200 (unexpected),
-          // we still consider the UI "authed" as long as /api/config is accessible.
-          setAuthReady(true);
-        }
-      } catch {
-        // Gateway offline: ignore.
-      }
-    })();
-  }, [location.pathname, navigate]);
-
-  // Any API call that receives 401 will broadcast AUTH_REQUIRED_EVENT.
-  React.useEffect(() => {
-    const onAuth = () => {
-      setAuthRequired(true);
-      setAuthReady(false);
-      if (location.pathname !== "/connect") navigate("/connect", { replace: true });
-    };
-    window.addEventListener(AUTH_REQUIRED_EVENT, onAuth);
-    return () => window.removeEventListener(AUTH_REQUIRED_EVENT, onAuth);
-  }, [location.pathname, navigate]);
-
-  const onAuthed = React.useCallback(() => {
-    setAuthRequired(false);
-    setAuthReady(true);
-    setAuthEpoch((v) => v + 1);
-  }, []);
-  React.useEffect(() => {
-    sessionsRef.current = state.sessions;
-  }, [state.sessions]);
-
-  // Keep a live ref so async bootstrap work doesn't capture a stale session id.
-  // Update synchronously during render to avoid an effect-timing race.
-  const activeIdRef = React.useRef(state.activeSessionId);
-  activeIdRef.current = state.activeSessionId;
-
-  // Prefer the session id from the URL on initial load (direct linking / refresh).
-  const urlSessionId = React.useMemo(() => getSessionIdFromPath(location.pathname), [location.pathname]);
-
-  // Keep a live ref so async bootstrap doesn't accidentally pin the UI to the
-  // session id that happened to be in the URL when the app first mounted.
-  // Update synchronously during render to avoid an effect-timing race.
-  const urlSessionIdRef = React.useRef<string | null>(urlSessionId);
-  urlSessionIdRef.current = urlSessionId;
-
-  // Theme: apply & persist (handles system changes in "system" mode).
-  React.useEffect(() => {
-    writeStoredThemeMode(state.themeMode);
-    applyTheme(state.themeMode);
-  }, [state.themeMode]);
-
-  React.useEffect(() => {
-    if (state.themeMode !== "system") return;
-    return subscribeSystemThemeChange(() => applyTheme("system"));
-  }, [state.themeMode]);
-
-  // Persist user preferences (stored locally in the browser).
-  React.useEffect(() => {
-    writeStoredPrefs({
-      v: 1,
-      textureDisabled: state.settings.textureDisabled,
-      sessionSyncEnabled: state.settings.sessionSyncEnabled,
-      displayPlainOutput: state.settings.displayPlainOutput,
-      displayWorkProcess: state.settings.displayWorkProcess,
-      webResultTruncateChars: state.settings.webResultTruncateChars,
-      transport: state.transport,
-      model: state.model,
-      contextLimitEnabled: state.settings.contextLimitEnabled,
-      contextTokenLimit: state.settings.contextTokenLimit,
-      temperature: state.settings.temperature ?? undefined,
-      topP: state.settings.topP ?? undefined,
-      topK: state.settings.topK ?? undefined,
-      maxOutputTokens: state.settings.maxOutputTokens ?? undefined,
-      toolAccessMode: state.settings.toolAccessMode,
-      enabledTools: state.settings.enabledTools
-    });
-  }, [
-    state.settings.textureDisabled,
-    state.settings.sessionSyncEnabled,
-    state.settings.displayPlainOutput,
-    state.settings.displayWorkProcess,
-    state.settings.webResultTruncateChars,
-    state.settings.contextLimitEnabled,
-    state.settings.contextTokenLimit,
-    state.settings.temperature,
-    state.settings.topP,
-    state.settings.topK,
-    state.settings.maxOutputTokens,
-    state.settings.toolAccessMode,
-    state.settings.enabledTools,
-    state.transport,
-    state.model
-  ]);
-
-  // Bootstrap sessions from the gateway (disk-backed).
-  React.useEffect(() => {
-    if (authRequired || !authReady) return;
-    if (!state.settings.sessionSyncEnabled) return;
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const metas = await apiListSessions(200);
-
-        if (cancelled) return;
-
-        // If the gateway has no persisted sessions yet, keep whatever local draft the UI has.
-        // A session directory should be created only when the first message is sent.
-        if (metas.length === 0) return;
-
-        const persisted = metas.map((m) => ({ ...toUiSession(m), started: false }));
-        const persistedIds = new Set(persisted.map((s) => s.id));
-
-        // Preserve any local-only draft sessions that are either:
-        //  - currently active (user may have clicked "New session" while the list is loading), or
-        //  - already "started" (has local messages but may not be persisted yet if the gateway is offline).
-        const activeNow = activeIdRef.current;
-        const localDrafts = sessionsRef.current.filter(
-          (s) => Boolean(s.localOnly) && (s.id === activeNow || Boolean(s.started))
-        );
-        const preservedDrafts = localDrafts.filter((s) => !persistedIds.has(s.id));
-
-        const urlId = urlSessionIdRef.current;
-        const desiredId = urlId ?? activeNow;
-
-        const sessions = [...preservedDrafts, ...persisted];
-
-        // If the user refreshed a /session/<id> URL, preserve that session as the preferred
-        // selection even if the session list hasn't been hydrated yet.
-        if (urlId && !sessions.some((s) => s.id === urlId)) {
-          const now = Date.now();
-          sessions.unshift({
-            id: urlId,
-            title: "New session",
-            meta: "just now",
-            createdAt: now,
-            updatedAt: now,
-            started: false
-          });
-        }
-
-        dispatch({ type: "sessions/replace", sessions, activeSessionId: desiredId });
-      } catch {
-        // Gateway might be offline; keep local placeholder sessions.
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [dispatch, state.settings.sessionSyncEnabled, authEpoch, authRequired, authReady]);
-
-  // Load messages for the session in the URL on-demand.
-  // If the gateway is actively processing a request, show the phase indicator and poll until done.
-  React.useEffect(() => {
-    if (authRequired || !authReady) return;
-    if (!state.settings.sessionSyncEnabled) return;
-    let cancelled = false;
-    const sid = urlSessionId;
-    if (!sid) return;
-
-    (async () => {
-      try {
-        const { session, messages, hasMore } = await apiGetSession(sid);
-        if (cancelled) return;
-
-        const ui = toUiSession(session);
-        dispatch({ type: "session/update", sessionId: sid, patch: { ...ui, localOnly: false } });
-        dispatch({ type: "messages/set", sessionId: sid, messages, hasMore });
-
-        // Check if the gateway is still processing this session (refresh recovery).
-        try {
-          const status = await apiGetSessionStatus(sid);
-          if (cancelled) return;
-
-          if (status.active) {
-            // Show a streaming placeholder with the current phase.
-            dispatch({ type: "assistant/stream/start", sessionId: sid, messageId: makeId() });
-            dispatch({ type: "session/setPhase", sessionId: sid, phase: status.phase });
-
-            // Poll until the request completes.
-            const poll = async () => {
-              while (!cancelled) {
-                await new Promise((r) => setTimeout(r, 2000));
-                if (cancelled) break;
-                try {
-                  const s = await apiGetSessionStatus(sid);
-                  if (cancelled) break;
-                  if (!s.active) {
-                    // Request finished — reload messages and clear phase.
-                    dispatch({ type: "session/setPhase", sessionId: sid, phase: null });
-                    dispatch({ type: "assistant/stream/finalize", sessionId: sid });
-                    try {
-                      const fresh = await apiGetSession(sid);
-                      if (!cancelled) {
-                        dispatch({ type: "messages/set", sessionId: sid, messages: fresh.messages, hasMore: fresh.hasMore });
-                      }
-                    } catch { /* ignore */ }
-                    break;
-                  }
-                  dispatch({ type: "session/setPhase", sessionId: sid, phase: s.phase });
-                } catch {
-                  // Status endpoint unreachable — stop polling.
-                  dispatch({ type: "session/setPhase", sessionId: sid, phase: null });
-                  dispatch({ type: "assistant/stream/finalize", sessionId: sid });
-                  break;
-                }
-              }
-            };
-            poll();
-          }
-        } catch {
-          // Status endpoint not available (older gateway) — no recovery.
-        }
-      } catch {
-        // Ignore (session may be local-only, or gateway offline).
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [urlSessionId, dispatch, state.settings.sessionSyncEnabled, authEpoch, authRequired, authReady]);
+    location.pathname.startsWith("/settings") || location.pathname.startsWith("/memory") || location.pathname.startsWith("/symphony");
 
   const [menuOpen, setMenuOpen] = React.useState(false);
 
@@ -347,13 +74,13 @@ function AppInner() {
 
       <div className={containerWide ? "container container-wide" : "container"}>
         <Routes>
-          <Route path="/connect" element={<GatewayTokenView onAuthed={onAuthed} />} />
+          <Route path="/connect" element={<GatewayTokenView onAuthed={auth.onAuthed} />} />
 
           <Route path="/settings" element={<SettingsView onBack={() => navigate("/")} />} />
 
-          <Route path="/plugins" element={<PluginsView onBack={() => navigate("/")} />} />
-
           <Route path="/memory" element={<MemoryView onBack={() => navigate("/")} />} />
+
+          <Route path="/symphony" element={<SymphonyView onBack={() => navigate("/")} />} />
 
           <Route
             path="/"
@@ -375,9 +102,5 @@ function AppInner() {
 }
 
 export function App() {
-  return (
-    <AppStateProvider>
-      <AppInner />
-    </AppStateProvider>
-  );
+  return <AppInner />;
 }

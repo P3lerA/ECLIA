@@ -6,7 +6,6 @@ import * as TOML from "@iarna/toml";
 
 import { coerceConfig, coerceOptionalString, coerceProfileId, deepMerge, isRecord } from "./coerce.js";
 import { findProjectRoot } from "./root.js";
-import { ensureEmailTriageFiles, readEmailTriagePrompt, writeEmailTriagePromptLocal } from "./email-triage.js";
 import { ensureSystemInstructionFiles, readSystemInstruction, writeSystemInstructionLocal } from "./system-instruction.js";
 import { ensureSystemMemoryTemplateFiles } from "./system-memory.js";
 import { ensureSystemMemoryExtractTemplateFiles } from "./system-memory-extract.js";
@@ -63,17 +62,13 @@ export function loadEcliaConfig(startDir: string = process.cwd()): {
   ensureSystemMemoryTemplateFiles(rootDir);
   ensureSystemMemoryExtractTemplateFiles(rootDir);
   ensureSystemMemoryConsolidateTemplateFiles(rootDir);
-  ensureEmailTriageFiles(rootDir);
-
   const base = tryReadToml(configPath);
   const local = tryReadToml(localPath);
 
   const merged = deepMerge(base, local);
   const config = coerceConfig(merged);
   const systemInstruction = readSystemInstruction(rootDir);
-  const triagePrompt = readEmailTriagePrompt(rootDir);
   (config.inference as any).system_instruction = systemInstruction.text;
-  ((config as any).plugins.listener.email as any).triage_prompt = triagePrompt.text;
 
   return { rootDir, configPath, localPath, config, raw: merged };
 }
@@ -97,8 +92,6 @@ export function writeLocalEcliaConfig(
   ensureSystemMemoryTemplateFiles(rootDir);
   ensureSystemMemoryExtractTemplateFiles(rootDir);
   ensureSystemMemoryConsolidateTemplateFiles(rootDir);
-  ensureEmailTriageFiles(rootDir);
-
   let patchSystemInstruction: string | undefined;
   if (patch.inference && Object.prototype.hasOwnProperty.call(patch.inference, "system_instruction")) {
     const raw = (patch.inference as any).system_instruction;
@@ -110,26 +103,6 @@ export function writeLocalEcliaConfig(
       ...patch,
       inference: nextInferencePatch as any
     };
-  }
-
-  let patchEmailTriagePrompt: string | undefined;
-  if ((patch as any)?.plugins?.listener?.email && Object.prototype.hasOwnProperty.call((patch as any).plugins.listener.email, "triage_prompt")) {
-    const raw = (patch as any).plugins.listener.email.triage_prompt;
-    if (typeof raw === "string") patchEmailTriagePrompt = raw;
-
-    const nextEmailPatch: Record<string, any> = { ...((patch as any).plugins.listener.email as any) };
-    delete nextEmailPatch.triage_prompt;
-
-    patch = {
-      ...patch,
-      plugins: {
-        ...((patch as any).plugins ?? {}),
-        listener: {
-          ...((patch as any).plugins?.listener ?? {}),
-          email: nextEmailPatch
-        }
-      }
-    } as any;
   }
 
   const currentLocal = tryReadToml(localPath);
@@ -270,42 +243,6 @@ export function writeLocalEcliaConfig(
     }
   }
 
-  // Special-case: plugins.listener.email.accounts is also an array, so deepMerge() replaces wholesale.
-  // Preserve existing secrets (pass) per account id unless the patch explicitly sets a new one.
-  {
-    const patchEmail = (patch as any)?.plugins?.listener?.email;
-    const patchedAccountsRaw = patchEmail?.accounts;
-
-    const currentEmailAccountsRaw = (currentLocal as any)?.plugins?.listener?.email?.accounts;
-    const currentEmailAccounts = Array.isArray(currentEmailAccountsRaw) ? (currentEmailAccountsRaw as any[]) : null;
-
-    if (patchEmail && Array.isArray(patchedAccountsRaw)) {
-      const patched = patchedAccountsRaw as any[];
-      const preserved: any[] = [];
-
-      for (let i = 0; i < patched.length; i++) {
-        const a = patched[i];
-        if (!isRecord(a)) continue;
-
-        const id = coerceProfileId((a as any).id, `account_${i + 1}`);
-        const existing = currentEmailAccounts?.find((x) => isRecord(x) && coerceProfileId((x as any).id, "") === id);
-
-        const next: Record<string, any> = { ...a, id };
-
-        // Preserve pass when omitted.
-        if (!Object.prototype.hasOwnProperty.call(a, "pass")) {
-          const existingPass = coerceOptionalString((existing as any)?.pass);
-          if (existingPass) next.pass = existingPass;
-        }
-
-        preserved.push(next);
-      }
-
-      patchEmail.accounts = preserved;
-      (patch as any).plugins.listener.email = patchEmail;
-    }
-  }
-
   const nextLocal = deepMerge(currentLocal, patch as any);
 
 
@@ -401,11 +338,6 @@ export function writeLocalEcliaConfig(
 
   // System instruction now lives in _system.local.md (with _system.md fallback), not TOML.
   delete (toWrite as any).inference.system_instruction;
-  // Email triage prompt now lives in plugins/listener/email/_triage.local.md.
-  if (isRecord((toWrite as any).plugins) && isRecord((toWrite as any).plugins.listener) && isRecord((toWrite as any).plugins.listener.email)) {
-    delete (toWrite as any).plugins.listener.email.triage_prompt;
-  }
-
   // codex_home: write only if configured; otherwise omit from TOML.
   const codexHome = coerceOptionalString((nextLocal as any).codex_home);
   if (codexHome) (toWrite as any).codex_home = codexHome;
@@ -488,10 +420,21 @@ export function writeLocalEcliaConfig(
   if (patchSystemInstruction !== undefined) {
     writeSystemInstructionLocal(rootDir, patchSystemInstruction);
   }
-  if (patchEmailTriagePrompt !== undefined) {
-    writeEmailTriagePromptLocal(rootDir, patchEmailTriagePrompt);
-  }
-
   const { config } = loadEcliaConfig(rootDir);
   return { rootDir, localPath, config };
+}
+
+/**
+ * Low-level read-modify-write on eclia.config.local.toml.
+ *
+ * Unlike writeLocalEcliaConfig, this does NOT normalize or rebuild known sections.
+ * It simply reads the local TOML, passes the parsed object to `mutate` for
+ * in-place edits, and writes the result back.
+ */
+export function patchLocalToml(rootDir: string, mutate: (obj: Record<string, any>) => void): void {
+  const localPath = path.join(rootDir, "eclia.config.local.toml");
+  ensureLocalConfig(rootDir);
+  const current = tryReadToml(localPath);
+  mutate(current);
+  fs.writeFileSync(localPath, TOML.stringify(current), "utf-8");
 }

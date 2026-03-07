@@ -30,6 +30,57 @@ const ARTIFACT_SESSION_COOKIE = "ECLIA_ARTIFACT_SESSION";
 const ARTIFACT_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const artifactSessions = new Map<string, number>(); // sessionId -> expiresAt
 
+/** Proxy an API sub-path to a local sidecar service. */
+async function proxyToService(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  opts: {
+    config: any;
+    configKey: string;
+    pathPrefix: string;
+    defaultPort: number;
+    timeoutMs: number;
+    errorCode: string;
+    errorHint?: string;
+  }
+): Promise<void> {
+  const section = opts.config?.[opts.configKey];
+  const host = String(section?.host ?? "127.0.0.1").trim() || "127.0.0.1";
+  const portRaw = section?.port;
+  const port =
+    typeof portRaw === "number" && portRaw > 0 && portRaw <= 65535
+      ? portRaw
+      : typeof portRaw === "string" && Number(portRaw) > 0 && Number(portRaw) <= 65535
+        ? Number(portRaw)
+        : opts.defaultPort;
+
+  const u = new URL(req.url ?? "/", "http://localhost");
+  const fwdPath = u.pathname.slice(opts.pathPrefix.length) + (u.search ?? "");
+  const url = `http://${host}:${port}${fwdPath}`;
+
+  const chunks: Buffer[] = [];
+  for await (const c of req) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
+  const body = Buffer.concat(chunks);
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs);
+  try {
+    const upstream = await fetch(url, {
+      method: req.method ?? "GET",
+      headers: body.length ? { "Content-Type": req.headers["content-type"] ?? "application/json" } : undefined,
+      body: body.length ? body : undefined,
+      signal: ctrl.signal
+    });
+    const data = await upstream.arrayBuffer();
+    res.writeHead(upstream.status, { "Content-Type": upstream.headers.get("content-type") ?? "application/json" });
+    res.end(Buffer.from(data));
+  } catch {
+    json(res, 502, { ok: false, error: opts.errorCode, ...(opts.errorHint ? { hint: opts.errorHint } : {}) });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function main() {
   const { config, rootDir } = loadEcliaConfig(process.cwd());
   const port = config.api.port;
@@ -233,42 +284,20 @@ async function main() {
 
     if (pathname === "/api/chat" && req.method === "POST") return await handleChat(req, res, store, approvals, toolhost);
 
-    // -- Memory service proxy -----------------------------------------------
+    // -- Service proxies (memory, symphony) -----------------------------------
     if (pathname.startsWith("/api/memory/")) {
-      const memHost = String((config as any)?.memory?.host ?? "127.0.0.1").trim() || "127.0.0.1";
-      const memPortRaw = (config as any)?.memory?.port;
-      const memPort =
-        typeof memPortRaw === "number" && memPortRaw > 0
-          ? memPortRaw
-          : typeof memPortRaw === "string" && Number(memPortRaw) > 0
-            ? Number(memPortRaw)
-            : 8788;
+      return await proxyToService(req, res, {
+        config, configKey: "memory", pathPrefix: "/api/memory", defaultPort: 8788,
+        timeoutMs: 630_000, errorCode: "memory_service_unreachable"
+      });
+    }
 
-      const memPath = pathname.slice("/api/memory".length) + (u.search ?? "");
-      const memUrl = `http://${memHost}:${memPort}${memPath}`;
-
-      const chunks: Buffer[] = [];
-      for await (const c of req) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
-      const body = Buffer.concat(chunks);
-
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 630_000);
-      try {
-        const upstream = await fetch(memUrl, {
-          method: req.method ?? "GET",
-          headers: body.length ? { "Content-Type": req.headers["content-type"] ?? "application/json" } : undefined,
-          body: body.length ? body : undefined,
-          signal: ctrl.signal
-        });
-        const data = await upstream.arrayBuffer();
-        res.writeHead(upstream.status, { "Content-Type": upstream.headers.get("content-type") ?? "application/json" });
-        res.end(Buffer.from(data));
-      } catch {
-        return json(res, 502, { ok: false, error: "memory_service_unreachable" });
-      } finally {
-        clearTimeout(timer);
-      }
-      return;
+    if (pathname.startsWith("/api/symphony/")) {
+      return await proxyToService(req, res, {
+        config, configKey: "symphony", pathPrefix: "/api/symphony", defaultPort: 8789,
+        timeoutMs: 30_000, errorCode: "symphony_service_unreachable",
+        errorHint: "Symphony service is not running."
+      });
     }
 
     json(res, 404, { ok: false, error: "not_found" });

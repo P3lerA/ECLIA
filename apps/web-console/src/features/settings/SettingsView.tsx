@@ -9,6 +9,7 @@ import {
 import { runtime } from "../../core/runtime";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 import { EcliaLogo } from "../common/EcliaLogo";
+import { SaveDiscardBar } from "../common/SaveDiscardBar";
 import { ThemeModeSwitch } from "../theme/ThemeModeSwitch";
 import { useStagedDraft } from "../common/useStagedDraft";
 import type { CfgBase, SettingsDraft } from "./settingsTypes";
@@ -28,7 +29,6 @@ import {
   sameCodexOAuthProfiles,
   sameOpenAICompatProfiles,
   sameAnthropicProfiles,
-  sameEmailListenerAccounts,
   sameWebProfiles,
   sameStringArray
 } from "./settingsUtils";
@@ -176,26 +176,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         adapterTelegramUserWhitelist: cfgBase ? cfgBase.telegramUserWhitelist.join("\n") : prev?.adapterTelegramUserWhitelist ?? "",
         adapterTelegramGroupWhitelist: cfgBase ? cfgBase.telegramGroupWhitelist.join("\n") : prev?.adapterTelegramGroupWhitelist ?? "",
 
-        pluginEmailListenerEnabled: cfgBase?.emailListenerEnabled ?? prev?.pluginEmailListenerEnabled ?? false,
-        pluginEmailListenerTriagePrompt: cfgBase?.emailListenerTriagePrompt ?? prev?.pluginEmailListenerTriagePrompt ?? "",
-        pluginEmailListenerAccounts: cfgBase
-          ? cfgBase.emailListenerAccounts.map((a) => ({
-              id: a.id,
-              host: a.host,
-              port: String(a.port),
-              secure: a.secure,
-              user: a.user,
-              pass: "",
-              mailbox: a.mailbox,
-              criterion: a.criterion,
-              model: a.model,
-              notifyKind: a.notifyKind,
-              notifyId: a.notifyId,
-              startFrom: a.startFrom,
-              maxBodyChars: String(a.maxBodyChars)
-            }))
-          : prev?.pluginEmailListenerAccounts ?? [],
-
         skillsEnabled: cfgBase ? [...cfgBase.skillsEnabled] : prev?.skillsEnabled ?? []
       };
     },
@@ -279,13 +259,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           !sameStringArray(normalizeGuildIds(d.adapterTelegramGroupWhitelist), cfgBase.telegramGroupWhitelist)
         : false;
 
-      const dirtyDevEmailListener = cfgBase
-        ? d.pluginEmailListenerEnabled !== cfgBase.emailListenerEnabled ||
-          d.pluginEmailListenerTriagePrompt !== cfgBase.emailListenerTriagePrompt ||
-          !sameEmailListenerAccounts(d.pluginEmailListenerAccounts, cfgBase.emailListenerAccounts) ||
-          d.pluginEmailListenerAccounts.some((a) => a.pass.trim().length > 0)
-        : false;
-
       const dirtyDevSkills = cfgBase ? !sameStringArray(d.skillsEnabled, cfgBase.skillsEnabled) : false;
 
       const dirtyDevWeb = cfgBase
@@ -303,7 +276,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         dirtyDevCodexHome ||
         dirtyDevDiscord ||
         dirtyDevTelegram ||
-        dirtyDevEmailListener ||
         dirtyDevWeb ||
         dirtyDevSkills
       );
@@ -390,13 +362,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       !sameStringArray(normalizeGuildIds(draft.adapterTelegramGroupWhitelist), cfgBase.telegramGroupWhitelist)
     : false;
 
-  const dirtyDevEmailListener = cfgBase
-    ? draft.pluginEmailListenerEnabled !== cfgBase.emailListenerEnabled ||
-      draft.pluginEmailListenerTriagePrompt !== cfgBase.emailListenerTriagePrompt ||
-      !sameEmailListenerAccounts(draft.pluginEmailListenerAccounts, cfgBase.emailListenerAccounts) ||
-      draft.pluginEmailListenerAccounts.some((a) => a.pass.trim().length > 0)
-    : false;
-
   const dirtyDevWeb = cfgBase
     ? draft.webActiveProfileId !== cfgBase.webActiveProfileId ||
       !sameWebProfiles(draft.webProfiles, cfgBase.webProfiles) ||
@@ -413,7 +378,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     dirtyDevCodexHome ||
     dirtyDevDiscord ||
     dirtyDevTelegram ||
-    dirtyDevEmailListener ||
     dirtyDevWeb ||
     dirtyDevSkills;
 
@@ -446,32 +410,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const telegramWhitelistOk = normalizeGuildIds(draft.adapterTelegramUserWhitelist).length > 0;
   const telegramValid = !draft.adapterTelegramEnabled || (telegramTokenOk && telegramWhitelistOk);
 
-  const emailPassConfiguredById = new Map<string, boolean>();
-  for (const a of cfgBase?.emailListenerAccounts ?? []) emailPassConfiguredById.set(a.id, Boolean(a.passConfigured));
-
-  const emailIds = draft.pluginEmailListenerAccounts.map((a) => a.id.trim());
-  const emailIdsUnique = new Set(emailIds.filter(Boolean)).size === draft.pluginEmailListenerAccounts.length && emailIds.every(Boolean);
-  const emailAccountsValid =
-    draft.pluginEmailListenerAccounts.length === 0 ||
-    (emailIdsUnique &&
-      draft.pluginEmailListenerAccounts.every((a) => {
-        const id = a.id.trim();
-        const hostOk = a.host.trim().length > 0;
-        const portOk = isValidPort(a.port);
-        const userOk = a.user.trim().length > 0;
-        const notifyOk = a.notifyId.trim().length > 0;
-
-        const maxBodyOk =
-          a.maxBodyChars.trim().length === 0 || (Number.isFinite(Number(a.maxBodyChars)) && Number(a.maxBodyChars) >= 0);
-
-        const passConfigured = emailPassConfiguredById.get(id) === true;
-        const passOk = !draft.pluginEmailListenerEnabled || passConfigured || a.pass.trim().length > 0;
-
-        return hostOk && portOk && userOk && notifyOk && maxBodyOk && passOk;
-      }));
-
-  const emailListenerValid = emailAccountsValid && (!draft.pluginEmailListenerEnabled || draft.pluginEmailListenerAccounts.length > 0);
-
   const webProviders = new Set(WEB_PROVIDER_IDS);
   const webIds = draft.webProfiles.map((p) => p.id);
   const webIdsUnique = new Set(webIds.map((x) => x.trim()).filter(Boolean)).size === draft.webProfiles.length;
@@ -492,7 +430,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         (!dirtyDevCodexHome || codexHomeValid) &&
         (!dirtyDevDiscord || discordValid) &&
         (!dirtyDevTelegram || telegramValid) &&
-        (!dirtyDevEmailListener || emailListenerValid) &&
         (!dirtyDevWeb || webValid)));
 
   const discard = () => {
@@ -527,8 +464,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           discordValid,
           dirtyDevTelegram,
           telegramValid,
-          dirtyDevEmailListener,
-          emailListenerValid,
           dirtyDevWeb,
           webValid,
           dirtyDevSkills
@@ -553,19 +488,19 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
       // 2) Commit UI/runtime changes.
       if (draft.textureDisabled !== state.settings.textureDisabled) {
-        dispatch({ type: "settings/textureDisabled", enabled: draft.textureDisabled });
+        dispatch({ type: "settings/set", key: "textureDisabled", value: draft.textureDisabled });
       }
 
       if (draft.sessionSyncEnabled !== state.settings.sessionSyncEnabled) {
-        dispatch({ type: "settings/sessionSyncEnabled", enabled: draft.sessionSyncEnabled });
+        dispatch({ type: "settings/set", key: "sessionSyncEnabled", value: draft.sessionSyncEnabled });
       }
 
       if (draft.displayPlainOutput !== Boolean(state.settings.displayPlainOutput ?? false)) {
-        dispatch({ type: "settings/displayPlainOutput", enabled: draft.displayPlainOutput });
+        dispatch({ type: "settings/set", key: "displayPlainOutput", value: draft.displayPlainOutput });
       }
 
       if (!sameStringArray(draft.enabledTools, state.settings.enabledTools)) {
-        dispatch({ type: "settings/enabledTools", enabledTools: draft.enabledTools });
+        dispatch({ type: "settings/set", key: "enabledTools", value: draft.enabledTools });
       }
       if (draft.transport !== state.transport) {
         dispatch({ type: "transport/set", transport: draft.transport });
@@ -581,37 +516,37 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       }
 
       if (draft.contextLimitEnabled !== state.settings.contextLimitEnabled) {
-        dispatch({ type: "settings/contextLimitEnabled", enabled: draft.contextLimitEnabled });
+        dispatch({ type: "settings/set", key: "contextLimitEnabled", value: draft.contextLimitEnabled });
       }
 
       const nextLimit = parseContextLimit(draft.contextTokenLimit);
       if (nextLimit !== state.settings.contextTokenLimit) {
-        dispatch({ type: "settings/contextTokenLimit", value: nextLimit });
+        dispatch({ type: "settings/set", key: "contextTokenLimit", value: nextLimit });
       }
 
       const nextTemp = parseTemperature(draft.temperature);
       if (nextTemp !== state.settings.temperature) {
-        dispatch({ type: "settings/temperature", value: nextTemp });
+        dispatch({ type: "settings/set", key: "temperature", value: nextTemp });
       }
 
       const nextTopP = parseTopP(draft.topP);
       if (nextTopP !== state.settings.topP) {
-        dispatch({ type: "settings/topP", value: nextTopP });
+        dispatch({ type: "settings/set", key: "topP", value: nextTopP });
       }
 
       const nextTopK = parseTopK(draft.topK);
       if (nextTopK !== state.settings.topK) {
-        dispatch({ type: "settings/topK", value: nextTopK });
+        dispatch({ type: "settings/set", key: "topK", value: nextTopK });
       }
 
       const nextMaxOut = parseMaxOutputTokens(draft.maxOutputTokens);
       if (nextMaxOut !== state.settings.maxOutputTokens) {
-        dispatch({ type: "settings/maxOutputTokens", value: nextMaxOut });
+        dispatch({ type: "settings/set", key: "maxOutputTokens", value: nextMaxOut });
       }
 
       const nextWebTruncate = parseWebResultTruncateChars(draft.webResultTruncateChars);
       if (nextWebTruncate !== state.settings.webResultTruncateChars) {
-        dispatch({ type: "settings/webResultTruncateChars", value: nextWebTruncate });
+        dispatch({ type: "settings/set", key: "webResultTruncateChars", value: nextWebTruncate });
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to save config.";
@@ -664,22 +599,9 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         </div>
 
         <div className="settings-head-actions">
-          {dirty && (
-            <div className="saveIndicator" role="status" aria-live="polite">
-              <span className="saveDot" aria-hidden="true" />
-              Unsaved changes
-            </div>
-          )}
-
-          <button className="btn subtle" onClick={discard} disabled={!dirty || saving} aria-label="Discard changes">
-            Discard
-          </button>
-
-          <button className="btn subtle" onClick={save} disabled={!canSave} aria-label="Save settings">
-            {saving ? "Saving…" : "Save"}
-          </button>
-
-          <ThemeModeSwitch compact />
+          <SaveDiscardBar dirty={dirty} saving={saving} canSave={canSave} onSave={save} onDiscard={discard}>
+            <ThemeModeSwitch compact />
+          </SaveDiscardBar>
         </div>
       </div>
 

@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "pnpm -C ../../packages/config build && vite",
+    "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:watch": "tsc -p tsconfig.json --noEmit -w --preserveWatchOutput",
