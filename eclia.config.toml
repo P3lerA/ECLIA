@@ -126,31 +126,3 @@ enabled = false
 
 # Allowed Telegram group/supergroup chat ids (numbers, usually negative) as strings.
 # group_whitelist = ["-1001234567890"]
-
-
-[symphony]
-# Symphony — event-driven automation engine.
-# port = 8789
-
-# Instruments use structured trigger/action definitions.
-#
-# [[symphony.instruments]]
-# id = "my_email"
-# name = "Email: work"
-# enabled = true
-#
-#   [[symphony.instruments.triggers]]
-#   kind = "email-imap"
-#     [symphony.instruments.triggers.config]
-#     host = "imap.gmail.com"
-#     port = 993
-#     secure = true
-#     user = "you@gmail.com"
-#     pass = "app-password"        # secret — put in eclia.config.local.toml
-#     mailbox = "INBOX"
-#
-#   [[symphony.instruments.actions]]
-#   kind = "llm-triage"
-#     [symphony.instruments.actions.config]
-#     criterion = "Highlight important emails"
-#     model = "openai-compatible:default"

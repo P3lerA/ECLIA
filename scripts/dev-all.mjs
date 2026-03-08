@@ -182,7 +182,6 @@ async function main() {
   console.log("[DEV] gateway ready; launching services");
 
   if (services.memory)   spawnService("MEMORY",   ["-C", "apps/memory", "dev"]);
-  spawnService("SYMPHONY", ["-C", "apps/symphony", "dev"]);
   spawnService("WEB",      ["-C", "apps/web-console", "dev"]);
   if (services.discord)  spawnService("DISCORD",  ["-C", "apps/adapter/discord", "dev"]);
   if (services.telegram) spawnService("TELEGRAM", ["-C", "apps/adapter/telegram", "dev"]);

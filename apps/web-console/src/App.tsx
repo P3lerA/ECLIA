@@ -6,7 +6,6 @@ import { ChatView } from "./features/chat/ChatView";
 import { MenuSheet } from "./features/menu/MenuSheet";
 import { SettingsView } from "./features/settings/SettingsView";
 import { MemoryView } from "./features/memory/MemoryView";
-import { SymphonyView } from "./features/symphony/SymphonyView";
 import { BackgroundRoot } from "./features/background/BackgroundRoot";
 import { GatewayTokenView } from "./features/auth/GatewayTokenView";
 import { useAuthGate, useSessionBootstrap, usePersistPrefs } from "./appHooks";
@@ -64,7 +63,7 @@ function AppInner() {
   usePersistPrefs();
 
   const containerWide =
-    location.pathname.startsWith("/settings") || location.pathname.startsWith("/memory") || location.pathname.startsWith("/symphony");
+    location.pathname.startsWith("/settings") || location.pathname.startsWith("/memory");
 
   const [menuOpen, setMenuOpen] = React.useState(false);
 
@@ -79,8 +78,6 @@ function AppInner() {
           <Route path="/settings" element={<SettingsView onBack={() => navigate("/")} />} />
 
           <Route path="/memory" element={<MemoryView onBack={() => navigate("/")} />} />
-
-          <Route path="/symphony" element={<SymphonyView onBack={() => navigate("/")} />} />
 
           <Route
             path="/"

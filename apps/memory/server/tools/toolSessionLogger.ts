@@ -10,8 +10,7 @@ export type ToolSessionLogger = {
 /**
  * Minimal append-only NDJSON logger.
  *
- * We use this as a "no-context" audit trail for memory bootstrapping / write flows,
- * similar in spirit to the email-listener session transcript.
+ * We use this as a "no-context" audit trail for memory bootstrapping / write flows.
  */
 export function createToolSessionLogger(args: { rootDir: string; sessionId: string }): ToolSessionLogger {
   const dir = path.join(args.rootDir, ".eclia", "memory", "tool-sessions");

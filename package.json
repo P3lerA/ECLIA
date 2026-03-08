@@ -11,8 +11,7 @@
     "dev:gateway": "pnpm -C apps/gateway dev",
     "typecheck": "pnpm -C packages/config build && pnpm -C packages/gateway-client build && pnpm -r --if-present run typecheck",
     "typecheck:watch": "pnpm -r --if-present --parallel run typecheck:watch",
-    "dev:memory": "pnpm -C apps/memory dev",
-    "dev:symphony": "pnpm -C apps/symphony dev"
+    "dev:memory": "pnpm -C apps/memory dev"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"
