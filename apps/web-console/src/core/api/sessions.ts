@@ -17,10 +17,6 @@ export type ListSessionsResponse =
   | { ok: true; sessions: SessionMeta[] }
   | { ok: false; error: string; hint?: string };
 
-export type CreateSessionResponse =
-  | { ok: true; session: SessionMeta }
-  | { ok: false; error: string; hint?: string };
-
 export type GetSessionResponse =
   | { ok: true; session: SessionMeta; transcript: TranscriptRecordV1[]; totalCount?: number; hasMore?: boolean }
   | { ok: false; error: string; hint?: string };
@@ -39,30 +35,6 @@ export async function apiListSessions(limit = 200): Promise<SessionMeta[]> {
   const j = (await r.json()) as ListSessionsResponse;
   if (!j.ok) throw new Error(j.hint ?? j.error);
   return j.sessions;
-}
-
-export async function apiCreateSession(
-  arg?: string | { title?: string; id?: string }
-): Promise<SessionMeta> {
-  const payload: any = {};
-  // Let the gateway know this session is attached to the web console.
-  // (Tools like `send` can use this metadata to route outputs later.)
-  payload.origin = { kind: "web" };
-  if (typeof arg === "string") {
-    payload.title = arg;
-  } else if (arg && typeof arg === "object") {
-    if (typeof arg.title === "string" && arg.title.trim()) payload.title = arg.title;
-    if (typeof arg.id === "string" && arg.id.trim()) payload.id = arg.id;
-  }
-
-  const r = await apiFetch("/api/sessions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  const j = (await r.json()) as CreateSessionResponse;
-  if (!j.ok) throw new Error(j.hint ?? j.error);
-  return j.session;
 }
 
 export async function apiGetSession(

@@ -87,17 +87,6 @@ export type Session = {
   started?: boolean;
 };
 
-export type InspectorTabId = "events" | "tools" | "context";
-
-export type LogItem = {
-  id: string;
-  tab: InspectorTabId;
-  at: number;
-  type: string;
-  summary: string;
-  data?: unknown;
-};
-
 export type ChatRequest = {
   sessionId: string;
   model: string;

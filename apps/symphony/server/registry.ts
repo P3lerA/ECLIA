@@ -48,14 +48,6 @@ export class Registry {
 
   // ── Introspection ──────────────────────────────────────────
 
-  triggerKinds(): string[] {
-    return [...this.triggers.keys()];
-  }
-
-  actionKinds(): string[] {
-    return [...this.actions.keys()];
-  }
-
   triggerSchemas(): KindSchema[] {
     return [...this.triggers.values()].map((f) => ({
       kind: f.kind,

@@ -1,4 +1,5 @@
 export type {
+  ConfigFieldSchema,
   EcliaConfig,
   OpenAICompatProfile,
   AnthropicProfile,

@@ -64,9 +64,6 @@ export function makeInitialState(): AppState {
     model: prefs.model ?? "openai-compatible",
     transport: (prefs.transport ?? "sse") as any,
 
-    gpu: { available: null },
-
-    inspectorTab: "events",
-    logsByTab: { events: [], tools: [], context: [] }
+    gpu: { available: null }
   };
 }

@@ -1,8 +1,41 @@
 import type { Conductor } from "./conductor.js";
+import type { InstrumentDef } from "./types.js";
 import { json, readJson } from "@eclia/gateway-client/utils";
 import { patchLocalToml } from "@eclia/config";
 import type { InstrumentRuntime } from "./instrument-runtime.js";
-import { parseEntries } from "./parse.js";
+import { buildInstrumentDef } from "./parse.js";
+
+// ─── TOML persistence helpers ────────────────────────────────
+
+function defToTomlEntry(def: InstrumentDef) {
+  return {
+    id: def.id,
+    name: def.name,
+    enabled: def.enabled,
+    triggers: def.trigger.sources.map((s) => ({ kind: s.kind, config: s.config })),
+    actions: def.actions.map((a) => ({ kind: a.kind, config: a.config }))
+  };
+}
+
+function persistDef(rootDir: string, def: InstrumentDef): void {
+  patchLocalToml(rootDir, (toml) => {
+    if (!toml.symphony) toml.symphony = {};
+    if (!Array.isArray(toml.symphony.instruments)) toml.symphony.instruments = [];
+    toml.symphony.instruments = toml.symphony.instruments.filter(
+      (e: any) => String(e?.id ?? "").trim() !== def.id
+    );
+    toml.symphony.instruments.push(defToTomlEntry(def));
+  });
+}
+
+function removeDef(rootDir: string, id: string): void {
+  patchLocalToml(rootDir, (toml) => {
+    if (!Array.isArray(toml.symphony?.instruments)) return;
+    toml.symphony.instruments = toml.symphony.instruments.filter(
+      (e: any) => String(e?.id ?? "").trim() !== id
+    );
+  });
+}
 
 /**
  * Minimal HTTP API for the Symphony conductor.
@@ -62,52 +95,24 @@ export function handleSymphonyApi(conductor: Conductor, rootDir: string) {
         const instrumentId = typeof body?.instrumentId === "string" ? body.instrumentId.trim() : "";
         if (!instrumentId) return json(res, 400, { ok: false, error: "missing_instrument_id" });
 
-        const rawTriggers = Array.isArray(body?.triggers) ? body.triggers : [];
-        const rawActions = Array.isArray(body?.actions) ? body.actions : [];
-
-        if (!rawTriggers.length) return json(res, 400, { ok: false, error: "missing_triggers" });
-        if (!rawActions.length) return json(res, 400, { ok: false, error: "missing_actions" });
-
+        let def: InstrumentDef;
         try {
-          const triggers = parseEntries(rawTriggers);
-          const actions = parseEntries(rawActions);
-
-          conductor.add({
+          def = buildInstrumentDef({
             id: instrumentId,
-            name: body?.name && typeof body.name === "string" ? body.name.trim() : instrumentId,
+            name: body?.name,
             enabled: true,
-            trigger: { mode: "any", sources: triggers },
-            actions
+            triggers: Array.isArray(body?.triggers) ? body.triggers : [],
+            actions: Array.isArray(body?.actions) ? body.actions : []
           });
+          conductor.add(def);
         } catch (e: any) {
           return json(res, 400, { ok: false, error: "create_failed", hint: String(e?.message ?? e) });
         }
 
-        // Auto-start if enabled.
+        try { await conductor.start(instrumentId); } catch { /* best-effort */ }
+        persistDef(rootDir, def);
+
         const rt = conductor.get(instrumentId);
-        if (rt?.def.enabled) {
-          try { await conductor.start(instrumentId); } catch { /* best-effort */ }
-        }
-
-        // Persist structured definition to eclia.config.local.toml.
-        if (rt) {
-          const def = rt.def;
-          patchLocalToml(rootDir, (toml) => {
-            if (!toml.symphony) toml.symphony = {};
-            if (!Array.isArray(toml.symphony.instruments)) toml.symphony.instruments = [];
-            toml.symphony.instruments = toml.symphony.instruments.filter(
-              (e: any) => String(e?.id ?? "").trim() !== instrumentId
-            );
-            toml.symphony.instruments.push({
-              id: def.id,
-              name: def.name,
-              enabled: def.enabled,
-              triggers: def.trigger.sources.map((s) => ({ kind: s.kind, config: s.config })),
-              actions: def.actions.map((a) => ({ kind: a.kind, config: a.config }))
-            });
-          });
-        }
-
         const instrument = rt ? serializeInstrument(rt) : null;
         return json(res, 200, { ok: true, instrument });
       }
@@ -123,13 +128,7 @@ export function handleSymphonyApi(conductor: Conductor, rootDir: string) {
         const enabled = Boolean(body?.enabled);
 
         rt.def.enabled = enabled;
-
-        // Persist to eclia.config.local.toml.
-        patchLocalToml(rootDir, (toml) => {
-          const instruments = Array.isArray(toml.symphony?.instruments) ? toml.symphony.instruments : [];
-          const entry = instruments.find((e: any) => String(e?.id ?? "").trim() === id);
-          if (entry) entry.enabled = enabled;
-        });
+        persistDef(rootDir, rt.def);
 
         if (enabled) {
           try { await conductor.start(id); } catch { /* best-effort */ }
@@ -156,29 +155,19 @@ export function handleSymphonyApi(conductor: Conductor, rootDir: string) {
         }
 
         const oldDef = rt.def;
-        const newDef = {
-          ...oldDef,
-          trigger: {
-            ...oldDef.trigger,
-            sources: rawTriggers ? parseEntries(rawTriggers) : oldDef.trigger.sources
-          },
-          actions: rawActions ? parseEntries(rawActions) : oldDef.actions
-        };
-
         try {
+          const newDef = buildInstrumentDef({
+            id: oldDef.id,
+            name: oldDef.name,
+            enabled: oldDef.enabled,
+            triggers: rawTriggers ?? oldDef.trigger.sources,
+            actions: rawActions ?? oldDef.actions
+          });
           await conductor.update(id, newDef);
+          persistDef(rootDir, newDef);
         } catch (e: any) {
           return json(res, 500, { ok: false, error: "update_failed", hint: String(e?.message ?? e) });
         }
-
-        // Persist structured definition to eclia.config.local.toml.
-        patchLocalToml(rootDir, (toml) => {
-          const instruments = Array.isArray(toml.symphony?.instruments) ? toml.symphony.instruments : [];
-          const entry = instruments.find((e: any) => String(e?.id ?? "").trim() === id);
-          if (!entry) return;
-          entry.triggers = newDef.trigger.sources.map((s) => ({ kind: s.kind, config: s.config }));
-          entry.actions = newDef.actions.map((a) => ({ kind: a.kind, config: a.config }));
-        });
 
         const updatedRt = conductor.get(id);
         const instrument = updatedRt ? serializeInstrument(updatedRt) : null;
@@ -192,6 +181,7 @@ export function handleSymphonyApi(conductor: Conductor, rootDir: string) {
       if (mId && req.method === "DELETE") {
         const id = decodeURIComponent(mId[1]);
         await conductor.remove(id);
+        removeDef(rootDir, id);
         return json(res, 200, { ok: true });
       }
 
@@ -213,13 +203,5 @@ export function handleSymphonyApi(conductor: Conductor, rootDir: string) {
 // ─── Helpers ────────────────────────────────────────────────────
 
 function serializeInstrument(rt: InstrumentRuntime, info?: { id: string; name: string; enabled: boolean; status: string }) {
-  const def = rt.def;
-  return {
-    id: def.id,
-    name: def.name,
-    enabled: def.enabled,
-    status: info?.status ?? rt.getStatus(),
-    triggers: def.trigger.sources.map((s) => ({ kind: s.kind, config: s.config })),
-    actions: def.actions.map((a) => ({ kind: a.kind, config: a.config }))
-  };
+  return { ...defToTomlEntry(rt.def), status: info?.status ?? rt.getStatus() };
 }

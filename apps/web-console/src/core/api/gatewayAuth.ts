@@ -20,14 +20,6 @@ export function setGatewayToken(token: string): void {
   }
 }
 
-export function clearGatewayToken(): void {
-  try {
-    localStorage.removeItem(TOKEN_KEY);
-  } catch {
-    // ignore
-  }
-}
-
 export function notifyAuthRequired(detail?: any): void {
   try {
     window.dispatchEvent(new CustomEvent(AUTH_REQUIRED_EVENT, { detail }));

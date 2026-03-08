@@ -20,67 +20,41 @@ export function InstrumentForm(props: {
   const { value, onChange, triggerSchemas, actionSchemas, modelRouteOptions,
     extraActionSchema } = props;
 
-  // ── Trigger helpers ──
-
-  const setTriggerKind = (index: number, kind: string) => {
-    const schema = triggerSchemas.find((s) => s.kind === kind);
-    const next = [...value.triggers];
-    next[index] = { kind, config: schema ? seedDefaults(schema.configSchema) : {} };
-    onChange({ ...value, triggers: next });
-  };
-
-  const setTriggerConfig = (index: number, updater: React.SetStateAction<Record<string, unknown>>) => {
-    const next = [...value.triggers];
-    next[index] = {
-      ...next[index],
-      config: typeof updater === "function" ? updater(next[index].config) : updater
+  function makeListHelpers(listKey: "triggers" | "actions", schemas: KindSchema[]) {
+    const setKind = (index: number, kind: string) => {
+      const schema = schemas.find((s) => s.kind === kind);
+      const next = [...value[listKey]];
+      next[index] = { kind, config: schema ? seedDefaults(schema.configSchema) : {} };
+      onChange({ ...value, [listKey]: next });
     };
-    onChange({ ...value, triggers: next });
-  };
 
-  const addTrigger = () => {
-    const kind = triggerSchemas[0]?.kind ?? "";
-    const schema = triggerSchemas.find((s) => s.kind === kind);
-    onChange({
-      ...value,
-      triggers: [...value.triggers, { kind, config: schema ? seedDefaults(schema.configSchema) : {} }]
-    });
-  };
-
-  const removeTrigger = (index: number) => {
-    onChange({ ...value, triggers: value.triggers.filter((_, i) => i !== index) });
-  };
-
-  // ── Action helpers ──
-
-  const setActionKind = (index: number, kind: string) => {
-    const schema = actionSchemas.find((s) => s.kind === kind);
-    const next = [...value.actions];
-    next[index] = { kind, config: schema ? seedDefaults(schema.configSchema) : {} };
-    onChange({ ...value, actions: next });
-  };
-
-  const setActionConfig = (index: number, updater: React.SetStateAction<Record<string, unknown>>) => {
-    const next = [...value.actions];
-    next[index] = {
-      ...next[index],
-      config: typeof updater === "function" ? updater(next[index].config) : updater
+    const setConfig = (index: number, updater: React.SetStateAction<Record<string, unknown>>) => {
+      const next = [...value[listKey]];
+      next[index] = {
+        ...next[index],
+        config: typeof updater === "function" ? updater(next[index].config) : updater
+      };
+      onChange({ ...value, [listKey]: next });
     };
-    onChange({ ...value, actions: next });
-  };
 
-  const addAction = () => {
-    const kind = actionSchemas[0]?.kind ?? "";
-    const schema = actionSchemas.find((s) => s.kind === kind);
-    onChange({
-      ...value,
-      actions: [...value.actions, { kind, config: schema ? seedDefaults(schema.configSchema) : {} }]
-    });
-  };
+    const add = () => {
+      const kind = schemas[0]?.kind ?? "";
+      const schema = schemas.find((s) => s.kind === kind);
+      onChange({
+        ...value,
+        [listKey]: [...value[listKey], { kind, config: schema ? seedDefaults(schema.configSchema) : {} }]
+      });
+    };
 
-  const removeAction = (index: number) => {
-    onChange({ ...value, actions: value.actions.filter((_, i) => i !== index) });
-  };
+    const remove = (index: number) => {
+      onChange({ ...value, [listKey]: value[listKey].filter((_, i) => i !== index) });
+    };
+
+    return { setKind, setConfig, add, remove };
+  }
+
+  const trig = makeListHelpers("triggers", triggerSchemas);
+  const act = makeListHelpers("actions", actionSchemas);
 
   return (
     <div className="instrumentModal-columns">
@@ -88,7 +62,7 @@ export function InstrumentForm(props: {
       <div className="instrumentModal-col">
         <div className="instrumentModal-colHeader">
           <div className="instrumentModal-colTitle">Triggers</div>
-          <button className="instrumentForm-addInline" onClick={addTrigger} type="button" aria-label="Add trigger">+</button>
+          <button className="instrumentForm-addInline" onClick={trig.add} type="button" aria-label="Add trigger">+</button>
         </div>
         {value.triggers.map((trigger, i) => {
           const schema = triggerSchemas.find((s) => s.kind === trigger.kind);
@@ -102,7 +76,7 @@ export function InstrumentForm(props: {
                 {value.triggers.length > 1 && (
                   <button
                     className="btn subtle instrumentForm-removeBtn"
-                    onClick={() => removeTrigger(i)}
+                    onClick={() => trig.remove(i)}
                     type="button"
                   >
                     Remove
@@ -111,7 +85,7 @@ export function InstrumentForm(props: {
               </div>
               <label className="field">
                 <span className="field-label">Kind</span>
-                <select className="select" value={trigger.kind} onChange={(e) => setTriggerKind(i, e.target.value)}>
+                <select className="select" value={trigger.kind} onChange={(e) => trig.setKind(i, e.target.value)}>
                   {triggerSchemas.map((s) => (
                     <option key={s.kind} value={s.kind}>{s.label}</option>
                   ))}
@@ -121,7 +95,7 @@ export function InstrumentForm(props: {
                 <SchemaFields
                   schema={schema.configSchema}
                   values={trigger.config}
-                  onChange={(updater) => setTriggerConfig(i, updater)}
+                  onChange={(updater) => trig.setConfig(i, updater)}
                   modelRouteOptions={modelRouteOptions}
                 />
               )}
@@ -134,7 +108,7 @@ export function InstrumentForm(props: {
       <div className="instrumentModal-col">
         <div className="instrumentModal-colHeader">
           <div className="instrumentModal-colTitle">Actions</div>
-          <button className="instrumentForm-addInline" onClick={addAction} type="button" aria-label="Add action">+</button>
+          <button className="instrumentForm-addInline" onClick={act.add} type="button" aria-label="Add action">+</button>
         </div>
         {value.actions.map((action, i) => {
           const schema = actionSchemas.find((s) => s.kind === action.kind);
@@ -149,7 +123,7 @@ export function InstrumentForm(props: {
                 {value.actions.length > 1 && (
                   <button
                     className="btn subtle instrumentForm-removeBtn"
-                    onClick={() => removeAction(i)}
+                    onClick={() => act.remove(i)}
                     type="button"
                   >
                     Remove
@@ -158,7 +132,7 @@ export function InstrumentForm(props: {
               </div>
               <label className="field">
                 <span className="field-label">Kind</span>
-                <select className="select" value={action.kind} onChange={(e) => setActionKind(i, e.target.value)}>
+                <select className="select" value={action.kind} onChange={(e) => act.setKind(i, e.target.value)}>
                   {actionSchemas.map((s) => (
                     <option key={s.kind} value={s.kind}>{s.label}</option>
                   ))}
@@ -168,7 +142,7 @@ export function InstrumentForm(props: {
                 <SchemaFields
                   schema={schema.configSchema}
                   values={action.config}
-                  onChange={(updater) => setActionConfig(i, updater)}
+                  onChange={(updater) => act.setConfig(i, updater)}
                   modelRouteOptions={modelRouteOptions}
                 />
               )}
@@ -176,7 +150,7 @@ export function InstrumentForm(props: {
                 <SchemaFields
                   schema={extraActionSchema}
                   values={action.config}
-                  onChange={(updater) => setActionConfig(i, updater)}
+                  onChange={(updater) => act.setConfig(i, updater)}
                   modelRouteOptions={modelRouteOptions}
                 />
               )}
@@ -202,6 +176,30 @@ export function buildDefaultFormValue(
   };
 }
 
+/**
+ * Return preset configSchema fields not already covered by trigger/action kind schemas.
+ * Shared by NewInstrumentModal (render extras) and buildPresetFormValue (seed defaults).
+ */
+export function getExtraPresetSchema(
+  presetSchema: ConfigFieldSchema[],
+  triggerKinds: string[],
+  actionKinds: string[],
+  triggerSchemas: KindSchema[],
+  actionSchemas: KindSchema[]
+): ConfigFieldSchema[] {
+  const knownKeys = new Set([
+    ...triggerKinds.flatMap((kind) => {
+      const s = triggerSchemas.find((s) => s.kind === kind);
+      return s?.configSchema.map((f) => f.key) ?? [];
+    }),
+    ...actionKinds.flatMap((kind) => {
+      const s = actionSchemas.find((s) => s.kind === kind);
+      return s?.configSchema.map((f) => f.key) ?? [];
+    })
+  ]);
+  return presetSchema.filter((f) => !knownKeys.has(f.key));
+}
+
 export function buildPresetFormValue(
   preset: { triggerKinds: string[]; actionKinds: string[]; configSchema?: ConfigFieldSchema[] },
   triggerSchemas: KindSchema[],
@@ -216,19 +214,10 @@ export function buildPresetFormValue(
     return { kind, config: schema ? seedDefaults(schema.configSchema) : {} };
   });
 
-  // Seed extra preset fields (not covered by trigger/action schemas) into last action config.
   if (actions.length > 0 && preset.configSchema?.length) {
-    const knownKeys = new Set([
-      ...triggers.flatMap((t) => {
-        const s = triggerSchemas.find((s) => s.kind === t.kind);
-        return s?.configSchema.map((f) => f.key) ?? [];
-      }),
-      ...actions.flatMap((a) => {
-        const s = actionSchemas.find((s) => s.kind === a.kind);
-        return s?.configSchema.map((f) => f.key) ?? [];
-      })
-    ]);
-    const extras = preset.configSchema.filter((f) => !knownKeys.has(f.key));
+    const extras = getExtraPresetSchema(
+      preset.configSchema, preset.triggerKinds, preset.actionKinds, triggerSchemas, actionSchemas
+    );
     if (extras.length) {
       const last = actions[actions.length - 1];
       last.config = { ...last.config, ...seedDefaults(extras) };

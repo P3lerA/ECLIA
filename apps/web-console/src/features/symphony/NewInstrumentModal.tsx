@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { usePresence } from "../motion/usePresence";
 import type { ModelRouteOption } from "../settings/settingsUtils";
 import type { PresetInfo, KindSchema, ConfigFieldSchema } from "../../core/api/symphony";
-import { InstrumentForm, buildDefaultFormValue, buildPresetFormValue, type InstrumentFormValue } from "./InstrumentForm";
+import { InstrumentForm, buildDefaultFormValue, buildPresetFormValue, getExtraPresetSchema, type InstrumentFormValue } from "./InstrumentForm";
 
 export function NewInstrumentModal(props: {
   open: boolean;
@@ -27,20 +27,15 @@ export function NewInstrumentModal(props: {
 
   const preset = presets.find((p) => p.presetId === presetId);
 
-  // Extra preset fields not covered by trigger/action schemas.
   const extraActionSchema = React.useMemo<ConfigFieldSchema[]>(() => {
-    if (!preset) return [];
-    const knownKeys = new Set([
-      ...form.triggers.flatMap((t) => {
-        const s = triggerSchemas.find((s) => s.kind === t.kind);
-        return s?.configSchema.map((f) => f.key) ?? [];
-      }),
-      ...form.actions.flatMap((a) => {
-        const s = actionSchemas.find((s) => s.kind === a.kind);
-        return s?.configSchema.map((f) => f.key) ?? [];
-      })
-    ]);
-    return (preset.configSchema ?? []).filter((f) => !knownKeys.has(f.key));
+    if (!preset?.configSchema?.length) return [];
+    return getExtraPresetSchema(
+      preset.configSchema,
+      form.triggers.map((t) => t.kind),
+      form.actions.map((a) => a.kind),
+      triggerSchemas,
+      actionSchemas
+    );
   }, [preset, form.triggers, form.actions, triggerSchemas, actionSchemas]);
 
   // ── Reset on open ──

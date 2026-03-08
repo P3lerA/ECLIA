@@ -8,22 +8,8 @@
  *   4. Everything is a plain interface — no base classes, no inheritance tax.
  */
 
-// ─── Config field schema ────────────────────────────────────
-
-/**
- * Describes a single configuration field for UI form generation.
- */
-export interface ConfigFieldSchema {
-  key: string;
-  label: string;
-  type: "string" | "number" | "boolean" | "select" | "text" | "model";
-  required?: boolean;
-  default?: unknown;
-  sensitive?: boolean;
-  placeholder?: string;
-  /** Valid choices for "select" type. */
-  options?: string[];
-}
+import type { ConfigFieldSchema } from "@eclia/config";
+export type { ConfigFieldSchema };
 
 // ─── Trigger layer ───────────────────────────────────────────
 

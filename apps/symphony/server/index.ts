@@ -9,7 +9,7 @@ import { Registry } from "./registry.js";
 import { StateStore } from "./state-store.js";
 import { Conductor } from "./conductor.js";
 import { handleSymphonyApi } from "./api.js";
-import { parseEntries } from "./parse.js";
+import { buildInstrumentDef } from "./parse.js";
 
 import type { ScopedLogger, TriggerSourceFactory, ActionStepFactory, InstrumentPreset } from "./types.js";
 
@@ -115,25 +115,14 @@ async function main() {
       continue;
     }
 
-    const rawTriggers = Array.isArray(entry?.triggers) ? entry.triggers : [];
-    const rawActions = Array.isArray(entry?.actions) ? entry.actions : [];
-
-    if (!rawTriggers.length || !rawActions.length) {
-      log.warn(`skipping instrument "${id}": missing triggers or actions`);
-      continue;
-    }
-
-    const triggers = parseEntries(rawTriggers);
-    const actions = parseEntries(rawActions);
-
     try {
-      conductor.add({
+      conductor.add(buildInstrumentDef({
         id,
-        name: typeof entry?.name === "string" ? entry.name.trim() : id,
-        enabled: entry?.enabled !== false,
-        trigger: { mode: "any", sources: triggers },
-        actions
-      });
+        name: entry?.name,
+        enabled: entry?.enabled,
+        triggers: Array.isArray(entry?.triggers) ? entry.triggers : [],
+        actions: Array.isArray(entry?.actions) ? entry.actions : []
+      }));
     } catch (e: any) {
       log.warn(`skipping instrument "${id}":`, String(e?.message ?? e));
     }

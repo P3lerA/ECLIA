@@ -1,7 +1,7 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 
-import type { TriggerSource, TriggerSourceContext, TriggerSignal } from "../types.js";
+import type { TriggerSource, TriggerSourceContext } from "../types.js";
 
 // ─── Public types ────────────────────────────────────────────
 

@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { InspectorTabId, LogItem, Message, Session } from "../core/types";
+import type { Message, Session } from "../core/types";
 import { makeInitialState } from "./initialState";
 import { reducer, type Action, type AppState } from "./reducer";
 
@@ -58,7 +58,6 @@ export function useAppDispatch(): React.Dispatch<Action> {
 // ---------------------------------------------------------------------------
 
 const EMPTY_MESSAGES: Message[] = [];
-const EMPTY_LOGS: LogItem[] = [];
 
 export function useActiveSession(): Session {
   return useAppSelector((s) => {
@@ -74,8 +73,4 @@ export function useMessages(sessionId: string): Message[] {
 
 export function useHasMore(sessionId: string): boolean {
   return useAppSelector((s) => Boolean(s.hasMoreBySession[sessionId]));
-}
-
-export function useLogs(tab: InspectorTabId): LogItem[] {
-  return useAppSelector((s) => s.logsByTab[tab] ?? EMPTY_LOGS);
 }

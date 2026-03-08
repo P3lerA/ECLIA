@@ -72,30 +72,6 @@ export function useSendMessage() {
       const abort = new AbortController();
 
       const onEvent = (evt: ChatEvent) => {
-        dispatch({
-          type: "log/push",
-          item: {
-            id: makeId(),
-            tab:
-              evt.type === "tool_call" || evt.type === "tool_result"
-                ? "tools"
-                : evt.type === "meta"
-                  ? "context"
-                  : "events",
-            at: evt.at,
-            type: evt.type,
-            summary:
-              evt.type === "delta"
-                ? "delta"
-                : evt.type === "error"
-                  ? evt.message
-                  : evt.type === "meta"
-                    ? `meta ${evt.model}${evt.usedTokens ? ` ctx≈${evt.usedTokens}` : ""}`
-                    : evt.type,
-            data: evt
-          }
-        });
-
         if (evt.type === "phase") {
           dispatch({ type: "session/setPhase", sessionId, phase: evt.phase });
         }

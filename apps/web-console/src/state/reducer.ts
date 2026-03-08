@@ -1,4 +1,4 @@
-import type { Block, InspectorTabId, LogItem, Message, Session } from "../core/types";
+import type { Block, Message, Session } from "../core/types";
 import type { TransportId } from "../core/transport/TransportRegistry";
 import { normalizeEnabledToolNames, type ToolName } from "../core/tools/ToolRegistry";
 import type { ThemeMode } from "../theme/theme";
@@ -107,9 +107,6 @@ export type AppState = {
 
   settings: AppSettings;
   gpu: AppGPU;
-
-  inspectorTab: InspectorTabId;
-  logsByTab: Record<InspectorTabId, LogItem[]>;
 };
 
 // Type-safe settings/set action — value type is inferred from the key.
@@ -137,9 +134,7 @@ export type Action =
   | { type: "assistant/appendBlocksToLast"; sessionId: string; blocks: Block[] }
   | { type: "assistant/addBlocks"; sessionId: string; blocks: Block[] }
   | { type: "messages/clear"; sessionId: string }
-  | { type: "session/setPhase"; sessionId: string; phase: string | null }
-  | { type: "inspector/tab"; tab: InspectorTabId }
-  | { type: "log/push"; item: LogItem };
+  | { type: "session/setPhase"; sessionId: string; phase: string | null };
 
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -423,21 +418,6 @@ export function reducer(state: AppState, action: Action): AppState {
       };
     }
 
-    case "inspector/tab":
-      return { ...state, inspectorTab: action.tab };
-
-    case "log/push": {
-      const tab = action.item.tab;
-      const list = state.logsByTab[tab] ?? [];
-      return {
-        ...state,
-        logsByTab: {
-          ...state.logsByTab,
-          [tab]: [action.item, ...list].slice(0, 200)
-        }
-      };
-    }
-
     default:
       return state;
   }
@@ -514,4 +494,3 @@ function clampInt(v: unknown, min: number, max: number): number {
   const i = Math.trunc(n);
   return Math.max(min, Math.min(max, i));
 }
-
