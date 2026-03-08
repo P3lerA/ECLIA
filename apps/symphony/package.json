@@ -1,0 +1,24 @@
+{
+  "name": "@eclia/symphony",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch server/index.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "typecheck:watch": "tsc --noEmit --watch"
+  },
+  "dependencies": {
+    "@eclia/config": "workspace:*",
+    "@eclia/gateway-client": "workspace:*",
+    "@eclia/symphony-protocol": "workspace:*",
+    "imapflow": "^1.0.171",
+    "mailparser": "^3.7.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
