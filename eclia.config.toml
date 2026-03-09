@@ -96,6 +96,12 @@ model = "claude-opus-4-6"
 auth_header = "x-api-key"
 anthropic_version = "2023-06-01"
 
+[symphony]
+# Symphony flow engine (optional).
+# When enabled, dev:all launches the Symphony server on port 8800.
+enabled = false
+port = 8800
+
 [adapters.discord]
 # Discord adapter (optional).
 # Enable this to allow the Discord adapter process to start and authenticate.

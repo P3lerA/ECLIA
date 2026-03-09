@@ -69,6 +69,11 @@ button, input, select, textarea{
   */
   width: min(calc(980px + var(--settings-sidebar-w) + var(--settings-sidebar-gap)), 100%);
 }
+.container.container-full{
+  width: 100%;
+  max-width: none;
+  padding: 0;
+}
 
 /* Brand: black base text + angled gradient highlight (inspired by your reference) */
 .brand{

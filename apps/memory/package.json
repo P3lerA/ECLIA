@@ -5,8 +5,11 @@
   "type": "module",
   "scripts": {
     "postinstall": "node scripts/setup-sidecar.mjs",
+    "predev": "pnpm -w run build:shared",
     "dev": "tsx server/index.ts",
+    "pretypecheck": "pnpm -w run build:shared",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretypecheck:watch": "pnpm -w run build:shared",
     "typecheck:watch": "tsc -p tsconfig.json --noEmit -w --preserveWatchOutput"
   },
   "dependencies": {

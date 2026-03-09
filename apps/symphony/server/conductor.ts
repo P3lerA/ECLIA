@@ -5,13 +5,6 @@ import { FlowStore } from "./flow-store.js";
 import { FlowRuntime } from "./flow-runtime.js";
 import { validateFlow, FlowValidationError } from "./graph.js";
 
-export interface FlowInfo {
-  id: string;
-  name: string;
-  enabled: boolean;
-  status: FlowStatus;
-}
-
 export class Conductor {
   readonly registry: Registry;
   private stateStore: StateStore;
@@ -55,16 +48,17 @@ export class Conductor {
 
   // ── Flow CRUD ──────────────────────────────────────────────
 
-  /** Create or replace a flow. Validates, persists, and manages lifecycle. */
+  /** Create or replace a flow. Persists immediately; validates only when enabling. */
   async upsert(def: FlowDef): Promise<void> {
-    const errors = this.validate(def);
-    if (errors.length) {
-      throw new FlowValidationError(errors);
-    }
-
     // Tear down existing runtime if present.
     const old = this.flows.get(def.id);
     if (old) await old.stop();
+
+    // Validate only when trying to enable — incomplete drafts are fine to save.
+    if (def.enabled) {
+      const errors = this.validate(def);
+      if (errors.length) throw new FlowValidationError(errors);
+    }
 
     this.instantiate(def);
     await this.flowStore.save(def);
@@ -110,11 +104,9 @@ export class Conductor {
 
   // ── Introspection ──────────────────────────────────────────
 
-  list(): FlowInfo[] {
+  list(): Array<FlowDef & { status: FlowStatus }> {
     return [...this.flows.values()].map((rt) => ({
-      id: rt.def.id,
-      name: rt.def.name,
-      enabled: rt.def.enabled,
+      ...rt.def,
       status: rt.getStatus()
     }));
   }

@@ -4,9 +4,13 @@
   "version": "0.2.0",
   "type": "module",
   "scripts": {
+    "predev": "pnpm -w run build:shared",
     "dev": "tsx watch server/index.ts",
+    "prebuild": "pnpm -w run build:shared",
     "build": "tsc",
+    "pretypecheck": "pnpm -w run build:shared",
     "typecheck": "tsc --noEmit",
+    "pretypecheck:watch": "pnpm -w run build:shared",
     "typecheck:watch": "tsc --noEmit --watch"
   },
   "dependencies": {

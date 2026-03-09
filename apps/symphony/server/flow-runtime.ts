@@ -178,6 +178,22 @@ export class FlowRuntime {
     }
   }
 
+  // ── External trigger ─────────────────────────────────────────
+
+  /**
+   * Fire a manual-trigger source node from outside the runtime.
+   * Throws if the node doesn't exist, isn't a source, or isn't triggerable.
+   */
+  triggerNode(nid: string, payload: unknown): void {
+    const node = this.nodes.get(nid);
+    if (!node) throw new Error(`node "${nid}" not found`);
+    if (node.role !== "source") throw new Error(`node "${nid}" is not a source`);
+    if (typeof (node as any).trigger !== "function") {
+      throw new Error(`node "${nid}" (${node.kind}) does not support external triggering`);
+    }
+    (node as any).trigger(payload);
+  }
+
   // ── Internal ───────────────────────────────────────────────
 
   private scopedState(nid: string): StateAccessor {

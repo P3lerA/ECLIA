@@ -30,11 +30,7 @@ export function handleSymphonyApi(conductor: Conductor) {
 
       // ── List flows ───────────────────────────────────────
       if (p === "/flows" && req.method === "GET") {
-        const flows = conductor.list().map((info) => {
-          const rt = conductor.get(info.id);
-          return { ...info, def: rt?.def ?? null };
-        });
-        return json(res, 200, { ok: true, flows });
+        return json(res, 200, { ok: true, flows: conductor.list() });
       }
 
       // ── Create flow ──────────────────────────────────────
@@ -58,6 +54,22 @@ export function handleSymphonyApi(conductor: Conductor) {
 
       // ── Single flow routes ───────────────────────────────
 
+      // POST /flows/:id/trigger/:nodeId — fire a manual-trigger source
+      const mTrigger = p.match(/^\/flows\/([^/]+)\/trigger\/([^/]+)$/);
+      if (mTrigger && req.method === "POST") {
+        const id = decodeURIComponent(mTrigger[1]);
+        const nodeId = decodeURIComponent(mTrigger[2]);
+        const rt = conductor.get(id);
+        if (!rt) return json(res, 404, { ok: false, error: "not_found" });
+        if (rt.getStatus() !== "running") {
+          return json(res, 400, { ok: false, error: "flow_not_running", hint: "Enable and start the flow first" });
+        }
+
+        const body = await readJson(req).catch(() => ({}));
+        rt.triggerNode(nodeId, (body as any)?.payload);
+        return json(res, 200, { ok: true });
+      }
+
       // PUT /flows/:id/enabled
       const mEnabled = p.match(/^\/flows\/([^/]+)\/enabled$/);
       if (mEnabled && req.method === "PUT") {
@@ -80,16 +92,15 @@ export function handleSymphonyApi(conductor: Conductor) {
         return json(res, 200, { ok: true, flow: serializeFlow(rt) });
       }
 
-      // PUT /flows/:id
+      // PUT /flows/:id — true upsert (create or update)
       if (req.method === "PUT") {
-        if (!conductor.get(id)) return json(res, 404, { ok: false, error: "not_found" });
-
         const body = await readJson(req);
         const def = parseFlowDef(body);
         if (!def || def.id !== id) return json(res, 400, { ok: false, error: "invalid_flow_def" });
 
+        const existed = !!conductor.get(id);
         await conductor.upsert(def);
-        return json(res, 200, { ok: true, flow: serializeFlow(conductor.get(id)) });
+        return json(res, existed ? 200 : 201, { ok: true, flow: serializeFlow(conductor.get(id)) });
       }
 
       // DELETE /flows/:id

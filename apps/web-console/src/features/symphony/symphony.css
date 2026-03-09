@@ -1,0 +1,629 @@
+/* ─── Symphony flow editor ─────────────────────────────────── */
+
+:root {
+  --sym-source: #22c55e;
+  --sym-transform: #3b82f6;
+  --sym-sink: #f97316;
+  --sym-sidebar-w: 240px;
+  --sym-inspector-w: 270px;
+}
+:root[data-theme="dark"] {
+  --sym-source: #4ade80;
+  --sym-transform: #60a5fa;
+  --sym-sink: #fb923c;
+}
+
+/* ── Full-screen canvas ──────────────────────────────────── */
+
+.sym-root {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+.sym-canvas-wrap {
+  position: absolute;
+  inset: 0;
+}
+.sym-canvas-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+/* ── Floating panel (shared) ─────────────────────────────── */
+
+.sym-panel {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  /* free resize */
+  resize: both;
+  min-width: 180px;
+  min-height: 120px;
+  max-width: calc(100vw - 28px);
+  max-height: calc(100vh - 28px);
+  transition:
+    box-shadow var(--motion-2) var(--ease-standard);
+}
+
+.sym-panel--collapsed {
+  max-height: 48px;
+  resize: none;
+}
+
+/* Drag handle (the head bar) */
+.sym-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line-2);
+  flex-shrink: 0;
+  cursor: grab;
+  user-select: none;
+}
+.sym-panel-head:active {
+  cursor: grabbing;
+}
+.sym-panel--collapsed .sym-panel-head {
+  border-bottom: none;
+}
+
+.sym-panel-head-left {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sym-panel-head-label {
+  font-weight: 750;
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.sym-panel-toggle {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  flex-shrink: 0;
+  transition:
+    transform var(--motion-1) var(--ease-standard),
+    background-color var(--motion-2) var(--ease-standard);
+}
+.sym-panel-toggle:hover {
+  background: var(--surface-hover);
+}
+.sym-panel-toggle:active {
+  transform: scale(.92);
+}
+
+.sym-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}
+.sym-panel--collapsed .sym-panel-body,
+.sym-panel--collapsed .sym-panel-foot {
+  display: none;
+}
+
+.sym-panel-foot {
+  border-top: 1px solid var(--line-2);
+  padding: 8px;
+  flex-shrink: 0;
+}
+
+/* ── Left panel (flows) ──────────────────────────────────── */
+
+.sym-panel--left {
+  width: var(--sym-sidebar-w);
+}
+
+/* ── Right panel (inspector) ─────────────────────────────── */
+
+.sym-panel--right {
+  width: var(--sym-inspector-w);
+}
+
+/* Resize handle — subtle grip indicator */
+.sym-panel::-webkit-resizer {
+  background: transparent;
+}
+
+/* ── Flow list ────────────────────────────────────────────── */
+
+.sym-list-items {
+  padding: 6px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sym-list-empty {
+  padding: 16px 12px;
+  font-size: 12px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.sym-list-item {
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 8px 10px;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    transform var(--motion-1) var(--ease-standard),
+    background-color var(--motion-2) var(--ease-standard),
+    border-color var(--motion-2) var(--ease-standard),
+    box-shadow var(--motion-2) var(--ease-standard);
+}
+.sym-list-item:hover {
+  background: var(--surface-hover);
+  transform: translateY(-1px);
+}
+.sym-list-item:active {
+  transform: translateY(0) scale(.98);
+}
+.sym-list-item--active {
+  border-color: var(--line);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-soft);
+}
+
+.sym-list-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.sym-list-item-name {
+  font-size: 12.5px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.sym-list-item-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 5px;
+}
+
+.sym-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 11px;
+  color: var(--muted);
+}
+.sym-toggle-label input[type="checkbox"] { width: 14px; height: 14px; }
+.sym-toggle-label span { font-weight: 650; }
+
+/* ── Flow name ───────────────────────────────────────────── */
+
+.sym-flow-name-wrap {
+  padding: 6px 10px 0;
+}
+.sym-flow-name-input {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  padding: 6px 8px;
+  color: var(--text);
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  transition:
+    border-color var(--motion-2) var(--ease-standard),
+    box-shadow var(--motion-2) var(--ease-standard);
+}
+.sym-flow-name-input:focus {
+  border-color: var(--line);
+  box-shadow: 0 0 0 3px var(--line-2);
+}
+
+/* ── Status badges ────────────────────────────────────────── */
+
+.sym-status {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.sym-status--stopped  { color: var(--muted); border: 1px solid var(--line); }
+.sym-status--starting { color: #b45309; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.2); }
+.sym-status--running  { color: #16a34a; background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.2); }
+.sym-status--error    { color: var(--danger); background: rgba(185,28,28,0.08); border: 1px solid rgba(185,28,28,0.15); }
+
+/* ── Inspector ───────────────────────────────────────────── */
+
+.sym-inspector-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.sym-inspector-node {
+  padding: 10px 12px;
+}
+.sym-inspector-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.sym-inspector-title {
+  font-weight: 750;
+  font-size: 13px;
+  letter-spacing: .02em;
+}
+.sym-inspector-kind {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.sym-inspector-desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.35;
+  margin: 0 0 10px;
+}
+.sym-trigger-btn {
+  width: 100%;
+  padding: 7px 0;
+  font-size: 12px;
+  margin-bottom: 10px;
+  background: var(--sym-source);
+  color: #fff;
+  border-color: var(--sym-source);
+}
+.sym-trigger-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+.sym-trigger-btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.sym-inspector-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── Config fields ───────────────────────────────────────── */
+
+.sym-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sym-field--bool {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.sym-field--bool input[type="checkbox"] { width: 16px; height: 16px; }
+.sym-field-label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 650;
+}
+.sym-field-input,
+.sym-field-select {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 7px 10px;
+  font-size: 12.5px;
+  color: var(--text);
+  outline: none;
+  transition:
+    border-color var(--motion-2) var(--ease-standard),
+    box-shadow var(--motion-2) var(--ease-standard);
+}
+.sym-field-input:focus,
+.sym-field-select:focus {
+  border-color: var(--line);
+  box-shadow: 0 0 0 3px var(--line-2);
+}
+.sym-field-textarea {
+  font: inherit;
+  font-size: 12.5px;
+  font-family: var(--mono);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 7px 10px;
+  color: var(--text);
+  resize: vertical;
+  min-height: 56px;
+  outline: none;
+  transition:
+    border-color var(--motion-2) var(--ease-standard),
+    box-shadow var(--motion-2) var(--ease-standard);
+}
+.sym-field-textarea:focus {
+  border-color: var(--line);
+  box-shadow: 0 0 0 3px var(--line-2);
+}
+
+/* ── Palette (floating pill) ─────────────────────────────── */
+
+.sym-palette {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow-soft);
+  max-width: calc(100% - var(--sym-sidebar-w) - var(--sym-inspector-w) - 80px);
+  overflow-x: auto;
+}
+.sym-palette-items {
+  display: flex;
+  gap: 4px;
+}
+.sym-palette-btn {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  transition:
+    transform var(--motion-1) var(--ease-standard),
+    background-color var(--motion-2) var(--ease-standard);
+}
+.sym-palette-btn:hover {
+  background: var(--surface-hover);
+  transform: translateY(-1px);
+}
+.sym-palette-btn:active { transform: scale(.96); }
+.sym-palette-btn--source    { border-left: 3px solid var(--sym-source); }
+.sym-palette-btn--transform { border-left: 3px solid var(--sym-transform); }
+.sym-palette-btn--sink      { border-left: 3px solid var(--sym-sink); }
+
+/* ── Custom nodes ─────────────────────────────────────────── */
+
+.sym-node {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  min-width: 150px;
+  box-shadow: var(--shadow-card);
+  font-family: var(--sans);
+  position: relative;
+  transition:
+    border-color var(--motion-2) var(--ease-standard),
+    box-shadow var(--motion-2) var(--ease-standard);
+}
+.sym-node--selected {
+  border-color: var(--sym-transform);
+  box-shadow: 0 0 0 2px var(--sym-transform), var(--shadow-card);
+}
+.sym-node-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line-2);
+}
+.sym-node-role {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.sym-node-role--source    { color: var(--sym-source); }
+.sym-node-role--transform { color: var(--sym-transform); }
+.sym-node-role--sink      { color: var(--sym-sink); }
+.sym-node-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text);
+}
+/* Node body — inline config + actions */
+.sym-node-body {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line-2);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.sym-node-config-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 10px;
+  line-height: 1.3;
+}
+.sym-node-config-key {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.sym-node-config-val {
+  color: var(--text);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 120px;
+}
+.sym-node-fire-btn {
+  margin-top: 3px;
+  padding: 4px 0;
+  font-size: 10px;
+  width: 100%;
+  background: var(--sym-source);
+  color: #fff;
+  border-color: var(--sym-source);
+  border-radius: 8px;
+}
+.sym-node-fire-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+.sym-node-fire-btn:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+.sym-node-ports { padding: 6px 12px 8px; }
+.sym-node-port {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  position: relative;
+}
+.sym-port-label {
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.sym-handle {
+  width: 10px !important;
+  height: 10px !important;
+  background: var(--sym-transform) !important;
+  border: 2px solid var(--surface-2) !important;
+  border-radius: 50% !important;
+}
+
+/* ── Save bar (floating) ─────────────────────────────────── */
+
+.sym-save-bar {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  animation: k-fade-up var(--motion-3) var(--ease-enter) both;
+}
+.sym-save-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255,176,46,.95);
+  box-shadow: 0 0 0 3px rgba(255,176,46,.14);
+  flex-shrink: 0;
+}
+.sym-save-text {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ── Loading / error ─────────────────────────────────────── */
+
+.sym-loading,
+.sym-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  background: var(--bg);
+}
+
+/* ── React Flow overrides ────────────────────────────────── */
+
+/* Canvas background — on the container so SVG dot pattern stays visible */
+.sym-canvas-wrap .react-flow {
+  background: var(--bg);
+}
+
+/* Controls — theme-aware */
+.sym-canvas-wrap .react-flow__controls {
+  box-shadow: var(--shadow-soft);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.sym-canvas-wrap .react-flow__controls-button {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line-2);
+  fill: var(--text);
+  color: var(--text);
+}
+.sym-canvas-wrap .react-flow__controls-button:hover {
+  background: var(--surface-hover);
+}
+
+/* Attribution watermark — theme-aware */
+.sym-canvas-wrap .react-flow__attribution {
+  background: transparent;
+}
+.sym-canvas-wrap .react-flow__attribution a {
+  color: var(--muted);
+}
+
+/* ── Responsive ──────────────────────────────────────────── */
+
+@media (max-width: 700px) {
+  .sym-panel--left  { width: 200px; min-width: 160px; }
+  .sym-panel--right { width: 220px; min-width: 160px; }
+  .sym-palette { top: 8px; }
+  .sym-save-bar { bottom: 8px; }
+}
