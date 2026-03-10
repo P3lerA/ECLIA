@@ -1,22 +1,11 @@
 /**
- * gate — Transform node.
+ * gate-all — Gate node with dynamic inputs and outputs.
  *
- * Collects values on input ports "a" and "b".  Fires only when both
- * have been received at least once.  Acts as the explicit replacement
- * for the old TriggerMode "all".
+ * Latches each incoming value.  Fires only when ALL wired dynamic
+ * inputs have been received at least once, then clears the latches.
  *
- * Behaviour:
- *   - Latches each input: once a value arrives on "a", it's remembered
- *     until "b" also arrives (or vice versa).
- *   - When both are present, fires downstream and clears the latches.
- *
- * Input ports:
- *   a : any
- *   b : any
- *
- * Output ports:
- *   a : any  — passthrough of input a
- *   b : any  — passthrough of input b
+ * Dynamic input keys (din_0, din_1, …) map 1:1 to dynamic output
+ * keys (dout_0, dout_1, …) — the numeric suffix is matched.
  */
 
 import type { NodeFactory } from "../types.js";
@@ -27,43 +16,54 @@ export const factory: NodeFactory = {
   role: "gate",
   description: "Wait for all inputs before firing.",
 
-  inputPorts: [
-    { key: "a", label: "Input A", type: "any" },
-    { key: "b", label: "Input B", type: "any" }
-  ],
-  outputPorts: [
-    { key: "a", label: "Output A", type: "any", typeFromPort: "a" },
-    { key: "b", label: "Output B", type: "any", typeFromPort: "b" },
-  ],
-
+  inputPorts: [],
+  outputPorts: [],
   configSchema: [],
 
-  create(id) {
+  dynamicInput: { type: "any", labelPrefix: "In" },
+  dynamicOutput: { type: "any", labelPrefix: "Out" },
+
+  create(id, _config, dynamicPorts) {
+    // Full set of expected input keys, known at creation time.
+    const expectedKeys = (dynamicPorts?.inputs ?? []).map((p) => p.key);
+
     return {
       role: "gate" as const,
       id,
       kind: "gate-all",
 
       async execute(ctx) {
-        const hasA = ctx.inputs.a !== undefined;
-        const hasB = ctx.inputs.b !== undefined;
+        if (expectedKeys.length === 0) return null;
 
-        // Use node state to latch across separate source emissions.
-        const latchA = hasA ? ctx.inputs.a : await ctx.state.get("latch_a");
-        const latchB = hasB ? ctx.inputs.b : await ctx.state.get("latch_b");
+        const dinKeys = Object.keys(ctx.inputs).filter((k) => k.startsWith("din_"));
+        if (dinKeys.length === 0) return null;
 
-        if (hasA) await ctx.state.set("latch_a", latchA);
-        if (hasB) await ctx.state.set("latch_b", latchB);
-
-        if (latchA !== undefined && latchB !== undefined) {
-          await ctx.state.set("latch_a", undefined);
-          await ctx.state.set("latch_b", undefined);
-          return { a: latchA, b: latchB };
+        // Latch incoming values
+        for (const key of dinKeys) {
+          if (ctx.inputs[key] !== undefined) {
+            await ctx.state.set(`latch:${key}`, ctx.inputs[key]);
+          }
         }
 
-        // Not all inputs ready — halt propagation.
-        return null;
-      }
+        // Check ALL expected keys (not just keys seen so far)
+        const values = new Map<string, unknown>();
+        for (const key of expectedKeys) {
+          const val = (dinKeys.includes(key) && ctx.inputs[key] !== undefined)
+            ? ctx.inputs[key]
+            : await ctx.state.get(`latch:${key}`);
+          if (val == null) return null; // not all ready
+          values.set(key, val);
+        }
+
+        // All ready — clear latches, emit on dout_* keys
+        for (const key of expectedKeys) await ctx.state.set(`latch:${key}`, null);
+
+        const output: Record<string, unknown> = {};
+        for (const [key, val] of values) {
+          output["dout_" + key.slice(4)] = val;
+        }
+        return output;
+      },
     };
-  }
+  },
 };

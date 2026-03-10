@@ -48,8 +48,6 @@ export type MemoryManageItem = {
   originSession: string;
 };
 
-export type MemorySectionId = "settings" | "manage" | "tool";
-
 export const EMBEDDING_MODELS: Record<EmbeddingLanguage, CuratedModel[]> = {
   en: [
     { value: "all-MiniLM-L6-v2", label: "all-MiniLM-L6-v2 — fast, lightweight" },
@@ -73,12 +71,6 @@ export const LANGUAGE_OPTIONS: Array<{ value: EmbeddingLanguage; label: string }
   { value: "en", label: "English" },
   { value: "zh", label: "Chinese" },
   { value: "multi", label: "Multi-Language" }
-];
-
-export const MEMORY_SECTIONS: Array<{ id: MemorySectionId; label: string }> = [
-  { id: "settings", label: "Settings" },
-  { id: "manage", label: "Manage" },
-  { id: "tool", label: "Tool" }
 ];
 
 export const DEFAULT_MEMORY_DRAFT: MemoryDraft = {

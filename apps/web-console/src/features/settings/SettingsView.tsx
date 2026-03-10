@@ -39,6 +39,7 @@ import { InferenceSection } from "./sections/inference/InferenceSection";
 import { useInferenceController } from "./sections/inference/useInferenceController";
 import { SkillsSection } from "./sections/skills/SkillsSection";
 import { ToolsSection } from "./sections/tools/ToolsSection";
+import { MemorySection } from "./sections/memory/MemorySection";
 
 const ALLOWED_CONSOLE_HOSTS = new Set(["127.0.0.1", "0.0.0.0"]);
 const DEFAULT_CODEX_MODEL = CODEX_OAUTH_DEFAULT_MODEL;
@@ -564,7 +565,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const webgl2Text =
     state.gpu.available === null ? "WebGL2: checking…" : state.gpu.available ? "WebGL2: available" : "WebGL2: unavailable";
 
-  type SettingsSectionId = "general" | "appearance" | "tools" | "inference" | "adapters" | "skills";
+  type SettingsSectionId = "general" | "appearance" | "tools" | "inference" | "adapters" | "skills" | "memory";
 
   const sections: Array<{ id: SettingsSectionId; label: string }> = [
     { id: "general", label: "General" },
@@ -572,7 +573,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     { id: "tools", label: "Tools" },
     { id: "inference", label: "Inference" },
     { id: "adapters", label: "Adapters" },
-    { id: "skills", label: "Skills" }
+    { id: "skills", label: "Skills" },
+    { id: "memory", label: "Memory" }
   ];
 
   const [activeSection, setActiveSection] = React.useState<SettingsSectionId>("general");
@@ -695,6 +697,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                 cfgBaseAvailable={!!cfgBase}
                 skillsAvailable={cfgBase?.skillsAvailable ?? []}
               />
+            ) : null}
+
+            {activeSection === "memory" ? (
+              <MemorySection active={activeSection === "memory"} />
             ) : null}
           </div>
         </div>

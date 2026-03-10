@@ -37,7 +37,7 @@ export interface RuntimeServices {
 
 // ─── Node runtime ───────────────────────────────────────────
 
-import type { NodeRole, PortDef, ConfigFieldSchema } from "@eclia/symphony-protocol";
+import type { NodeRole, PortDef, ConfigFieldSchema, DynamicPortTemplate } from "@eclia/symphony-protocol";
 
 export interface NodeOutputs {
   [portKey: string]: unknown;
@@ -67,6 +67,15 @@ export interface SourceNode {
   stop(): Promise<void>;
 }
 
+/** Source node that can be fired externally (e.g. manual-trigger). */
+export interface TriggerableSourceNode extends SourceNode {
+  trigger(payload: unknown): void;
+}
+
+export function isTriggerable(node: Node): node is TriggerableSourceNode {
+  return node.role === "source" && typeof (node as TriggerableSourceNode).trigger === "function";
+}
+
 export interface ProcessNode {
   readonly role: "process" | "action" | "gate";
   readonly id: string;
@@ -86,7 +95,11 @@ export interface NodeFactory {
   readonly inputPorts: PortDef[];
   readonly outputPorts: PortDef[];
   readonly configSchema: ConfigFieldSchema[];
-  create(id: string, config: Record<string, unknown>): Node;
+  /** If present, users can add/remove input ports on instances of this kind. */
+  readonly dynamicInput?: DynamicPortTemplate;
+  /** If present, users can add/remove output ports on instances of this kind. */
+  readonly dynamicOutput?: DynamicPortTemplate;
+  create(id: string, config: Record<string, unknown>, dynamicPorts?: { inputs?: PortDef[], outputs?: PortDef[] }): Node;
 }
 
 // ─── Shared services ────────────────────────────────────────

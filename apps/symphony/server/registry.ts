@@ -1,4 +1,4 @@
-import type { NodeFactory, Node, NodeKindSchema } from "./types.js";
+import type { NodeFactory, Node, NodeKindSchema, PortDef } from "./types.js";
 
 /**
  * Central registry for node factories.
@@ -20,10 +20,10 @@ export class Registry {
     return this.factories.get(kind);
   }
 
-  create(kind: string, id: string, config: Record<string, unknown>): Node {
+  create(kind: string, id: string, config: Record<string, unknown>, dynamicPorts?: { inputs?: PortDef[], outputs?: PortDef[] }): Node {
     const f = this.factories.get(kind);
     if (!f) throw new Error(`unknown node kind: "${kind}"`);
-    return f.create(id, config);
+    return f.create(id, config, dynamicPorts);
   }
 
   /** All registered kinds, for the API / UI. */
@@ -35,7 +35,9 @@ export class Registry {
       description: f.description,
       inputPorts: f.inputPorts,
       outputPorts: f.outputPorts,
-      configSchema: f.configSchema
+      configSchema: f.configSchema,
+      ...(f.dynamicInput && { dynamicInput: f.dynamicInput }),
+      ...(f.dynamicOutput && { dynamicOutput: f.dynamicOutput }),
     }));
   }
 }

@@ -95,11 +95,15 @@ function NodeInspector({
           if (field.key === "sendChannelId" && (!config.sendDestination || config.sendDestination === "web")) return null;
           // manual-trigger: hide signalValue when type is "none"; dynamically switch field type
           if (field.key === "signalValue" && isManualTrigger) {
-            const st = config.signalType as string;
+            const st = String(config.signalType ?? "");
             if (!st || st === "none") return null;
+            // Map signal type to config field type: "any" and "string" → string input,
+            // "number" and "boolean" are valid ConfigFieldSchema types directly.
+            const fieldType: ConfigFieldSchema["type"] =
+              st === "number" ? "number" : st === "boolean" ? "boolean" : "string";
             return <ConfigField
               key={field.key}
-              field={{ ...field, type: st as any }}
+              field={{ ...field, type: fieldType }}
               value={config[field.key]}
               onChange={(v) => onUpdateConfig(node.id, field.key, v)}
               modelRouteOptions={modelRouteOptions}
@@ -129,6 +133,12 @@ function NodeInspector({
 
 // ─── Config field ──────────────────────────────────────────
 
+function isFieldEmpty(value: unknown): boolean {
+  if (value == null) return true;
+  if (typeof value === "string" && value.trim() === "") return true;
+  return false;
+}
+
 function ConfigField({
   field,
   value,
@@ -142,11 +152,18 @@ function ConfigField({
   onChange: (v: unknown) => void;
   modelRouteOptions: ModelRouteOption[];
 }) {
+  const showRequired = field.required && isFieldEmpty(value);
+  const fieldLabel = (
+    <label className="sym-field-label">
+      {field.label}
+      {showRequired && <span className="sym-field-required">required</span>}
+    </label>
+  );
   switch (field.type) {
     case "model":
       return (
         <div className="sym-field">
-          <label className="sym-field-label">{field.label}</label>
+          {fieldLabel}
           <ModelRouteSelect
             value={String(value ?? "")}
             onChange={onChange}
@@ -157,22 +174,31 @@ function ConfigField({
       );
     case "boolean":
       return (
-        <div className="sym-field sym-field--bool">
-          <input type="checkbox" checked={Boolean(value)} onChange={(e) => onChange(e.target.checked)} />
-          <label className="sym-field-label">{field.label}</label>
+        <div className="sym-field">
+          {fieldLabel}
+          <div className="sym-bool-group">
+            <label className={"sym-bool-option" + (value === true ? " selected" : "")}>
+              <input type="radio" name={field.key} checked={value === true} onChange={() => onChange(true)} />
+              True
+            </label>
+            <label className={"sym-bool-option" + (!value ? " selected" : "")}>
+              <input type="radio" name={field.key} checked={!value} onChange={() => onChange(false)} />
+              False
+            </label>
+          </div>
         </div>
       );
     case "text":
       return (
         <div className="sym-field">
-          <label className="sym-field-label">{field.label}</label>
+          {fieldLabel}
           <textarea className="sym-field-textarea" value={String(value ?? "")} placeholder={field.placeholder} rows={4} onChange={(e) => onChange(e.target.value)} />
         </div>
       );
     case "select":
       return (
         <div className="sym-field">
-          <label className="sym-field-label">{field.label}</label>
+          {fieldLabel}
           <select className="sym-field-select" value={String(value ?? field.default ?? "")} onChange={(e) => onChange(e.target.value)}>
             {(field.options ?? []).map((opt) => <option key={opt} value={opt}>{opt}</option>)}
           </select>
@@ -181,7 +207,7 @@ function ConfigField({
     case "number":
       return (
         <div className="sym-field">
-          <label className="sym-field-label">{field.label}</label>
+          {fieldLabel}
           <input className="sym-field-input" type="number" value={value != null ? Number(value) : ""} placeholder={field.placeholder} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : undefined)} />
         </div>
       );
@@ -189,7 +215,7 @@ function ConfigField({
       const strVal = String(value ?? "");
       return (
         <div className="sym-field">
-          <label className="sym-field-label">{field.label}</label>
+          {fieldLabel}
           <input className="sym-field-input" type={field.sensitive ? "password" : "text"} value={strVal} placeholder={field.placeholder} readOnly={readOnly} onChange={readOnly ? undefined : (e) => onChange(e.target.value)} />
           {field.key === "sessionId" && strVal.trim() && (
             <a className="sym-session-link" href={`/session/${encodeURIComponent(strVal)}`} target="_blank" rel="noopener noreferrer">

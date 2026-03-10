@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   useNodesState,
   useEdgesState,
@@ -15,7 +15,10 @@ import type {
   OpusStatus,
   NodeKindSchema,
   ValidationError,
+  PortDef,
+  PortType,
 } from "@eclia/symphony-protocol";
+import { lintGraph } from "@eclia/symphony-protocol";
 import {
   apiListOpus,
   apiGetOpus,
@@ -51,6 +54,8 @@ function opusDefToNodes(
         role: schema?.role ?? "process",
         config: { ...nd.config },
         schema: schema ?? fallbackSchema(nd.kind),
+        ...(nd.dynamicInputs?.length && { dynamicInputs: nd.dynamicInputs.map((p) => ({ ...p })) }),
+        ...(nd.dynamicOutputs?.length && { dynamicOutputs: nd.dynamicOutputs.map((p) => ({ ...p })) }),
       },
     };
   });
@@ -67,11 +72,16 @@ function opusDefToEdges(def: OpusDef): Edge[] {
 }
 
 function nodesToOpusNodes(nodes: Node<SymphonyNodeData>[]): OpusNodeDef[] {
-  return nodes.map((n) => ({
-    nid: n.id,
-    kind: n.data.kind,
-    config: { ...n.data.config },
-  }));
+  return nodes.map((n) => {
+    const { _nextDynId: _, ...config } = n.data.config as Record<string, unknown> & { _nextDynId?: unknown };
+    return {
+      nid: n.id,
+      kind: n.data.kind,
+      config,
+      ...(n.data.dynamicInputs?.length && { dynamicInputs: n.data.dynamicInputs }),
+      ...(n.data.dynamicOutputs?.length && { dynamicOutputs: n.data.dynamicOutputs }),
+    };
+  });
 }
 
 function edgesToOpusLinks(edges: Edge[]): OpusLinkDef[] {
@@ -98,32 +108,13 @@ function fallbackSchema(kind: string): NodeKindSchema {
   return { kind, label: `Unknown (${kind})`, role: "process", inputPorts: [], outputPorts: [], configSchema: [] };
 }
 
-/** Lightweight client-side validation — catches issues visible without a server round-trip. */
-function lintOpusDef(def: OpusDef, kindMap: Map<string, NodeKindSchema>): ValidationError[] {
-  const errs: ValidationError[] = [];
-  const connectedCfg = new Set<string>();
-  for (const lk of def.links) {
-    if (lk.toPort.startsWith("cfg:")) connectedCfg.add(`${lk.to}:${lk.toPort.slice(4)}`);
-  }
-  for (const nd of def.nodes) {
-    const schema = kindMap.get(nd.kind);
-    if (!schema) {
-      errs.push({ code: "unknown_kind", message: `unknown node kind: "${nd.kind}"`, target: nd.nid });
-      continue;
-    }
-    for (const f of schema.configSchema) {
-      if (!f.required) continue;
-      const hasValue = nd.config[f.key] != null && nd.config[f.key] !== "";
-      if (!hasValue && !connectedCfg.has(`${nd.nid}:${f.key}`)) {
-        errs.push({ code: "missing_config", message: `node "${nd.nid}" (${nd.kind}): required config "${f.label}" is empty`, target: nd.nid });
-      }
-    }
-  }
-  return errs;
-}
-
 function uid(): string {
   return `n_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Build dynamic port label: "VAR_" + 1 → "VAR_1", "In" + 1 → "In 1". */
+function dynLabel(prefix: string, n: number): string {
+  return prefix.endsWith("_") ? `${prefix}${n}` : `${prefix} ${n}`;
 }
 
 // ─── Hook ───────────────────────────────────────────────────
@@ -133,19 +124,34 @@ export function useSymphonyEditor() {
   const [nodeKinds, setNodeKinds] = useState<NodeKindSchema[]>([]);
   const [modelRouteOptions, setModelRouteOptions] = useState<ModelRouteOption[]>([]);
   const [activeDef, setActiveDef] = useState<OpusDef | null>(null);
-  const [activeStatus, setActiveStatus] = useState<OpusStatus>("stopped");
+  const [runtimeStatus, setRuntimeStatus] = useState<OpusStatus>("stopped");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const suppressDirty = useRef(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
-  const [validationErrors, setValidationErrors] = useState<import("@eclia/symphony-protocol").ValidationError[]>([]);
+  /** Server-side validation errors (from toggleEnabled / reload failures). */
+  const [serverErrors, setServerErrors] = useState<ValidationError[]>([]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<SymphonyNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
   const kindMapRef = useRef(new Map<string, NodeKindSchema>());
+
+  // ── Draft errors — always fresh from current canvas state ──
+
+  const draftErrors = useMemo<ValidationError[]>(() => {
+    if (nodes.length === 0) return [];
+    return lintGraph(
+      nodes.map((n) => ({ nid: n.id, kind: n.data.kind, config: n.data.config })),
+      edges.map((e) => ({ to: e.target, toPort: e.targetHandle ?? "in" })),
+      kindMapRef.current,
+    );
+  }, [nodes, edges]);
+
+  // Server errors take priority (superset); when stale (user edited), fall back to draft errors.
+  const validationErrors = serverErrors.length > 0 ? serverErrors : draftErrors;
 
   // ── Initial load ────────────────────────────────────────
 
@@ -191,7 +197,8 @@ export function useSymphonyEditor() {
 
       if (!id) {
         setActiveDef(null);
-        setActiveStatus("stopped");
+        setRuntimeStatus("stopped");
+        setServerErrors([]);
         suppressDirty.current = true;
         setNodes([]);
         setEdges([]);
@@ -218,14 +225,12 @@ export function useSymphonyEditor() {
           };
           suppressDirty.current = true;
           setActiveDef(def);
-          setActiveStatus(full.status);
+          setRuntimeStatus(full.status);
+          setServerErrors([]);
           setNodes(opusDefToNodes(def, kindMapRef.current));
           setEdges(opusDefToEdges(def));
           setSelectedNodeId(null);
           setDirty(false);
-          const lint = lintOpusDef(def, kindMapRef.current);
-          setValidationErrors(lint);
-          if (lint.length > 0) setActiveStatus("error");
           requestAnimationFrame(() => { suppressDirty.current = false; });
         } catch (e: any) {
           if (gen !== selectGenRef.current) return;
@@ -241,12 +246,14 @@ export function useSymphonyEditor() {
   const handleNodesChange = useCallback(
     (changes: NodeChange<Node<SymphonyNodeData>>[]) => {
       onNodesChange(changes);
-      // Only mark dirty for user-driven changes (position, remove, add, replace)
       if (!suppressDirty.current) {
         const userChange = changes.some((c) =>
           c.type !== "select" && c.type !== "dimensions"
         );
-        if (userChange) setDirty(true);
+        if (userChange) {
+          setDirty(true);
+          setServerErrors([]); // stale after edit
+        }
       }
       if (changes.some((c) => c.type === "remove" && c.id === selectedNodeId)) {
         setSelectedNodeId(null);
@@ -257,13 +264,30 @@ export function useSymphonyEditor() {
 
   const handleEdgesChange = useCallback(
     (changes: EdgeChange<Edge>[]) => {
+      // Clear auto-generated dynamic outputs when their input is disconnected
+      for (const c of changes) {
+        if (c.type !== "remove") continue;
+        const edge = edges.find((e) => e.id === c.id);
+        if (!edge || edge.targetHandle !== "in") continue;
+        setNodes((prev) => {
+          const tgt = prev.find((n) => n.id === edge.target) as Node<SymphonyNodeData> | undefined;
+          if (!tgt || !tgt.data.schema.dynamicOutput?.auto || !tgt.data.dynamicOutputs?.length) return prev;
+          return prev.map((n) =>
+            n.id === edge.target ? { ...n, data: { ...n.data, dynamicOutputs: [] } } : n
+          );
+        });
+        setEdges((prev) => prev.filter((e) => e.source !== edge.target));
+      }
       onEdgesChange(changes);
       if (!suppressDirty.current) {
         const userChange = changes.some((c) => c.type !== "select");
-        if (userChange) setDirty(true);
+        if (userChange) {
+          setDirty(true);
+          setServerErrors([]); // stale after edit
+        }
       }
     },
-    [onEdgesChange]
+    [onEdgesChange, edges, setNodes, setEdges]
   );
 
   const onConnect = useCallback(
@@ -279,9 +303,33 @@ export function useSymphonyEditor() {
           targetHandle: conn.targetHandle,
         } as Edge,
       ]);
+      // Auto-populate output ports for nodes with auto dynamicOutput (e.g. Parse)
+      if (conn.targetHandle === "in") {
+        setNodes((prev) => {
+          const tgt = prev.find((n) => n.id === conn.target) as Node<SymphonyNodeData> | undefined;
+          if (!tgt || !tgt.data.schema.dynamicOutput?.auto) return prev;
+          const src = prev.find((n) => n.id === conn.source) as Node<SymphonyNodeData> | undefined;
+          if (!src) return prev;
+          const srcPort = src.data.schema.outputPorts.find((p) => p.key === conn.sourceHandle)
+            ?? (src.data.dynamicOutputs ?? []).find((p) => p.key === conn.sourceHandle);
+          const objectKeys = (srcPort as PortDef | undefined)?.objectKeys;
+          if (!objectKeys || Object.keys(objectKeys).length === 0) return prev;
+          // objectKeys is Record<string, PortType>; guard against legacy string[] format
+          const entries: Array<[string, PortType]> = Array.isArray(objectKeys)
+            ? (objectKeys as string[]).map((k) => [k, "any" as PortType])
+            : Object.entries(objectKeys) as Array<[string, PortType]>;
+          if (!entries.length) return prev;
+          return prev.map((n) =>
+            n.id === conn.target
+              ? { ...n, data: { ...n.data, dynamicOutputs: entries.map(([k, t]) => ({ key: k, label: k, type: t })) } }
+              : n
+          );
+        });
+      }
       setDirty(true);
+      setServerErrors([]);
     },
-    [setEdges]
+    [setEdges, setNodes]
   );
 
   // ── Node selection ──────────────────────────────────────
@@ -305,7 +353,8 @@ export function useSymphonyEditor() {
       suppressDirty.current = true;
       setOpusList((prev) => [...prev, entry]);
       setActiveDef(def);
-      setActiveStatus(saved.status);
+      setRuntimeStatus(saved.status);
+      setServerErrors([]);
       setNodes([]);
       setEdges([]);
       setSelectedNodeId(null);
@@ -329,7 +378,7 @@ export function useSymphonyEditor() {
     try {
       const saved = await apiUpsertOpus(def);
       setActiveDef(def);
-      setActiveStatus(saved.status);
+      setRuntimeStatus(saved.status);
       setOpusList((prev) =>
         prev.map((f) => (f.id === saved.id ? opusToListEntry(saved) : f))
       );
@@ -349,7 +398,8 @@ export function useSymphonyEditor() {
         setOpusList((prev) => prev.filter((f) => f.id !== id));
         if (activeDef?.id === id) {
           setActiveDef(null);
-          setActiveStatus("stopped");
+          setRuntimeStatus("stopped");
+          setServerErrors([]);
           setNodes([]);
           setEdges([]);
           setSelectedNodeId(null);
@@ -371,12 +421,12 @@ export function useSymphonyEditor() {
         );
         if (activeDef?.id === id) {
           setActiveDef((d) => (d ? { ...d, enabled: fresh.enabled } : d));
-          setActiveStatus(fresh.status);
+          setRuntimeStatus(fresh.status);
+          setServerErrors([]);
         }
       } catch (e: any) {
         if (e instanceof SymphonyValidationError) {
-          setValidationErrors(e.errors);
-          if (activeDef?.id === id) setActiveStatus("error");
+          setServerErrors(e.errors);
         } else {
           setError(String(e?.message ?? e));
         }
@@ -419,6 +469,7 @@ export function useSymphonyEditor() {
       };
       setNodes((prev) => [...prev, node]);
       setDirty(true);
+      setServerErrors([]);
     },
     [setNodes]
   );
@@ -427,19 +478,30 @@ export function useSymphonyEditor() {
 
   const duplicateNode = useCallback(
     (nodeId: string) => {
+      const nid = uid();
       setNodes((prev) => {
         const src = prev.find((n) => n.id === nodeId) as Node<SymphonyNodeData> | undefined;
         if (!src) return prev;
-        const nid = uid();
         const clone: Node<SymphonyNodeData> = {
           id: nid,
           type: "symphony",
           position: { x: src.position.x + 40, y: src.position.y + 40 },
-          data: { ...src.data, config: { ...src.data.config } },
+          data: {
+            ...src.data,
+            config: { ...src.data.config },
+            ...(src.data.dynamicInputs && { dynamicInputs: src.data.dynamicInputs.map((p) => ({ ...p })) }),
+            ...(src.data.dynamicOutputs && { dynamicOutputs: src.data.dynamicOutputs.map((p) => ({ ...p })) }),
+          },
+          selected: true,
         };
-        return [...prev, clone];
+        return [
+          ...prev.map((n) => n.id === nodeId ? { ...n, selected: false } : n),
+          clone,
+        ];
       });
+      setSelectedNodeId(nid);
       setDirty(true);
+      setServerErrors([]);
     },
     [setNodes]
   );
@@ -456,6 +518,7 @@ export function useSymphonyEditor() {
         )
       );
       setDirty(true);
+      setServerErrors([]);
     },
     [setNodes]
   );
@@ -478,20 +541,119 @@ export function useSymphonyEditor() {
     if (!activeDef) return;
     try {
       const fresh = await apiReloadOpus(activeDef.id);
-      setActiveStatus(fresh.status);
+      setRuntimeStatus(fresh.status);
+      setServerErrors([]);
       setHint(null);
       setOpusList((prev) =>
         prev.map((f) => (f.id === activeDef.id ? opusToListEntry(fresh) : f))
       );
     } catch (e: any) {
       if (e instanceof SymphonyValidationError) {
-        setValidationErrors(e.errors);
-        setActiveStatus("error");
+        setServerErrors(e.errors);
       } else {
         setError(String(e?.message ?? e));
       }
     }
   }, [activeDef]);
+
+  // ── Dynamic ports ──────────────────────────────────────
+
+  const addDynamicPort = useCallback(
+    (nodeId: string, direction: "input" | "output") => {
+      setNodes((prev) =>
+        prev.map((n) => {
+          if (n.id !== nodeId) return n;
+          const data = n.data as SymphonyNodeData;
+          const template = direction === "input" ? data.schema.dynamicInput : data.schema.dynamicOutput;
+          if (!template) return n;
+          const counter = (data.config._nextDynId as number | undefined) ?? 0;
+          const paired = !!(data.schema.dynamicInput && data.schema.dynamicOutput);
+
+          if (paired) {
+            // Add both din_X and dout_X as a pair
+            const inTpl = data.schema.dynamicInput!;
+            const outTpl = data.schema.dynamicOutput!;
+            const existIn = (data.dynamicInputs as PortDef[] | undefined) ?? [];
+            const existOut = (data.dynamicOutputs as PortDef[] | undefined) ?? [];
+            const newIn: PortDef = { key: `din_${counter}`, label: dynLabel(inTpl.labelPrefix, counter + 1), type: inTpl.type };
+            const newOut: PortDef = { key: `dout_${counter}`, label: dynLabel(outTpl.labelPrefix, counter + 1), type: outTpl.type };
+            return {
+              ...n,
+              data: {
+                ...data,
+                config: { ...data.config, _nextDynId: counter + 1 },
+                dynamicInputs: [...existIn, newIn],
+                dynamicOutputs: [...existOut, newOut],
+              },
+            };
+          }
+
+          const prefix = direction === "input" ? "din" : "dout";
+          const arrKey = direction === "input" ? "dynamicInputs" : "dynamicOutputs";
+          const existing = (data[arrKey] as PortDef[] | undefined) ?? [];
+          const newPort: PortDef = {
+            key: `${prefix}_${counter}`,
+            label: dynLabel(template.labelPrefix, counter + 1),
+            type: template.type,
+          };
+          return {
+            ...n,
+            data: {
+              ...data,
+              config: { ...data.config, _nextDynId: counter + 1 },
+              [arrKey]: [...existing, newPort],
+            },
+          };
+        })
+      );
+      setDirty(true);
+      setServerErrors([]);
+    },
+    [setNodes]
+  );
+
+  const removeDynamicPort = useCallback(
+    (nodeId: string, direction: "input" | "output", portKey: string) => {
+      // Compute paired port key up-front so setEdges doesn't depend on setNodes callback timing.
+      const suffix = portKey.replace(/^d(in|out)_/, "");
+      const pairKey = direction === "input" ? `dout_${suffix}` : `din_${suffix}`;
+
+      setNodes((prev) =>
+        prev.map((n) => {
+          if (n.id !== nodeId) return n;
+          const data = n.data as SymphonyNodeData;
+          const paired = !!(data.schema.dynamicInput && data.schema.dynamicOutput);
+          if (paired) {
+            return {
+              ...n,
+              data: {
+                ...data,
+                dynamicInputs: (data.dynamicInputs ?? []).filter((p) => p.key !== portKey && p.key !== pairKey),
+                dynamicOutputs: (data.dynamicOutputs ?? []).filter((p) => p.key !== portKey && p.key !== pairKey),
+              },
+            };
+          }
+          const arrKey = direction === "input" ? "dynamicInputs" : "dynamicOutputs";
+          const existing = (data[arrKey] as PortDef[] | undefined) ?? [];
+          return {
+            ...n,
+            data: { ...data, [arrKey]: existing.filter((p) => p.key !== portKey) },
+          };
+        })
+      );
+      // Remove all edges connected to this port (and paired port)
+      setEdges((prev) =>
+        prev.filter((e) => {
+          if (e.target === nodeId && (e.targetHandle === portKey || e.targetHandle === pairKey)) return false;
+          if (e.source === nodeId && (e.sourceHandle === portKey || e.sourceHandle === pairKey)) return false;
+          return true;
+        })
+      );
+      setDirty(true);
+      setServerErrors([]);
+    },
+    [setNodes, setEdges]
+  );
 
   const discardChanges = useCallback(() => {
     if (!activeDef) return;
@@ -500,6 +662,7 @@ export function useSymphonyEditor() {
     setEdges(opusDefToEdges(activeDef));
     setSelectedNodeId(null);
     setDirty(false);
+    setServerErrors([]);
     requestAnimationFrame(() => { suppressDirty.current = false; });
   }, [activeDef, setNodes, setEdges]);
 
@@ -507,7 +670,7 @@ export function useSymphonyEditor() {
     // State
     opusList,
     activeDef,
-    activeStatus,
+    runtimeStatus,
     nodes,
     edges,
     nodeKinds,
@@ -518,6 +681,7 @@ export function useSymphonyEditor() {
     error,
     hint,
     validationErrors,
+    serverErrors,
     // Canvas callbacks
     onNodesChange: handleNodesChange,
     onEdgesChange: handleEdgesChange,
@@ -534,11 +698,13 @@ export function useSymphonyEditor() {
     addNode,
     duplicateNode,
     updateNodeConfig,
+    addDynamicPort,
+    removeDynamicPort,
     triggerManual,
     reloadOpus,
     discardChanges,
     clearError: () => setError(null),
     clearHint: () => setHint(null),
-    clearValidationErrors: () => setValidationErrors([]),
+    clearValidationErrors: () => setServerErrors([]),
   };
 }

@@ -38,6 +38,17 @@ export class StateStore {
     await removeFile(this.filePath(safeId));
   }
 
+  /** Remove only keys matching the given prefixes (e.g. per-node "nid:" scopes). */
+  async clearByPrefixes(opusId: string, prefixes: string[]): Promise<void> {
+    const safeId = sanitiseId(opusId);
+    const data = await this.load(safeId);
+    for (const key of Object.keys(data)) {
+      if (prefixes.some((p) => key.startsWith(p))) delete data[key];
+    }
+    this.cache.set(safeId, data);
+    await writeJsonAtomic(this.filePath(safeId), data);
+  }
+
   // ── Internal ───────────────────────────────────────────────
 
   private filePath(id: string): string {

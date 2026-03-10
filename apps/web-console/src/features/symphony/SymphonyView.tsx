@@ -63,7 +63,8 @@ export function SymphonyView() {
     const src = editor.nodes.find((n) => n.id === conn.source) as Node<SymphonyNodeData> | undefined;
     const tgt = editor.nodes.find((n) => n.id === conn.target) as Node<SymphonyNodeData> | undefined;
     if (!src || !tgt) return false;
-    const srcPort = src.data.schema.outputPorts.find((p) => p.key === conn.sourceHandle);
+    const srcPort = src.data.schema.outputPorts.find((p) => p.key === conn.sourceHandle)
+      ?? src.data.dynamicOutputs?.find((p) => p.key === conn.sourceHandle);
     if (!srcPort) return false;
 
     const tgtHandle = conn.targetHandle ?? "";
@@ -71,7 +72,9 @@ export function SymphonyView() {
       const cfgKey = tgtHandle.slice(4);
       if (!tgt.data.schema.configSchema.find((f) => f.key === cfgKey && f.connectable)) return false;
     } else {
-      if (!tgt.data.schema.inputPorts.find((p) => p.key === tgtHandle)) return false;
+      const tgtPort = tgt.data.schema.inputPorts.find((p) => p.key === tgtHandle)
+        ?? tgt.data.dynamicInputs?.find((p) => p.key === tgtHandle);
+      if (!tgtPort) return false;
     }
 
     // Use resolved types (typeFrom, typeFromPort, connection inference)
@@ -114,21 +117,23 @@ export function SymphonyView() {
     return [edges, nodes] as const;
   }, [editor.validationErrors, editor.edges, editor.nodes]);
 
-  const opusRunning = editor.activeStatus === "running";
+  const opusRunning = editor.runtimeStatus === "running";
   const runtimeCtx = useMemo(() => ({
     running: opusRunning,
     triggerManual: editor.triggerManual,
     portTypeMap,
     errorNodeIds,
-  }), [opusRunning, editor.triggerManual, portTypeMap, errorNodeIds]);
+    addDynamicPort: editor.addDynamicPort,
+    removeDynamicPort: editor.removeDynamicPort,
+  }), [opusRunning, editor.triggerManual, portTypeMap, errorNodeIds, editor.addDynamicPort, editor.removeDynamicPort]);
 
   if (editor.loading) {
-    return <div className="sym-root"><div className="sym-loading">Loading...</div></div>;
+    return <div className="sym-root motion-page"><div className="sym-loading">Loading...</div></div>;
   }
 
   if (editor.error) {
     return (
-      <div className="sym-root">
+      <div className="sym-root motion-page">
         <div className="sym-error">
           <span>{editor.error}</span>
           <button className="btn" onClick={editor.clearError}>Dismiss</button>
@@ -152,7 +157,7 @@ export function SymphonyView() {
   });
 
   return (
-    <div className="sym-root">
+    <div className="sym-root motion-page">
       {/* Canvas */}
       <SymphonyRuntimeContext.Provider value={runtimeCtx}>
       <ReactFlowProvider>
@@ -175,6 +180,8 @@ export function SymphonyView() {
               isValidConnection={isValidConnection}
               onNodeClick={editor.onNodeClick}
               onPaneClick={handlePaneClick}
+              selectionOnDrag
+              panOnDrag={[2]}
               deleteKeyCode={["Backspace", "Delete"]}
               zoomOnDoubleClick={false}
               fitView
@@ -240,9 +247,9 @@ export function SymphonyView() {
         />
       )}
 
-      {/* Validation error modal */}
-      {editor.validationErrors.length > 0 && (
-        <ValidationModal errors={editor.validationErrors} onClose={editor.clearValidationErrors} />
+      {/* Validation error modal — only for server-side errors (dismissible) */}
+      {editor.serverErrors.length > 0 && (
+        <ValidationModal errors={editor.serverErrors} onClose={editor.clearValidationErrors} />
       )}
     </div>
   );

@@ -156,21 +156,6 @@ button, input, select, textarea{
   user-select: none;
 }
 .btn:hover{ background: var(--surface-hover); }
-/* Menu trigger hover (a bit more expressive than the default button hover) */
-.btn.menu{
-  border-radius: 999px;
-  padding: 8px 14px;
-  letter-spacing: .12em;
-  font-weight: 700;
-  transition: transform var(--motion-2) var(--ease-standard), border-color var(--motion-2) var(--ease-standard), background var(--motion-2) var(--ease-standard);
-}
-.btn.menu:hover{
-  border-color: var(--line);
-  transform: translateY(-1px);
-}
-.btn.menu:active{
-  transform: translateY(0);
-}
 .btn.icon{
   width: 44px;
   height: 44px;
@@ -179,12 +164,20 @@ button, input, select, textarea{
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  font-size: 16px;
 }
 .btn.subtle{
   border-color: var(--line-2);
   background: var(--surface);
 }
 .btn.subtle:hover{ background: var(--surface-hover); }
+
+.btn.btn-save{ color: #b45309; }
+.btn.btn-save:hover{ background: var(--surface-hover); }
+:root[data-theme="dark"] .btn.btn-save{ color: #fbbf24; }
+
+.btn.btn-discard{ color: var(--danger, #ef4444); }
+.btn.btn-discard:hover{ background: var(--surface-hover); }
 
 .btn.icon.send{
   /* Flat send button (no gradient/glass) */
@@ -1451,13 +1444,30 @@ textarea:focus{
   justify-content: center;
 }
 
-/* Small circular theme button (Landing) */
+/* Circular icon buttons on the landing page */
+.btn.icon.landing-circle,
 .btn.icon.themeDot{
   width: 38px;
   height: 38px;
   border-radius: 999px;
   font-size: 16px;
   line-height: 1;
+}
+
+/* Treble clef glyph — visually center it */
+.treble-clef{
+  font-size: 20px;
+  line-height: 1;
+  display: inline-block;
+  transform: translateY(-2px);
+}
+
+/* Memory section inline save/discard bar */
+.memory-section-save{
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
 }
 
 /* Chat: top-right theme switch (3-state) */

@@ -1,86 +1,26 @@
 import type { OpusDef, OpusLinkDef, ValidationError } from "./types.js";
-import type { PortType, PortDef } from "@eclia/symphony-protocol";
-import { CFG_TO_PORT } from "@eclia/symphony-protocol";
+import type { PortType, ResolverNode } from "@eclia/symphony-protocol";
+import { CFG_TO_PORT, resolvePortTypes, withDynamicMirrors } from "@eclia/symphony-protocol";
 import type { Registry } from "./registry.js";
 
-// ─── Port type resolution (shared with frontend) ────────────
+// ─── Port type resolution (delegates to shared algorithm) ────
 
-function resolveStaticType(port: PortDef, config: Record<string, unknown>): PortType {
-  if (port.typeFrom) {
-    const v = String(config[port.typeFrom] ?? "");
-    if (v === "string" || v === "number" || v === "boolean" || v === "object") return v;
-  }
-  return port.type;
-}
-
-/** Build resolved port type map — same algorithm as the frontend's buildPortTypeMap. */
 function buildResolvedTypes(def: OpusDef, registry: Registry): Map<string, PortType> {
-  const map = new Map<string, PortType>();
-  const frozen = new Set<string>();
-  const mirrors: Array<{ nid: string; outKey: string; inKeys: string[] }> = [];
-
+  const nodes: ResolverNode[] = [];
   for (const nd of def.nodes) {
-    const f = registry.get(nd.kind);
-    if (!f) continue;
-    for (const port of f.inputPorts) {
-      map.set(`${nd.nid}:${port.key}`, resolveStaticType(port, nd.config));
-      if (port.typeFrom) frozen.add(`${nd.nid}:${port.key}`);
-    }
-    for (const port of f.outputPorts) {
-      map.set(`${nd.nid}:${port.key}`, resolveStaticType(port, nd.config));
-      if (port.typeFrom) frozen.add(`${nd.nid}:${port.key}`);
-      if (port.typeFromPort) {
-        const inKeys = Array.isArray(port.typeFromPort) ? port.typeFromPort : [port.typeFromPort];
-        mirrors.push({ nid: nd.nid, outKey: port.key, inKeys });
-      }
-    }
-    for (const field of f.configSchema) {
-      if (field.connectable) map.set(`${nd.nid}:cfg:${field.key}`, CFG_TO_PORT[field.type] ?? "any");
-    }
+    const schema = registry.get(nd.kind);
+    if (!schema) continue;
+    const inPorts = [...schema.inputPorts, ...(nd.dynamicInputs ?? [])];
+    const outPorts = [...schema.outputPorts, ...(nd.dynamicOutputs ?? [])];
+    nodes.push({
+      nid: nd.nid,
+      inputPorts: inPorts,
+      outputPorts: withDynamicMirrors(inPorts, outPorts),
+      configSchema: schema.configSchema,
+      config: nd.config,
+    });
   }
-
-  for (let i = 0; i < 10; i++) {
-    let changed = false;
-    for (const lk of def.links) {
-      const sKey = `${lk.from}:${lk.fromPort}`, tKey = `${lk.to}:${lk.toPort}`;
-      const sType = map.get(sKey) ?? "any", tType = map.get(tKey) ?? "any";
-      if (sType === "any" && tType !== "any" && !frozen.has(sKey)) { map.set(sKey, tType); changed = true; }
-      else if (tType === "any" && sType !== "any" && !frozen.has(tKey)) { map.set(tKey, sType); changed = true; }
-    }
-    // Forward: input(s) → output
-    for (const { nid, outKey, inKeys } of mirrors) {
-      const outKey_ = `${nid}:${outKey}`;
-      if (frozen.has(outKey_)) continue;
-      const outT = map.get(outKey_) ?? "any";
-      if (outT !== "any") continue;
-      if (inKeys.length === 1) {
-        const t = map.get(`${nid}:${inKeys[0]}`) ?? "any";
-        if (t !== "any") { map.set(`${nid}:${outKey}`, t); changed = true; }
-      } else {
-        let unanimous: PortType | null = null;
-        for (const k of inKeys) {
-          const t = map.get(`${nid}:${k}`) ?? "any";
-          if (t === "any") { unanimous = null; break; }
-          if (unanimous === null) unanimous = t;
-          else if (t !== unanimous) { unanimous = null; break; }
-        }
-        if (unanimous) { map.set(`${nid}:${outKey}`, unanimous); changed = true; }
-      }
-    }
-    // Reverse: output → input(s)
-    for (const { nid, outKey, inKeys } of mirrors) {
-      const outT = map.get(`${nid}:${outKey}`) ?? "any";
-      if (outT === "any") continue;
-      for (const k of inKeys) {
-        const inKey = `${nid}:${k}`;
-        if (!frozen.has(inKey) && (map.get(inKey) ?? "any") === "any") {
-          map.set(inKey, outT); changed = true;
-        }
-      }
-    }
-    if (!changed) break;
-  }
-  return map;
+  return resolvePortTypes(nodes, def.links);
 }
 
 // ─── Validation ─────────────────────────────────────────────
@@ -107,9 +47,18 @@ export function validateOpus(def: OpusDef, registry: Registry): ValidationError[
   // malformed graphs from stale clients or direct API writes.
 
   // 1. Every node kind must exist in the registry.
+  // Also reject dynamic ports on nodes whose schema doesn't declare the template.
   for (const nd of def.nodes) {
-    if (!registry.get(nd.kind)) {
+    const schema = registry.get(nd.kind);
+    if (!schema) {
       errors.push({ code: "unknown_kind", message: `unknown node kind: "${nd.kind}"`, target: nd.nid });
+      continue;
+    }
+    if (nd.dynamicInputs?.length && !schema.dynamicInput) {
+      errors.push({ code: "unexpected_dynamic_ports", message: `node "${nd.nid}" (${nd.kind}) has dynamic inputs but schema does not allow them`, target: nd.nid });
+    }
+    if (nd.dynamicOutputs?.length && !schema.dynamicOutput) {
+      errors.push({ code: "unexpected_dynamic_ports", message: `node "${nd.nid}" (${nd.kind}) has dynamic outputs but schema does not allow them`, target: nd.nid });
     }
   }
 
@@ -127,7 +76,8 @@ export function validateOpus(def: OpusDef, registry: Registry): ValidationError[
     if (fromNode && toNode) {
       const ff = registry.get(fromNode.kind);
       const tf = registry.get(toNode.kind);
-      const srcPort = ff?.outputPorts.find((p) => p.key === lk.fromPort);
+      const srcPort = ff?.outputPorts.find((p) => p.key === lk.fromPort)
+        ?? fromNode.dynamicOutputs?.find((p) => p.key === lk.fromPort);
       if (ff && !srcPort) {
         errors.push({ code: "bad_output_port", message: `node "${lk.from}" (${fromNode.kind}) has no output port "${lk.fromPort}"`, target: lk.lid });
       }
@@ -143,7 +93,8 @@ export function validateOpus(def: OpusDef, registry: Registry): ValidationError[
             tgtType = CFG_TO_PORT[cfgField.type] ?? "any";
           }
         } else {
-          const tgtPort = tf.inputPorts.find((p) => p.key === lk.toPort);
+          const tgtPort = tf.inputPorts.find((p) => p.key === lk.toPort)
+            ?? toNode.dynamicInputs?.find((p) => p.key === lk.toPort);
           if (!tgtPort) {
             errors.push({ code: "bad_input_port", message: `node "${lk.to}" (${toNode.kind}) has no input port "${lk.toPort}"`, target: lk.lid });
           } else {
@@ -317,14 +268,16 @@ function topoSort(nodeIds: string[], links: OpusLinkDef[]): string[] {
     inDegree.set(lk.to, (inDegree.get(lk.to) ?? 0) + 1);
   }
 
+  // Use index-based dequeue instead of shift() to avoid O(n) per iteration.
   const queue: string[] = [];
   for (const [id, deg] of inDegree) {
     if (deg === 0) queue.push(id);
   }
 
   const order: string[] = [];
-  while (queue.length) {
-    const id = queue.shift()!;
+  let head = 0;
+  while (head < queue.length) {
+    const id = queue[head++];
     order.push(id);
     for (const next of adj.get(id)!) {
       const d = inDegree.get(next)! - 1;

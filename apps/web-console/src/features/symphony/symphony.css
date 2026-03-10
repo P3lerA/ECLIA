@@ -232,7 +232,6 @@
 }
 
 .sym-inspector-popup-body {
-  flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
@@ -267,9 +266,6 @@
   font-size: 12px;
   padding: 7px 0;
 }
-.sym-save-btn:hover {
-  background: var(--surface-hover);
-}
 
 .sym-foot-row {
   display: flex;
@@ -283,13 +279,15 @@
 .sym-discard-btn {
   font-size: 12px;
   padding: 7px 0;
-  background: var(--surface);
-  border-color: var(--line);
-  color: var(--muted);
 }
-.sym-discard-btn:hover {
+
+.sym-new-btn {
+  width: 100%;
+  font-size: 12px;
+  padding: 7px 0;
+}
+.sym-new-btn:hover {
   background: var(--surface-hover);
-  color: var(--text);
 }
 
 .sym-reload-btn {
@@ -297,13 +295,6 @@
   font-size: 11px;
   padding: 5px 0;
   margin-top: 4px;
-  background: var(--surface);
-  border-color: var(--line);
-  color: var(--muted);
-}
-.sym-reload-btn:hover {
-  background: var(--surface-hover);
-  color: var(--text);
 }
 
 /* ── Flow list ────────────────────────────────────────────── */
@@ -499,16 +490,58 @@
   flex-direction: column;
   gap: 4px;
 }
-.sym-field--bool {
-  flex-direction: row;
+.sym-bool-group {
+  display: flex;
+  gap: 12px;
+}
+.sym-bool-option {
+  display: flex;
   align-items: center;
   gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--muted);
+  transition: color .15s;
 }
-.sym-field--bool input[type="checkbox"] { width: 16px; height: 16px; }
+.sym-bool-option.selected {
+  color: var(--text);
+}
+.sym-bool-option input[type="radio"] {
+  -webkit-appearance: none;
+  appearance: none;
+  all: unset;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--muted);
+  border-radius: 50%;
+  flex-shrink: 0;
+  position: relative;
+  cursor: pointer;
+  transition: border-color .15s;
+  box-sizing: border-box;
+}
+.sym-bool-option.selected input[type="radio"] {
+  border-color: #3b82f6;
+}
+.sym-bool-option.selected input[type="radio"]::after {
+  content: "";
+  position: absolute;
+  inset: 1.5px;
+  border-radius: 50%;
+  background: #3b82f6;
+}
 .sym-field-label {
   font-size: 12px;
   color: var(--muted);
   font-weight: 650;
+}
+.sym-field-required {
+  color: var(--danger, #ef4444);
+  font-size: 11px;
+  font-weight: 500;
+  margin-left: 6px;
 }
 .sym-field-input,
 .sym-field-select {
@@ -622,6 +655,35 @@
   font-size: 12px;
   color: var(--muted);
   text-align: center;
+}
+
+/* ── Node search (sidebar) ───────────────────────────────── */
+
+.sym-node-search-wrap {
+  padding: 8px 8px 0;
+  flex-shrink: 0;
+}
+.sym-node-search {
+  font: inherit;
+  font-size: 12px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+  transition:
+    border-color var(--motion-2) var(--ease-standard),
+    box-shadow var(--motion-2) var(--ease-standard);
+}
+.sym-node-search:focus {
+  border-color: var(--line);
+  box-shadow: 0 0 0 3px var(--line-2);
+}
+.sym-node-search::placeholder {
+  color: var(--muted);
 }
 
 /* ── Node list (sidebar) ─────────────────────────────────── */
@@ -841,6 +903,50 @@
   height: 10px !important;
   border: 2px solid var(--surface-2) !important;
   border-radius: 50% !important;
+}
+
+/* ── Dynamic port controls ─────────────────────────────── */
+
+.sym-node-port--dyn .sym-dyn-port-remove {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+  opacity: 0;
+}
+.sym-node-port--dyn:hover .sym-dyn-port-remove {
+  opacity: .6;
+}
+.sym-dyn-port-remove:hover {
+  opacity: 1;
+  color: var(--danger, #ef4444);
+}
+.sym-dyn-port-add-row {
+  min-height: 16px;
+}
+.sym-dyn-port-add {
+  background: none;
+  border: 1px dashed var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  padding: 1px 8px;
+  cursor: pointer;
+}
+.sym-dyn-port-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+/* Paired dynamic port row (input + output on same row) */
+.sym-node-port--paired {
+  justify-content: flex-start;
+}
+.sym-paired-spacer {
+  flex: 1;
 }
 
 /* ── Save bar (floating) ─────────────────────────────────── */

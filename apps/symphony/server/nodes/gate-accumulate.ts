@@ -1,18 +1,15 @@
 /**
- * gate-accumulate — Gate node.
+ * gate-accumulate — Gate node with dynamic inputs.
  *
- * Counts activations on its input port.  Fires only when the
- * count reaches the configured threshold N, then resets.
- *
- * The threshold can be set via config or wired as a connectable
- * input, allowing dynamic control of when the gate opens.
- *
- * Input ports:
- *   in : any  — each arrival increments the counter
+ * Counts activations across all dynamic input ports.  Fires only
+ * when the count reaches the configured threshold N, then resets.
  *
  * Output ports:
- *   out   : any  — the value from the Nth (final) activation
+ *   out   : any    — the value from the Nth (final) activation
  *   count : number — the threshold that was reached
+ *
+ * Config:
+ *   threshold : number (connectable) — activations needed to fire
  */
 
 import type { NodeFactory } from "../types.js";
@@ -23,11 +20,9 @@ export const factory: NodeFactory = {
   role: "gate",
   description: "Fire after N activations, then reset.",
 
-  inputPorts: [
-    { key: "in", label: "Input", type: "any" },
-  ],
+  inputPorts: [],
   outputPorts: [
-    { key: "out", label: "Output", type: "any", typeFromPort: "in" },
+    { key: "out", label: "Output", type: "any", typeFromPort: "$din" },
     { key: "count", label: "Count", type: "number" },
   ],
 
@@ -42,6 +37,8 @@ export const factory: NodeFactory = {
     },
   ],
 
+  dynamicInput: { type: "any", labelPrefix: "In" },
+
   create(id, config) {
     return {
       role: "gate" as const,
@@ -49,17 +46,22 @@ export const factory: NodeFactory = {
       kind: "gate-accumulate",
 
       async execute(ctx) {
-        if (ctx.inputs.in === undefined) return null;
+        // Check if any dynamic input arrived
+        let triggerValue: unknown;
+        for (const [key, val] of Object.entries(ctx.inputs)) {
+          if (key.startsWith("din_") && val !== undefined) {
+            triggerValue = val;
+            break;
+          }
+        }
+        if (triggerValue === undefined) return null;
 
-        const threshold = Number(
-          ctx.inputs.threshold ?? config.threshold ?? 3
-        );
-
+        const threshold = Number(config.threshold ?? 3);
         const prev = ((await ctx.state.get<number>("count")) ?? 0) + 1;
 
         if (prev >= threshold) {
           await ctx.state.set("count", 0);
-          return { out: ctx.inputs.in, count: threshold };
+          return { out: triggerValue, count: threshold };
         }
 
         await ctx.state.set("count", prev);

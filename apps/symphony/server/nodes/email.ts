@@ -51,8 +51,8 @@ function applyTemplate(template: string, emailContent: string): string {
 // ── factory ──────────────────────────────────────────────────
 
 export const factory: NodeFactory = {
-  kind: "email-imap",
-  label: "Email (IMAP)",
+  kind: "email",
+  label: "Email",
   role: "source",
   description: "Watch an IMAP mailbox for new emails.",
 
@@ -79,7 +79,7 @@ export const factory: NodeFactory = {
     return {
       role: "source" as const,
       id,
-      kind: "email-imap",
+      kind: "email",
 
       async start(ctx: SourceNodeContext) {
         const host = String(config.host ?? "");
@@ -92,7 +92,7 @@ export const factory: NodeFactory = {
         const userPrompt = typeof config.userPrompt === "string" ? config.userPrompt : "";
 
         if (!host || !user || !pass) {
-          throw new Error("[email-imap] Missing host, user, or password");
+          throw new Error("[email] Missing host, user, or password");
         }
 
         client = new ImapFlow({
@@ -102,19 +102,19 @@ export const factory: NodeFactory = {
         });
 
         client.on("error", (err: unknown) => {
-          ctx.log.error("[email-imap] IMAP error:", fmtImapError(err));
+          ctx.log.error("[email] IMAP error:", fmtImapError(err));
         });
 
         stopped = false;
-        ctx.log.info(`[email-imap] Connecting to ${user}@${host}:${port}/${mailbox}`);
+        ctx.log.info(`[email] Connecting to ${user}@${host}:${port}/${mailbox}`);
 
         try {
           await client.connect();
         } catch (err: unknown) {
           const msg = fmtImapError(err);
-          ctx.log.error("[email-imap] Connection failed:", msg);
+          ctx.log.error("[email] Connection failed:", msg);
           client = null;
-          throw new Error(`[email-imap] Connection failed: ${msg}`);
+          throw new Error(`[email] Connection failed: ${msg}`);
         }
 
         // Run the IDLE watch loop in background (don't await — returns when stopped)
@@ -138,13 +138,14 @@ export const factory: NodeFactory = {
       ctx: SourceNodeContext,
     ): Promise<void> {
       const log = ctx.log;
+      let backoff = 5_000;
 
       while (!stopped) {
         let lock;
         try {
           lock = await imap.getMailboxLock(mailbox);
         } catch (err: unknown) {
-          log.error("[email-imap] Failed to lock mailbox:", (err as Error).message);
+          log.error("[email] Failed to lock mailbox:", (err as Error).message);
           if (stopped) return;
           await sleep(5000);
           continue;
@@ -166,7 +167,7 @@ export const factory: NodeFactory = {
             const to = newCount;
             knownExists = newCount;
 
-            log.info(`[email-imap] ${to - from + 1} new message(s) detected`);
+            log.info(`[email] ${to - from + 1} new message(s) detected`);
 
             try {
               for await (const msg of imap.fetch(`${from}:${to}`, { source: true, envelope: true })) {
@@ -174,7 +175,7 @@ export const factory: NodeFactory = {
                 await processMessage(msg, maxBodyChars, userPrompt, ctx, log);
               }
             } catch (err: unknown) {
-              log.error("[email-imap] Fetch error:", (err as Error).message);
+              log.error("[email] Fetch error:", (err as Error).message);
             }
           };
 
@@ -195,12 +196,14 @@ export const factory: NodeFactory = {
         }
 
         if (!stopped) {
-          log.warn("[email-imap] IDLE ended, reconnecting in 5s...");
-          await sleep(5000);
+          log.warn(`[email] IDLE ended, reconnecting in ${(backoff / 1000).toFixed(0)}s...`);
+          await sleep(backoff);
           try {
             await imap.connect();
+            backoff = 5_000; // reset on success
           } catch (err: unknown) {
-            log.error("[email-imap] Reconnect failed:", (err as Error).message);
+            log.error("[email] Reconnect failed:", (err as Error).message);
+            backoff = Math.min(backoff * 2, 300_000); // cap at 5 min
           }
         }
       }
@@ -215,7 +218,7 @@ export const factory: NodeFactory = {
     ): Promise<void> {
       try {
         if (!msg.source) {
-          log.warn(`[email-imap] UID ${msg.uid}: no source, skipping`);
+          log.warn(`[email] UID ${msg.uid}: no source, skipping`);
           return;
         }
 
@@ -223,10 +226,10 @@ export const factory: NodeFactory = {
         const formatted = formatEmail(parsed, maxBodyChars);
         const output = applyTemplate(userPrompt, formatted);
 
-        log.info(`[email-imap] UID ${msg.uid}: "${parsed.subject ?? "(no subject)"}"`);
+        log.info(`[email] UID ${msg.uid}: "${parsed.subject ?? "(no subject)"}"`);
         ctx.emit({ text: output });
       } catch (err: unknown) {
-        log.error(`[email-imap] UID ${msg.uid}: parse error:`, (err as Error).message);
+        log.error(`[email] UID ${msg.uid}: parse error:`, (err as Error).message);
       }
     }
   }

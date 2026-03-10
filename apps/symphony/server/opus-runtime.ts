@@ -1,16 +1,17 @@
-import type {
-  OpusDef,
-  OpusStatus,
-  Node,
-  SourceNode,
-  ProcessNode,
-  NodeOutputs,
-  RuntimeServices,
-  SourceNodeContext,
-  NodeContext,
-  StateAccessor,
-  ScopedLogger,
-  EvaluationRecord
+import {
+  isTriggerable,
+  type OpusDef,
+  type OpusStatus,
+  type Node,
+  type SourceNode,
+  type ProcessNode,
+  type NodeOutputs,
+  type RuntimeServices,
+  type SourceNodeContext,
+  type NodeContext,
+  type StateAccessor,
+  type ScopedLogger,
+  type EvaluationRecord
 } from "./types.js";
 import type { Registry } from "./registry.js";
 import { compileOpus, type CompiledGraph } from "./graph.js";
@@ -40,6 +41,8 @@ export class OpusRuntime {
   private graph: CompiledGraph;
   /** Serialise graph runs so emissions don't interleave. */
   private runQueue: Promise<void> = Promise.resolve();
+  /** Ports marked optional — keyed as "nid:portKey". */
+  private optionalPorts = new Set<string>();
 
   /** Optional hook called after each graph evaluation completes. */
   onEvaluationComplete?: (record: EvaluationRecord) => void;
@@ -60,11 +63,33 @@ export class OpusRuntime {
     // Clone config so cfg: wire overrides don't leak back into def.
     for (const nd of def.nodes) {
       const config = structuredClone(nd.config);
-      const node = registry.create(nd.kind, nd.nid, config);
+      const dynPorts = (nd.dynamicInputs || nd.dynamicOutputs)
+        ? { inputs: nd.dynamicInputs, outputs: nd.dynamicOutputs }
+        : undefined;
+      const node = registry.create(nd.kind, nd.nid, config, dynPorts);
       this.nodes.set(nd.nid, node);
       this.configs.set(nd.nid, config);
       if (node.role === "source") {
         this.sources.push(node as SourceNode);
+      }
+    }
+
+    // Build optional port index for halt propagation.
+    // A port is optional if: marked optional on schema, is a cfg: override,
+    // or is a dynamic input (gate nodes expect partial firing).
+    for (const nd of def.nodes) {
+      const schema = registry.get(nd.kind);
+      if (!schema) continue;
+      for (const p of schema.inputPorts) {
+        if (p.optional) this.optionalPorts.add(`${nd.nid}:${p.key}`);
+      }
+      for (const f of schema.configSchema) {
+        if (f.connectable) this.optionalPorts.add(`${nd.nid}:cfg:${f.key}`);
+      }
+      if (schema.dynamicInput) {
+        for (const p of nd.dynamicInputs ?? []) {
+          this.optionalPorts.add(`${nd.nid}:${p.key}`);
+        }
       }
     }
 
@@ -154,23 +179,23 @@ export class OpusRuntime {
       if (!node) continue;
 
       // Gather inputs from pre-compiled incoming links.
+      // If a required input has no value (upstream halted or unresolved), halt this node.
       const incoming = this.graph.incomingByNode.get(nid)!;
       const inputs: Record<string, unknown> = {};
-      let skip = false;
+      let shouldHalt = false;
 
       for (const [toPort, { from, fromPort }] of incoming) {
-        // If any required upstream halted, skip this node.
-        if (halted.has(from)) { skip = true; break; }
-
-        const upstreamOut = resolved.get(from);
-        if (upstreamOut !== undefined) {
-          inputs[toPort] = upstreamOut[fromPort];
+        if (halted.has(from) || !resolved.has(from)) {
+          if (!this.optionalPorts.has(`${nid}:${toPort}`)) {
+            shouldHalt = true;
+            break;
+          }
+          continue;
         }
-        // If upstream hasn't been resolved at all (disconnected branch
-        // from a different source), leave the input undefined.
+        inputs[toPort] = resolved.get(from)![fromPort];
       }
 
-      if (skip) {
+      if (shouldHalt) {
         halted.add(nid);
         continue;
       }
@@ -237,11 +262,10 @@ export class OpusRuntime {
   triggerNode(nid: string, payload: unknown): void {
     const node = this.nodes.get(nid);
     if (!node) throw new Error(`node "${nid}" not found`);
-    if (node.role !== "source") throw new Error(`node "${nid}" is not a source`);
-    if (typeof (node as any).trigger !== "function") {
+    if (!isTriggerable(node)) {
       throw new Error(`node "${nid}" (${node.kind}) does not support external triggering`);
     }
-    (node as any).trigger(payload);
+    node.trigger(payload);
   }
 
   // ── Internal ───────────────────────────────────────────────

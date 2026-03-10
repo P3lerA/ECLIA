@@ -73,11 +73,18 @@ export class Conductor {
     await this.opusStore.save(def);
   }
 
-  /** Tear down and re-instantiate an opus, restarting if enabled. */
+  /** Tear down and re-instantiate an opus, restarting if enabled.
+   *  Clears process/gate node state (latches, counters) but preserves
+   *  source node state (e.g. git-watch lastSha checkpoint). */
   async reload(id: string): Promise<void> {
     const rt = this.runtimes.get(id);
     if (!rt) throw new Error(`opus not found: "${id}"`);
     const def = rt.def;
+
+    const processNids = def.nodes
+      .filter((n) => this.registry.get(n.kind)?.role !== "source")
+      .map((n) => `${n.nid}:`);
+    await this.stateStore.clearByPrefixes(id, processNids);
 
     await rt.stop();
     this.instantiate(def);

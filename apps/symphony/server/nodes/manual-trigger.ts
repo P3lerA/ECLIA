@@ -8,7 +8,7 @@
  *   out : any — the payload passed via the trigger API
  */
 
-import type { NodeFactory, SourceNodeContext } from "../types.js";
+import type { NodeFactory, SourceNodeContext, TriggerableSourceNode } from "../types.js";
 
 export const factory: NodeFactory = {
   kind: "manual-trigger",
@@ -26,8 +26,8 @@ export const factory: NodeFactory = {
       key: "signalType",
       label: "Signal type",
       type: "select",
-      options: ["none (any)", "string", "number", "boolean"],
-      default: "none (any)",
+      options: ["any", "string", "number", "boolean"],
+      default: "any",
     },
     {
       key: "signalValue",
@@ -40,7 +40,7 @@ export const factory: NodeFactory = {
   create(id, config) {
     let emitFn: ((outputs: Record<string, unknown>) => void) | null = null;
 
-    return {
+    const node: TriggerableSourceNode = {
       role: "source" as const,
       id,
       kind: "manual-trigger",
@@ -54,11 +54,10 @@ export const factory: NodeFactory = {
         emitFn = null;
       },
 
-      /** Called externally by OpusRuntime.triggerNode(). */
       trigger(payload: unknown) {
         if (!emitFn) throw new Error("node not started");
 
-        const type = String(config.signalType ?? "none (any)");
+        const type = String(config.signalType ?? "any");
         let signal: unknown;
         switch (type) {
           case "boolean": signal = Boolean(config.signalValue); break;
@@ -70,5 +69,6 @@ export const factory: NodeFactory = {
         emitFn({ signal });
       }
     };
+    return node;
   }
 };

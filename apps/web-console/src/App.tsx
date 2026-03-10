@@ -5,7 +5,7 @@ import { LandingView } from "./features/landing/LandingView";
 import { ChatView } from "./features/chat/ChatView";
 import { MenuSheet } from "./features/menu/MenuSheet";
 import { SettingsView } from "./features/settings/SettingsView";
-import { MemoryView } from "./features/memory/MemoryView";
+
 import { SymphonyView } from "./features/symphony/SymphonyView";
 import { BackgroundRoot } from "./features/background/BackgroundRoot";
 import { GatewayTokenView } from "./features/auth/GatewayTokenView";
@@ -65,7 +65,7 @@ function AppInner() {
 
   const isSymphony = location.pathname.startsWith("/symphony");
   const containerWide =
-    !isSymphony && (location.pathname.startsWith("/settings") || location.pathname.startsWith("/memory"));
+    !isSymphony && location.pathname.startsWith("/settings");
 
   const [menuOpen, setMenuOpen] = React.useState(false);
 
@@ -78,8 +78,6 @@ function AppInner() {
           <Route path="/connect" element={<GatewayTokenView onAuthed={auth.onAuthed} />} />
 
           <Route path="/settings" element={<SettingsView onBack={() => navigate("/")} />} />
-
-          <Route path="/memory" element={<MemoryView onBack={() => navigate("/")} />} />
 
           <Route path="/symphony" element={<SymphonyView />} />
           <Route path="/symphony/:opusId" element={<SymphonyView />} />

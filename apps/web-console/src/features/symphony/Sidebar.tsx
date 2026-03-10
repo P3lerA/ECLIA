@@ -135,6 +135,10 @@ export function Sidebar({
                     </div>
                   </div>
                 ))}
+
+                <button className="btn sym-new-btn" onClick={onCreate}>
+                  + New Opus
+                </button>
               </div>
             </>
           ) : activeTab === "nodes" ? (
@@ -142,28 +146,21 @@ export function Sidebar({
           ) : null}
         </div>
 
-        {activeTab === "opus" && (
+        {(dirty || hint || activeRunning) && (
           <div className="sym-sidebar-foot">
             {dirty ? (
               <div className="sym-foot-row">
-                <button className="btn sym-save-btn" onClick={onSave}>Save</button>
-                <button className="btn sym-discard-btn" onClick={onDiscard}>Discard</button>
+                <button className="btn btn-save sym-save-btn" onClick={onSave}>Save</button>
+                <button className="btn btn-discard sym-discard-btn" onClick={onDiscard}>Discard</button>
               </div>
             ) : hint ? (
               <>
-                <button className="btn sym-reload-btn" onClick={onReload}>Reload Runtime</button>
+                <button className="btn btn-save sym-reload-btn" onClick={onReload}>Reload</button>
                 <span className="sym-hint-text">{hint}</span>
               </>
-            ) : (
-              <>
-                <button className="btn" style={{ width: "100%", fontSize: 12, padding: "7px 0" }} onClick={onCreate}>
-                  + New Opus
-                </button>
-                {activeRunning && (
-                  <button className="btn sym-reload-btn" onClick={onReload}>Reload Runtime</button>
-                )}
-              </>
-            )}
+            ) : activeRunning ? (
+              <button className="btn btn-save sym-reload-btn" onClick={onReload}>Reload</button>
+            ) : null}
           </div>
         )}
 
@@ -213,6 +210,7 @@ export function Sidebar({
 const ROLE_ORDER: NodeRole[] = ["source", "process", "action", "gate"];
 
 function NodeListWithPreview({ nodeKinds, onAddNode }: { nodeKinds: NodeKindSchema[]; onAddNode: (kind: string) => void }) {
+  const [search, setSearch] = useState("");
   const [preview, setPreview] = useState<{ schema: NodeKindSchema; top: number; left: number } | null>(null);
 
   const onEnter = useCallback((k: NodeKindSchema, e: React.MouseEvent) => {
@@ -224,15 +222,28 @@ function NodeListWithPreview({ nodeKinds, onAddNode }: { nodeKinds: NodeKindSche
 
   const onLeave = useCallback(() => setPreview(null), []);
 
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return q ? nodeKinds.filter((k) => k.label.toLowerCase().includes(q) || k.kind.toLowerCase().includes(q)) : nodeKinds;
+  }, [nodeKinds, search]);
+
   const grouped = useMemo(() => {
     const map = new Map<NodeRole, NodeKindSchema[]>();
     for (const role of ROLE_ORDER) map.set(role, []);
-    for (const k of nodeKinds) (map.get(k.role) ?? []).push(k);
+    for (const k of filtered) (map.get(k.role) ?? []).push(k);
     return map;
-  }, [nodeKinds]);
+  }, [filtered]);
 
   return (
     <>
+      <div className="sym-node-search-wrap">
+        <input
+          className="sym-node-search"
+          placeholder="Search nodes..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
       <div className="sym-node-list">
         {ROLE_ORDER.map((role) => {
           const items = grouped.get(role);
@@ -257,8 +268,8 @@ function NodeListWithPreview({ nodeKinds, onAddNode }: { nodeKinds: NodeKindSche
             </div>
           );
         })}
-        {nodeKinds.length === 0 && (
-          <div className="sym-list-empty">No node types available</div>
+        {filtered.length === 0 && (
+          <div className="sym-list-empty">{search ? "No matches" : "No node types available"}</div>
         )}
       </div>
       {preview && <NodePreview schema={preview.schema} top={preview.top} left={preview.left} />}
