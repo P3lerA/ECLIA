@@ -914,6 +914,15 @@
   filter: brightness(1.3);
 }
 
+/* Connection line (dragging, not yet connected) */
+.sym-canvas-wrap .react-flow__connection-path {
+  stroke-dasharray: 5 3;
+  animation: sym-edge-flow .4s linear infinite;
+}
+@keyframes sym-edge-flow {
+  to { stroke-dashoffset: -8; }
+}
+
 /* Controls — theme-aware */
 .sym-canvas-wrap .react-flow__controls {
   box-shadow: var(--shadow-soft);
