@@ -1,40 +1,49 @@
-import type { FlowDef, FlowStatus, ValidationError, ScopedLogger } from "./types.js";
+import type { OpusDef, OpusStatus, ValidationError, EvaluationRecord, ScopedLogger } from "./types.js";
 import { Registry } from "./registry.js";
 import { StateStore } from "./state-store.js";
-import { FlowStore } from "./flow-store.js";
-import { FlowRuntime } from "./flow-runtime.js";
-import { validateFlow, FlowValidationError } from "./graph.js";
+import { OpusStore } from "./opus-store.js";
+import { OpusRuntime } from "./opus-runtime.js";
+import { validateOpus, OpusValidationError } from "./graph.js";
 
 export class Conductor {
   readonly registry: Registry;
+  private gatewayUrl: string;
   private stateStore: StateStore;
-  private flowStore: FlowStore;
+  private opusStore: OpusStore;
 
-  private flows = new Map<string, FlowRuntime>();
-  private makeLogger: (flowId: string) => ScopedLogger;
+  private runtimes = new Map<string, OpusRuntime>();
+  /** Defs that failed to instantiate — visible in list() so users can fix/delete. */
+  private failedDefs = new Map<string, OpusDef>();
+  private makeLogger: (opusId: string) => ScopedLogger;
+  private onEvaluationComplete?: (record: EvaluationRecord) => void;
 
   constructor(opts: {
     registry: Registry;
+    gatewayUrl: string;
     stateStore: StateStore;
-    flowStore: FlowStore;
-    makeLogger: (flowId: string) => ScopedLogger;
+    opusStore: OpusStore;
+    makeLogger: (opusId: string) => ScopedLogger;
+    onEvaluationComplete?: (record: EvaluationRecord) => void;
   }) {
     this.registry = opts.registry;
+    this.gatewayUrl = opts.gatewayUrl;
     this.stateStore = opts.stateStore;
-    this.flowStore = opts.flowStore;
+    this.opusStore = opts.opusStore;
     this.makeLogger = opts.makeLogger;
+    this.onEvaluationComplete = opts.onEvaluationComplete;
   }
 
   // ── Bootstrap ──────────────────────────────────────────────
 
-  /** Load all persisted flows and start the enabled ones. */
+  /** Load all persisted opus definitions and start the enabled ones. */
   async bootstrap(): Promise<void> {
-    const defs = await this.flowStore.loadAll();
+    const defs = await this.opusStore.loadAll();
     for (const def of defs) {
       try {
         this.instantiate(def);
       } catch (e: any) {
-        this.makeLogger(def.id).error("failed to load flow:", String(e?.message ?? e));
+        this.makeLogger(def.id).error("failed to load opus:", String(e?.message ?? e));
+        this.failedDefs.set(def.id, def);
       }
     }
     await this.startAllEnabled();
@@ -42,51 +51,84 @@ export class Conductor {
 
   // ── Validation ─────────────────────────────────────────────
 
-  validate(def: FlowDef): ValidationError[] {
-    return validateFlow(def, this.registry);
+  validate(def: OpusDef): ValidationError[] {
+    return validateOpus(def, this.registry);
   }
 
-  // ── Flow CRUD ──────────────────────────────────────────────
+  // ── Opus CRUD ──────────────────────────────────────────────
 
-  /** Create or replace a flow. Persists immediately; validates only when enabling. */
-  async upsert(def: FlowDef): Promise<void> {
+  /** Persist an opus without restarting its runtime. */
+  async save(def: OpusDef): Promise<void> {
+    this.failedDefs.delete(def.id);
+    if (!this.runtimes.has(def.id)) {
+      try {
+        this.instantiate(def);
+      } catch {
+        // Still broken — keep in failedDefs so it stays visible.
+        this.failedDefs.set(def.id, def);
+      }
+    } else {
+      this.runtimes.get(def.id)!.def = def;
+    }
+    await this.opusStore.save(def);
+  }
+
+  /** Tear down and re-instantiate an opus, restarting if enabled. */
+  async reload(id: string): Promise<void> {
+    const rt = this.runtimes.get(id);
+    if (!rt) throw new Error(`opus not found: "${id}"`);
+    const def = rt.def;
+
+    await rt.stop();
+    this.instantiate(def);
+
+    if (def.enabled) {
+      await this.runtimes.get(id)!.start();
+    }
+  }
+
+  /** Create or replace an opus. Always persists; never validates. */
+  async upsert(def: OpusDef): Promise<void> {
     // Tear down existing runtime if present.
-    const old = this.flows.get(def.id);
+    const old = this.runtimes.get(def.id);
     if (old) await old.stop();
 
-    // Validate only when trying to enable — incomplete drafts are fine to save.
-    if (def.enabled) {
-      const errors = this.validate(def);
-      if (errors.length) throw new FlowValidationError(errors);
-    }
-
     this.instantiate(def);
-    await this.flowStore.save(def);
+    await this.opusStore.save(def);
 
     if (def.enabled) {
-      await this.flows.get(def.id)!.start();
+      await this.runtimes.get(def.id)!.start();
     }
   }
 
+  /** Toggle enabled state. Validates before starting. */
   async setEnabled(id: string, enabled: boolean): Promise<void> {
-    const rt = this.flows.get(id);
-    if (!rt) throw new Error(`flow not found: "${id}"`);
-    await this.upsert({ ...rt.def, enabled });
+    const rt = this.runtimes.get(id);
+    if (!rt) throw new Error(`opus not found: "${id}"`);
+    const def = { ...rt.def, enabled };
+
+    if (enabled) {
+      const errors = this.validate(def);
+      if (errors.length) throw new OpusValidationError(errors);
+    }
+
+    await this.upsert(def);
   }
 
   async remove(id: string): Promise<void> {
-    const rt = this.flows.get(id);
+    this.failedDefs.delete(id);
+    const rt = this.runtimes.get(id);
     if (rt) await rt.stop();
-    this.flows.delete(id);
+    this.runtimes.delete(id);
     await this.stateStore.clear(id);
-    await this.flowStore.remove(id);
+    await this.opusStore.remove(id);
   }
 
   // ── Lifecycle ──────────────────────────────────────────────
 
   async startAllEnabled(): Promise<void> {
     const tasks: Promise<void>[] = [];
-    for (const [id, rt] of this.flows) {
+    for (const [id, rt] of this.runtimes) {
       if (rt.def.enabled) {
         tasks.push(
           rt.start().catch((e) => {
@@ -99,31 +141,42 @@ export class Conductor {
   }
 
   async stopAll(): Promise<void> {
-    await Promise.allSettled([...this.flows.values()].map((rt) => rt.stop()));
+    await Promise.allSettled([...this.runtimes.values()].map((rt) => rt.stop()));
   }
 
   // ── Introspection ──────────────────────────────────────────
 
-  list(): Array<FlowDef & { status: FlowStatus }> {
-    return [...this.flows.values()].map((rt) => ({
-      ...rt.def,
-      status: rt.getStatus()
-    }));
+  list(): Array<OpusDef & { status: OpusStatus }> {
+    const results: Array<OpusDef & { status: OpusStatus }> = [];
+    for (const rt of this.runtimes.values()) {
+      results.push({ ...rt.def, status: rt.getStatus() });
+    }
+    for (const def of this.failedDefs.values()) {
+      results.push({ ...def, status: "error" });
+    }
+    return results;
   }
 
-  get(id: string): FlowRuntime | undefined {
-    return this.flows.get(id);
+  get(id: string): OpusRuntime | undefined {
+    return this.runtimes.get(id);
+  }
+
+  /** Get the raw def for a failed opus (no runtime). */
+  getFailedDef(id: string): OpusDef | undefined {
+    return this.failedDefs.get(id);
   }
 
   // ── Internal ───────────────────────────────────────────────
 
-  private instantiate(def: FlowDef): void {
-    const rt = new FlowRuntime(
+  private instantiate(def: OpusDef): void {
+    const rt = new OpusRuntime(
       def,
       this.registry,
       this.stateStore.scope(def.id),
-      this.makeLogger(def.id)
+      this.makeLogger(def.id),
+      { gatewayUrl: this.gatewayUrl, opusId: def.id }
     );
-    this.flows.set(def.id, rt);
+    rt.onEvaluationComplete = this.onEvaluationComplete;
+    this.runtimes.set(def.id, rt);
   }
 }

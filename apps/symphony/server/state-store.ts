@@ -8,7 +8,7 @@ import { ensureDir, writeJsonAtomic, removeFile } from "./json-file.js";
  * File-backed key-value state store.
  *
  * Runtime state (e.g. IMAP lastUid) lives under:
- *   <rootDir>/.eclia/symphony/state/<flowId>.json
+ *   <rootDir>/.eclia/symphony/state/<opusId>.json
  *
  * All mutations are atomic (write-tmp + rename).
  */
@@ -24,16 +24,16 @@ export class StateStore {
     await ensureDir(this.dir);
   }
 
-  scope(flowId: string): StateAccessor {
-    const safeId = sanitiseId(flowId);
+  scope(opusId: string): StateAccessor {
+    const safeId = sanitiseId(opusId);
     return {
       get: <V>(key: string) => this.get<V>(safeId, key),
       set: <V>(key: string, value: V) => this.set(safeId, key, value)
     };
   }
 
-  async clear(flowId: string): Promise<void> {
-    const safeId = sanitiseId(flowId);
+  async clear(opusId: string): Promise<void> {
+    const safeId = sanitiseId(opusId);
     this.cache.delete(safeId);
     await removeFile(this.filePath(safeId));
   }

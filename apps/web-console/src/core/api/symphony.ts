@@ -1,75 +1,96 @@
 import { apiFetch } from "./apiFetch";
 import type {
-  FlowDef,
-  FlowStatus,
+  OpusDef,
+  OpusStatus,
   NodeKindSchema,
   ValidationError,
 } from "@eclia/symphony-protocol";
 
 // ─── Response shapes ────────────────────────────────────────
 
-type OkOrError<T> = (T & { ok: true }) | { ok: false; error: string; hint?: string };
+type OkOrError<T> = (T & { ok: true }) | { ok: false; error: string; hint?: string; errors?: ValidationError[] };
 
-export type FlowWithStatus = FlowDef & { status: FlowStatus };
+export type OpusWithStatus = OpusDef & { status: OpusStatus };
+
+export class SymphonyValidationError extends Error {
+  readonly errors: ValidationError[];
+  constructor(errors: ValidationError[]) {
+    super(`Validation failed (${errors.length} error${errors.length > 1 ? "s" : ""})`);
+    this.errors = errors;
+  }
+}
 
 /** Fetch + JSON parse + unwrap. Throws on ok:false. */
 async function apiJson<T>(input: string, init?: RequestInit): Promise<OkOrError<T> & { ok: true }> {
   const r = await apiFetch(input, init);
   const j = (await r.json()) as OkOrError<T>;
-  if (!j.ok) throw new Error(j.hint ?? j.error);
+  if (!j.ok) {
+    if (j.error === "validation_failed" && j.errors?.length) {
+      throw new SymphonyValidationError(j.errors);
+    }
+    throw new Error(j.hint ?? j.error);
+  }
   return j;
 }
 
-// ─── Flows ──────────────────────────────────────────────────
+// ─── Opus ──────────────────────────────────────────────────
 
-export async function apiListFlows(): Promise<FlowWithStatus[]> {
-  const j = await apiJson<{ flows: FlowWithStatus[] }>("/api/symphony/flows");
-  return j.flows;
+export async function apiListOpus(): Promise<OpusWithStatus[]> {
+  const j = await apiJson<{ opus: OpusWithStatus[] }>("/api/symphony/opus");
+  return j.opus;
 }
 
-export async function apiGetFlow(id: string): Promise<FlowWithStatus> {
-  const j = await apiJson<{ flow: FlowWithStatus }>(
-    `/api/symphony/flows/${encodeURIComponent(id)}`
+export async function apiGetOpus(id: string): Promise<OpusWithStatus> {
+  const j = await apiJson<{ opus: OpusWithStatus }>(
+    `/api/symphony/opus/${encodeURIComponent(id)}`
   );
-  return j.flow;
+  return j.opus;
 }
 
-export async function apiUpsertFlow(def: FlowDef): Promise<FlowWithStatus> {
-  const isNew = !def.id;
-  const url = isNew
-    ? "/api/symphony/flows"
-    : `/api/symphony/flows/${encodeURIComponent(def.id)}`;
-  const j = await apiJson<{ flow: FlowWithStatus }>(url, {
-    method: isNew ? "POST" : "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(def),
-  });
-  return j.flow;
+export async function apiUpsertOpus(def: OpusDef): Promise<OpusWithStatus> {
+  const j = await apiJson<{ opus: OpusWithStatus }>(
+    `/api/symphony/opus/${encodeURIComponent(def.id)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(def),
+    }
+  );
+  return j.opus;
 }
 
-export async function apiDeleteFlow(id: string): Promise<void> {
+export async function apiDeleteOpus(id: string): Promise<void> {
   await apiJson<Record<string, never>>(
-    `/api/symphony/flows/${encodeURIComponent(id)}`,
+    `/api/symphony/opus/${encodeURIComponent(id)}`,
     { method: "DELETE" }
   );
 }
 
-export async function apiSetFlowEnabled(id: string, enabled: boolean): Promise<void> {
-  await apiJson<Record<string, never>>(
-    `/api/symphony/flows/${encodeURIComponent(id)}/enabled`,
+export async function apiSetOpusEnabled(id: string, enabled: boolean): Promise<OpusWithStatus> {
+  const j = await apiJson<{ opus: OpusWithStatus }>(
+    `/api/symphony/opus/${encodeURIComponent(id)}/enabled`,
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled }),
     }
   );
+  return j.opus;
+}
+
+export async function apiReloadOpus(id: string): Promise<OpusWithStatus> {
+  const j = await apiJson<{ opus: OpusWithStatus }>(
+    `/api/symphony/opus/${encodeURIComponent(id)}/reload`,
+    { method: "POST" }
+  );
+  return j.opus;
 }
 
 // ─── Trigger ────────────────────────────────────────────────
 
-export async function apiTriggerNode(flowId: string, nodeId: string, payload?: unknown): Promise<void> {
+export async function apiTriggerNode(opusId: string, nodeId: string, payload?: unknown): Promise<void> {
   await apiJson<Record<string, never>>(
-    `/api/symphony/flows/${encodeURIComponent(flowId)}/trigger/${encodeURIComponent(nodeId)}`,
+    `/api/symphony/opus/${encodeURIComponent(opusId)}/trigger/${encodeURIComponent(nodeId)}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -87,11 +108,11 @@ export async function apiListNodeKinds(): Promise<NodeKindSchema[]> {
 
 // ─── Validation ─────────────────────────────────────────────
 
-export async function apiValidateFlow(
-  def: FlowDef
+export async function apiValidateOpus(
+  def: OpusDef
 ): Promise<{ valid: boolean; errors: ValidationError[] }> {
   const j = await apiJson<{ valid: boolean; errors: ValidationError[] }>(
-    "/api/symphony/flows/validate",
+    "/api/symphony/opus/validate",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

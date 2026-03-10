@@ -1,17 +1,24 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Registry } from "../registry.js";
-import { emailImapFactory } from "./email-imap.js";
-import { llmProcessFactory } from "./llm-process.js";
-import { gateFactory } from "./gate.js";
-import { gatewayNotifyFactory } from "./gateway-notify.js";
-import { manualTriggerFactory } from "./manual-trigger.js";
-import { consoleLogFactory } from "./console-log.js";
+import type { NodeFactory } from "../types.js";
 
-/** Register all built-in node kinds. */
-export function registerBuiltins(registry: Registry): void {
-  registry.register(emailImapFactory);
-  registry.register(llmProcessFactory);
-  registry.register(gateFactory);
-  registry.register(gatewayNotifyFactory);
-  registry.register(manualTriggerFactory);
-  registry.register(consoleLogFactory);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/** Scan this directory for node factory modules and register them all. */
+export async function registerBuiltins(registry: Registry): Promise<void> {
+  const files = fs.readdirSync(__dirname)
+    .filter((f) => f.endsWith(".ts") || f.endsWith(".js"))
+    .filter((f) => f !== "index.ts" && f !== "index.js");
+
+  for (const file of files) {
+    const mod = await import(`./${file.replace(/\.ts$/, ".js")}`);
+    const fac: NodeFactory | undefined = mod.factory;
+    if (!fac || typeof fac.kind !== "string") {
+      console.warn(`[symphony] nodes/${file}: no valid "factory" export, skipping`);
+      continue;
+    }
+    registry.register(fac);
+  }
 }

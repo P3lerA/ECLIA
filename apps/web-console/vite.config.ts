@@ -19,11 +19,6 @@ export default defineConfig({
     port: consolePort,
     strictPort: true,
     proxy: {
-      "/api/symphony": {
-        target: `http://${loopbackHost}:8800`,
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/symphony/, "")
-      },
       "/api": {
         target: `http://${loopbackHost}:${apiPort}`,
         changeOrigin: true

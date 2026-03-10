@@ -1,10 +1,11 @@
 import http from "node:http";
 
 import { findProjectRoot } from "@eclia/config";
+import { guessGatewayUrl } from "@eclia/gateway-client";
 
 import { Registry } from "./registry.js";
 import { StateStore } from "./state-store.js";
-import { FlowStore } from "./flow-store.js";
+import { OpusStore } from "./opus-store.js";
 import { Conductor } from "./conductor.js";
 import { handleSymphonyApi } from "./api.js";
 import { registerBuiltins } from "./nodes/index.js";
@@ -27,25 +28,36 @@ async function main() {
 
   // ── Registry ─────────────────────────────────────────────
   const registry = new Registry();
-  registerBuiltins(registry);
+  await registerBuiltins(registry);
   log.info(`registered ${registry.schemas().length} node kind(s)`);
 
   // ── Stores ───────────────────────────────────────────────
   const stateStore = new StateStore(rootDir);
   await stateStore.init();
 
-  const flowStore = new FlowStore(rootDir);
-  await flowStore.init();
+  const opusStore = new OpusStore(rootDir);
+  await opusStore.init();
 
   // ── Conductor ────────────────────────────────────────────
+  const gatewayUrl = guessGatewayUrl();
+  log.info(`gateway URL: ${gatewayUrl}`);
+
+  const evalLog = makeLogger("eval");
   const conductor = new Conductor({
     registry,
+    gatewayUrl,
     stateStore,
-    flowStore,
-    makeLogger
+    opusStore,
+    makeLogger,
+    onEvaluationComplete(rec) {
+      const status = rec.error ? `error: ${rec.error}` : `ok`;
+      evalLog.info(
+        `opus=${rec.opusId} src=${rec.sourceId} ran=${rec.nodesRun.length} halted=${rec.nodesHalted.length} ${rec.durationMs}ms [${status}]`
+      );
+    },
   });
   await conductor.bootstrap();
-  log.info(`loaded ${conductor.list().length} flow(s)`);
+  log.info(`loaded ${conductor.list().length} opus definition(s)`);
 
   // ── HTTP server ──────────────────────────────────────────
   const handler = handleSymphonyApi(conductor);
@@ -58,7 +70,7 @@ async function main() {
 
   // Graceful shutdown.
   const shutdown = async () => {
-    log.info("shutting down…");
+    log.info("shutting down...");
     await conductor.stopAll();
     server.close();
     process.exit(0);

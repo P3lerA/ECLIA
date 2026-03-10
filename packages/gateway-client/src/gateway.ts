@@ -68,11 +68,14 @@ export function withGatewayAuth(headers: Record<string, string>): Record<string,
 // Session management
 // ---------------------------------------------------------------------------
 
-export async function ensureGatewaySession(gatewayUrl: string, sessionId: string, title: string, origin: any) {
+export async function ensureGatewaySession(
+  gatewayUrl: string, sessionId: string, title: string, origin: any,
+  opts?: { hideInMenuSheet?: boolean },
+) {
   const r = await fetch(`${gatewayUrl}/api/sessions`, {
     method: "POST",
     headers: withGatewayAuth({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ id: sessionId, title, origin })
+    body: JSON.stringify({ id: sessionId, title, origin, hideInMenuSheet: opts?.hideInMenuSheet })
   });
   const j = (await r.json().catch(() => null)) as any;
   if (!j?.ok) throw new Error(`failed_to_create_session: ${j?.error ?? r.status}`);
@@ -147,6 +150,12 @@ export async function runGatewayChat(args: {
   includeHistory?: boolean;
   /** Optional override for the gateway's context token limit (conservative estimate). */
   contextTokenLimit?: number;
+  /** Sampling temperature override (0–2). */
+  temperature?: number;
+  /** Nucleus sampling override (0–1). */
+  topP?: number;
+  /** Top-K sampling override (1–1000). */
+  topK?: number;
   onRecord?: (record: TranscriptRecord) => Promise<void>;
 }): Promise<{ text: string; meta?: any }> {
   let resp: Response;
@@ -166,6 +175,9 @@ export async function runGatewayChat(args: {
         ...(typeof args.skipMemoryRecall === "boolean" ? { skipMemoryRecall: args.skipMemoryRecall } : {}),
         ...(typeof args.includeHistory === "boolean" ? { includeHistory: args.includeHistory } : {}),
         ...(typeof args.contextTokenLimit === "number" ? { contextTokenLimit: args.contextTokenLimit } : {}),
+        ...(typeof args.temperature === "number" ? { temperature: args.temperature } : {}),
+        ...(typeof args.topP === "number" ? { topP: args.topP } : {}),
+        ...(typeof args.topK === "number" ? { topK: args.topK } : {}),
         origin: args.origin
       })
     });

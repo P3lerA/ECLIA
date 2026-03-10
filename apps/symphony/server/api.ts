@@ -1,21 +1,21 @@
 import type { Conductor } from "./conductor.js";
-import type { FlowDef } from "./types.js";
-import type { FlowRuntime } from "./flow-runtime.js";
+import type { OpusDef } from "./types.js";
+import type { OpusRuntime } from "./opus-runtime.js";
 import { json, readJson } from "@eclia/gateway-client/utils";
-import { FlowValidationError } from "./graph.js";
+import { OpusValidationError } from "./graph.js";
 
 /**
  * HTTP API handler for Symphony.
  *
  * Routes:
  *   GET    /nodes                — list registered node kinds (with ports + config schema)
- *   GET    /flows                — list all flows
- *   GET    /flows/:id            — get one flow (full def + status)
- *   POST   /flows                — create a new flow
- *   PUT    /flows/:id            — update a flow definition
- *   PUT    /flows/:id/enabled    — toggle enabled + start/stop
- *   DELETE /flows/:id            — stop + remove
- *   POST   /flows/validate       — dry-run validation without saving
+ *   GET    /opus                 — list all opus definitions
+ *   GET    /opus/:id             — get one opus (full def + status)
+ *   POST   /opus                 — create a new opus
+ *   PUT    /opus/:id             — update an opus definition
+ *   PUT    /opus/:id/enabled     — toggle enabled + start/stop
+ *   DELETE /opus/:id             — stop + remove
+ *   POST   /opus/validate        — dry-run validation without saving
  */
 export function handleSymphonyApi(conductor: Conductor) {
   return async (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => {
@@ -28,41 +28,41 @@ export function handleSymphonyApi(conductor: Conductor) {
         return json(res, 200, { ok: true, nodes: conductor.registry.schemas() });
       }
 
-      // ── List flows ───────────────────────────────────────
-      if (p === "/flows" && req.method === "GET") {
-        return json(res, 200, { ok: true, flows: conductor.list() });
+      // ── List opus ─────────────────────────────────────────
+      if (p === "/opus" && req.method === "GET") {
+        return json(res, 200, { ok: true, opus: conductor.list() });
       }
 
-      // ── Create flow ──────────────────────────────────────
-      if (p === "/flows" && req.method === "POST") {
+      // ── Create opus ───────────────────────────────────────
+      if (p === "/opus" && req.method === "POST") {
         const body = await readJson(req);
-        const def = parseFlowDef(body);
-        if (!def) return json(res, 400, { ok: false, error: "invalid_flow_def" });
+        const def = parseOpusDef(body);
+        if (!def) return json(res, 400, { ok: false, error: "invalid_opus_def" });
 
         await conductor.upsert(def);
-        return json(res, 201, { ok: true, flow: serializeFlow(conductor.get(def.id)) });
+        return json(res, 201, { ok: true, opus: serializeOpus(conductor.get(def.id)) });
       }
 
       // ── Validate (dry run) ───────────────────────────────
-      if (p === "/flows/validate" && req.method === "POST") {
+      if (p === "/opus/validate" && req.method === "POST") {
         const body = await readJson(req);
-        const def = parseFlowDef(body);
-        if (!def) return json(res, 400, { ok: false, error: "invalid_flow_def" });
+        const def = parseOpusDef(body);
+        if (!def) return json(res, 400, { ok: false, error: "invalid_opus_def" });
         const errors = conductor.validate(def);
         return json(res, 200, { ok: true, valid: errors.length === 0, errors });
       }
 
-      // ── Single flow routes ───────────────────────────────
+      // ── Single opus routes ────────────────────────────────
 
-      // POST /flows/:id/trigger/:nodeId — fire a manual-trigger source
-      const mTrigger = p.match(/^\/flows\/([^/]+)\/trigger\/([^/]+)$/);
+      // POST /opus/:id/trigger/:nodeId — fire a manual-trigger source
+      const mTrigger = p.match(/^\/opus\/([^/]+)\/trigger\/([^/]+)$/);
       if (mTrigger && req.method === "POST") {
         const id = decodeURIComponent(mTrigger[1]);
         const nodeId = decodeURIComponent(mTrigger[2]);
         const rt = conductor.get(id);
         if (!rt) return json(res, 404, { ok: false, error: "not_found" });
         if (rt.getStatus() !== "running") {
-          return json(res, 400, { ok: false, error: "flow_not_running", hint: "Enable and start the flow first" });
+          return json(res, 400, { ok: false, error: "opus_not_running", hint: "Enable and start the opus first" });
         }
 
         const body = await readJson(req).catch(() => ({}));
@@ -70,40 +70,58 @@ export function handleSymphonyApi(conductor: Conductor) {
         return json(res, 200, { ok: true });
       }
 
-      // PUT /flows/:id/enabled
-      const mEnabled = p.match(/^\/flows\/([^/]+)\/enabled$/);
+      // POST /opus/:id/reload — tear down and re-instantiate runtime
+      const mReload = p.match(/^\/opus\/([^/]+)\/reload$/);
+      if (mReload && req.method === "POST") {
+        const id = decodeURIComponent(mReload[1]);
+        const rt = conductor.get(id);
+        if (!rt) return json(res, 404, { ok: false, error: "not_found" });
+
+        const errors = conductor.validate(rt.def);
+        if (errors.length) throw new OpusValidationError(errors);
+
+        await conductor.reload(id);
+        return json(res, 200, { ok: true, opus: serializeOpus(conductor.get(id)) });
+      }
+
+      // PUT /opus/:id/enabled
+      const mEnabled = p.match(/^\/opus\/([^/]+)\/enabled$/);
       if (mEnabled && req.method === "PUT") {
         const id = decodeURIComponent(mEnabled[1]);
         if (!conductor.get(id)) return json(res, 404, { ok: false, error: "not_found" });
 
         const body = await readJson(req);
         await conductor.setEnabled(id, Boolean(body?.enabled));
-        return json(res, 200, { ok: true });
+        return json(res, 200, { ok: true, opus: serializeOpus(conductor.get(id)) });
       }
 
-      const mId = p.match(/^\/flows\/([^/]+)$/);
+      const mId = p.match(/^\/opus\/([^/]+)$/);
       if (!mId) return json(res, 404, { ok: false, error: "not_found" });
       const id = decodeURIComponent(mId[1]);
 
-      // GET /flows/:id
+      // GET /opus/:id
       if (req.method === "GET") {
         const rt = conductor.get(id);
-        if (!rt) return json(res, 404, { ok: false, error: "not_found" });
-        return json(res, 200, { ok: true, flow: serializeFlow(rt) });
+        if (rt) return json(res, 200, { ok: true, opus: serializeOpus(rt) });
+        const failed = conductor.getFailedDef(id);
+        if (failed) return json(res, 200, { ok: true, opus: { ...failed, status: "error" as const } });
+        return json(res, 404, { ok: false, error: "not_found" });
       }
 
-      // PUT /flows/:id — true upsert (create or update)
+      // PUT /opus/:id — save without restarting runtime (no validation — draft save)
       if (req.method === "PUT") {
         const body = await readJson(req);
-        const def = parseFlowDef(body);
-        if (!def || def.id !== id) return json(res, 400, { ok: false, error: "invalid_flow_def" });
+        const def = parseOpusDef(body);
+        if (!def || def.id !== id) return json(res, 400, { ok: false, error: "invalid_opus_def" });
 
-        const existed = !!conductor.get(id);
-        await conductor.upsert(def);
-        return json(res, existed ? 200 : 201, { ok: true, flow: serializeFlow(conductor.get(id)) });
+        const existed = !!conductor.get(id) || !!conductor.getFailedDef(id);
+        await conductor.save(def);
+        const rt = conductor.get(id);
+        const opus = rt ? serializeOpus(rt) : { ...def, status: "error" as const };
+        return json(res, existed ? 200 : 201, { ok: true, opus });
       }
 
-      // DELETE /flows/:id
+      // DELETE /opus/:id
       if (req.method === "DELETE") {
         await conductor.remove(id);
         return json(res, 200, { ok: true });
@@ -111,7 +129,7 @@ export function handleSymphonyApi(conductor: Conductor) {
 
       return json(res, 404, { ok: false, error: "not_found" });
     } catch (e: any) {
-      if (e instanceof FlowValidationError) {
+      if (e instanceof OpusValidationError) {
         return json(res, 400, { ok: false, error: "validation_failed", errors: e.errors });
       }
       return json(res, 500, { ok: false, error: "internal_error", hint: String(e?.message ?? e) });
@@ -121,7 +139,7 @@ export function handleSymphonyApi(conductor: Conductor) {
 
 // ─── Helpers ────────────────────────────────────────────────
 
-function parseFlowDef(body: any): FlowDef | null {
+function parseOpusDef(body: any): OpusDef | null {
   if (!body || typeof body !== "object") return null;
   if (typeof body.id !== "string" || !body.id.trim()) return null;
   return {
@@ -134,7 +152,7 @@ function parseFlowDef(body: any): FlowDef | null {
   };
 }
 
-function serializeFlow(rt: FlowRuntime | undefined) {
+function serializeOpus(rt: OpusRuntime | undefined) {
   if (!rt) return null;
   return { ...rt.def, status: rt.getStatus() };
 }

@@ -1,34 +1,39 @@
 import type {
-  FlowDef,
-  FlowStatus,
+  OpusDef,
+  OpusStatus,
   Node,
   SourceNode,
   ProcessNode,
   NodeOutputs,
+  RuntimeServices,
   SourceNodeContext,
   NodeContext,
   StateAccessor,
-  ScopedLogger
+  ScopedLogger,
+  EvaluationRecord
 } from "./types.js";
 import type { Registry } from "./registry.js";
-import { compileFlow, type CompiledGraph } from "./graph.js";
+import { compileOpus, type CompiledGraph } from "./graph.js";
 
 /**
- * A live instance of a flow.
+ * A live instance of an opus.
  *
  * Owns all node instances.  Source nodes emit asynchronously;
  * each emission triggers a synchronous (queued) graph evaluation
  * over the downstream process nodes.
  */
-export class FlowRuntime {
-  readonly def: FlowDef;
-  private status: FlowStatus = "stopped";
+export class OpusRuntime {
+  def: OpusDef;
+  private status: OpusStatus = "stopped";
+  private services: RuntimeServices;
   private log: ScopedLogger;
   private state: StateAccessor;
   private abortCtrl = new AbortController();
 
   /** All instantiated nodes, keyed by nid. */
   private nodes = new Map<string, Node>();
+  /** Mutable config refs per node (same object the node factory closed over). */
+  private configs = new Map<string, Record<string, unknown>>();
   /** Source nodes (subset of this.nodes). */
   private sources: SourceNode[] = [];
   /** Pre-compiled graph topology. */
@@ -37,20 +42,28 @@ export class FlowRuntime {
   /** Serialise graph runs so emissions don't interleave. */
   private runQueue: Promise<void> = Promise.resolve();
 
+  /** Optional hook called after each graph evaluation completes. */
+  onEvaluationComplete?: (record: EvaluationRecord) => void;
+
   constructor(
-    def: FlowDef,
+    def: OpusDef,
     registry: Registry,
     state: StateAccessor,
-    log: ScopedLogger
+    log: ScopedLogger,
+    services: RuntimeServices
   ) {
     this.def = def;
+    this.services = services;
     this.state = state;
     this.log = log;
 
     // Instantiate every node.
+    // Clone config so cfg: wire overrides don't leak back into def.
     for (const nd of def.nodes) {
-      const node = registry.create(nd.kind, nd.nid, nd.config);
+      const config = structuredClone(nd.config);
+      const node = registry.create(nd.kind, nd.nid, config);
       this.nodes.set(nd.nid, node);
+      this.configs.set(nd.nid, config);
       if (node.role === "source") {
         this.sources.push(node as SourceNode);
       }
@@ -58,10 +71,10 @@ export class FlowRuntime {
 
     // Compile graph topology once.
     const sourceIds = new Set(this.sources.map((s) => s.id));
-    this.graph = compileFlow(def, sourceIds);
+    this.graph = compileOpus(def, sourceIds);
   }
 
-  getStatus(): FlowStatus {
+  getStatus(): OpusStatus {
     return this.status;
   }
 
@@ -76,6 +89,7 @@ export class FlowRuntime {
       for (const src of this.sources) {
         const ctx: SourceNodeContext = {
           emit: (outputs) => this.onSourceEmit(src.id, outputs),
+          services: this.services,
           state: this.scopedState(src.id),
           log: this.log,
           signal: this.abortCtrl.signal
@@ -83,10 +97,10 @@ export class FlowRuntime {
         await src.start(ctx);
       }
       this.status = "running";
-      this.log.info(`flow started (${this.sources.length} source(s), ${this.graph.processOrder.length} process node(s))`);
+      this.log.info(`opus started (${this.sources.length} source(s), ${this.graph.processOrder.length} process node(s))`);
     } catch (e: any) {
       this.status = "error";
-      this.log.error("flow start failed:", String(e?.message ?? e));
+      this.log.error("opus start failed:", String(e?.message ?? e));
       await this.stopSources();
       throw e;
     }
@@ -97,12 +111,13 @@ export class FlowRuntime {
     this.abortCtrl.abort();
     await this.stopSources();
     this.status = "stopped";
-    this.log.info("flow stopped");
+    this.log.info("opus stopped");
   }
 
   // ── Graph evaluation ───────────────────────────────────────
 
   private onSourceEmit(sourceId: string, outputs: NodeOutputs): void {
+    if (this.status !== "running") return;
     this.runQueue = this.runQueue
       .then(() => this.evaluate(sourceId, outputs))
       .catch((e) => {
@@ -119,14 +134,18 @@ export class FlowRuntime {
    * dependents are skipped (propagation halt).
    */
   private async evaluate(sourceId: string, sourceOutputs: NodeOutputs): Promise<void> {
+    const t0 = Date.now();
     /** Accumulated outputs per node: nid → { portKey → value }. */
     const resolved = new Map<string, NodeOutputs>();
     resolved.set(sourceId, sourceOutputs);
 
     /** Nodes whose output was null (halted). */
     const halted = new Set<string>();
+    const nodesRun: string[] = [];
+    let evalError: string | undefined;
 
-    for (const nid of this.graph.processOrder) {
+    const scope = this.graph.reachableFrom.get(sourceId) ?? this.graph.processOrder;
+    for (const nid of scope) {
       const node = this.nodes.get(nid) as ProcessNode | undefined;
       if (!node) continue;
 
@@ -152,12 +171,21 @@ export class FlowRuntime {
         continue;
       }
 
-      // Only execute if at least one input was actually provided
-      // (avoids executing nodes in unrelated branches).
-      if (incoming.size > 0 && Object.keys(inputs).length === 0) continue;
+      // Separate cfg: inputs — temporarily override config for this execution only.
+      const config = this.configs.get(nid);
+      const savedCfg: [string, unknown][] = [];
+      for (const key of Object.keys(inputs)) {
+        if (key.startsWith("cfg:") && config) {
+          const cfgKey = key.slice(4);
+          savedCfg.push([cfgKey, config[cfgKey]]);
+          config[cfgKey] = inputs[key];
+          delete inputs[key];
+        }
+      }
 
       const ctx: NodeContext = {
         inputs,
+        services: this.services,
         state: this.scopedState(nid),
         log: this.log,
         signal: this.abortCtrl.signal
@@ -170,12 +198,30 @@ export class FlowRuntime {
           this.log.info(`node "${nid}" (${node.kind}) halted propagation`);
         } else {
           resolved.set(nid, result);
+          nodesRun.push(nid);
         }
       } catch (e: any) {
-        this.log.error(`node "${nid}" (${node.kind}) threw:`, String(e?.message ?? e));
+        const msg = String(e?.message ?? e);
+        this.log.error(`node "${nid}" (${node.kind}) threw:`, msg);
         halted.add(nid);
+        evalError ??= `${nid}: ${msg}`;
+      } finally {
+        // Restore config to base values so cfg: overrides don't leak across evaluations.
+        if (config) {
+          for (const [k, v] of savedCfg) config[k] = v;
+        }
       }
     }
+
+    this.onEvaluationComplete?.({
+      opusId: this.def.id,
+      sourceId,
+      timestamp: t0,
+      durationMs: Date.now() - t0,
+      nodesRun,
+      nodesHalted: [...halted],
+      error: evalError,
+    });
   }
 
   // ── External trigger ─────────────────────────────────────────

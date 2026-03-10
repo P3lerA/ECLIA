@@ -82,6 +82,7 @@ function AppInner() {
           <Route path="/memory" element={<MemoryView onBack={() => navigate("/")} />} />
 
           <Route path="/symphony" element={<SymphonyView />} />
+          <Route path="/symphony/:opusId" element={<SymphonyView />} />
 
           <Route
             path="/"

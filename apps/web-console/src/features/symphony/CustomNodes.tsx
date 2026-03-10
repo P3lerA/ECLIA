@@ -1,9 +1,14 @@
-import { memo } from "react";
+import { memo, useContext } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { SymphonyNodeData } from "./symphonyTypes";
+import { CFG_TO_PORT, roleLabel, PORT_COLORS, SymphonyRuntimeContext } from "./symphonyTypes";
+import type { PortType } from "@eclia/symphony-protocol";
 
-function SymphonyNodeComponent({ data, selected }: NodeProps & { data: SymphonyNodeData }) {
+function portColor(type: PortType): string { return PORT_COLORS[type] ?? PORT_COLORS.any; }
+
+function SymphonyNodeComponent({ data, selected, id }: NodeProps & { data: SymphonyNodeData }) {
   const { label, role, kind, schema, config } = data;
+  const rt = useContext(SymphonyRuntimeContext);
   const isManualTrigger = kind === "manual-trigger";
 
   // Non-empty config values to display inline
@@ -14,7 +19,7 @@ function SymphonyNodeComponent({ data, selected }: NodeProps & { data: SymphonyN
   return (
     <div className={`sym-node${selected ? " sym-node--selected" : ""}`}>
       <div className="sym-node-header">
-        <span className={`sym-node-role sym-node-role--${role}`}>{role}</span>
+        <span className={`sym-node-role sym-node-role--${role}`}>{roleLabel(role)}</span>
         <span className="sym-node-label">{label}</span>
       </div>
 
@@ -29,45 +34,48 @@ function SymphonyNodeComponent({ data, selected }: NodeProps & { data: SymphonyN
           {isManualTrigger && (
             <button
               className="btn sym-node-fire-btn"
-              disabled={!data._flowRunning}
+              disabled={!rt.running}
               onClick={(e) => {
                 e.stopPropagation();
-                (data._onTrigger as ((id: string) => void))?.(data._nodeId as string);
+                rt.triggerManual(id);
               }}
             >
-              {data._flowRunning ? "Fire" : "Not running"}
+              {rt.running ? "Fire" : "Not running"}
             </button>
           )}
         </div>
       )}
 
-      <div className="sym-node-ports">
-        {schema.inputPorts.map((port, i) => (
-          <div key={port.key} className="sym-node-port">
-            <Handle
-              type="target"
-              position={Position.Left}
-              id={port.key}
-              className="sym-handle"
-              style={{ top: `${28 + (schema.inputPorts.length > 1 ? i * 20 : 0)}px` }}
-            />
-            <span className="sym-port-label">{port.label}</span>
-          </div>
-        ))}
-
-        {schema.outputPorts.map((port, i) => (
-          <div key={port.key} className="sym-node-port" style={{ justifyContent: "flex-end" }}>
-            <span className="sym-port-label">{port.label}</span>
-            <Handle
-              type="source"
-              position={Position.Right}
-              id={port.key}
-              className="sym-handle"
-              style={{ top: `${28 + (schema.outputPorts.length > 1 ? i * 20 : 0)}px` }}
-            />
-          </div>
-        ))}
-      </div>
+      {(() => {
+        const connectableFields = schema.configSchema.filter((f) => f.connectable);
+        const hasAnyPort = schema.inputPorts.length > 0 || schema.outputPorts.length > 0 || connectableFields.length > 0;
+        if (!hasAnyPort) return null;
+        return (
+        <div className="sym-node-ports">
+          {schema.inputPorts.map((port) => (
+            <div key={port.key} className="sym-node-port sym-node-port--in">
+              <Handle type="target" position={Position.Left} id={port.key} className="sym-handle" style={{ background: portColor(rt.portTypeMap.get(`${id}:${port.key}`) ?? port.type) }} />
+              <span className="sym-port-label">{port.label}</span>
+            </div>
+          ))}
+          {connectableFields.map((f) => {
+            const pt: PortType = rt.portTypeMap.get(`${id}:cfg:${f.key}`) ?? CFG_TO_PORT[f.type] ?? "any";
+            return (
+              <div key={`cfg_${f.key}`} className="sym-node-port sym-node-port--in">
+                <Handle type="target" position={Position.Left} id={`cfg:${f.key}`} className="sym-handle" style={{ background: portColor(pt) }} />
+                <span className="sym-port-label sym-port-label--cfg">{f.label}</span>
+              </div>
+            );
+          })}
+          {schema.outputPorts.map((port) => (
+            <div key={port.key} className="sym-node-port sym-node-port--out">
+              <span className="sym-port-label">{port.label}</span>
+              <Handle type="source" position={Position.Right} id={port.key} className="sym-handle" style={{ background: portColor(rt.portTypeMap.get(`${id}:${port.key}`) ?? port.type) }} />
+            </div>
+          ))}
+        </div>
+        );
+      })()}
     </div>
   );
 }

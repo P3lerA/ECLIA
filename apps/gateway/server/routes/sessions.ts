@@ -21,6 +21,7 @@ export async function handleSessions(req: http.IncomingMessage, res: http.Server
     const title = typeof body?.title === "string" ? body.title : undefined;
     const id = typeof body?.id === "string" ? body.id : undefined;
     const origin = body?.origin && typeof body.origin === "object" ? body.origin : undefined;
+    const hideInMenuSheet = body?.hideInMenuSheet === true ? true : undefined;
 
     try {
       let meta = id
@@ -30,7 +31,8 @@ export async function handleSessions(req: http.IncomingMessage, res: http.Server
             title: title && title.trim() ? title.trim() : "New session",
             createdAt: Date.now(),
             updatedAt: Date.now(),
-            origin
+            origin,
+            hideInMenuSheet,
           })
         : await store.createSession(title);
 
@@ -39,9 +41,16 @@ export async function handleSessions(req: http.IncomingMessage, res: http.Server
         meta = await store.updateMeta(meta.id, { origin });
       }
 
-      // If caller provided a title and the existing session is still default, update it.
-      if (id && title && title.trim() && meta.title === "New session") {
-        meta = await store.updateMeta(id, { title: title.trim(), updatedAt: Date.now() });
+      if (id) {
+        // Patch fields on existing sessions so callers can refresh origin/title/hideInMenuSheet.
+        const patch: Record<string, unknown> = {};
+        if (title && title.trim() && meta.title === "New session") patch.title = title.trim();
+        if (origin) patch.origin = origin;
+        if (hideInMenuSheet !== undefined) patch.hideInMenuSheet = hideInMenuSheet;
+        if (Object.keys(patch).length) {
+          patch.updatedAt = Date.now();
+          meta = await store.updateMeta(id, patch);
+        }
       }
 
       return json(res, 200, { ok: true, session: meta });

@@ -49,7 +49,8 @@ function coerceMeta(v: any, fallbackId: string): SessionMetaV1 {
     createdAt: typeof v?.createdAt === "number" ? v.createdAt : now,
     updatedAt: typeof v?.updatedAt === "number" ? v.updatedAt : now,
     origin: v?.origin && typeof v.origin === "object" ? v.origin : undefined,
-    lastModel: typeof v?.lastModel === "string" ? v.lastModel : undefined
+    lastModel: typeof v?.lastModel === "string" ? v.lastModel : undefined,
+    hideInMenuSheet: v?.hideInMenuSheet === true ? true : undefined
   };
 }
 
@@ -157,7 +158,9 @@ export class SessionStore {
 
       const meta = await readJsonFile<SessionMetaV1>(path.join(this.sessionsDir, id, "meta.json"));
       if (!meta) continue;
-      metas.push(coerceMeta(meta as any, id));
+      const coerced = coerceMeta(meta as any, id);
+      if (coerced.hideInMenuSheet) continue;
+      metas.push(coerced);
     }
 
     metas.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));

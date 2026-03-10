@@ -10,7 +10,7 @@
 
 import type { NodeFactory, SourceNodeContext } from "../types.js";
 
-export const manualTriggerFactory: NodeFactory = {
+export const factory: NodeFactory = {
   kind: "manual-trigger",
   label: "Manual Trigger",
   role: "source",
@@ -18,12 +18,26 @@ export const manualTriggerFactory: NodeFactory = {
 
   inputPorts: [],
   outputPorts: [
-    { key: "out", label: "Output", type: "any" }
+    { key: "signal", label: "Signal", type: "any", typeFrom: "signalType" }
   ],
 
-  configSchema: [],
+  configSchema: [
+    {
+      key: "signalType",
+      label: "Signal type",
+      type: "select",
+      options: ["none", "string", "number", "boolean"],
+      default: "none",
+    },
+    {
+      key: "signalValue",
+      label: "Value",
+      type: "string",
+      default: "",
+    },
+  ],
 
-  create(id) {
+  create(id, config) {
     let emitFn: ((outputs: Record<string, unknown>) => void) | null = null;
 
     return {
@@ -33,17 +47,27 @@ export const manualTriggerFactory: NodeFactory = {
 
       async start(ctx: SourceNodeContext) {
         emitFn = ctx.emit;
-        ctx.log.info(`manual-trigger "${id}" ready — POST /flows/:flowId/trigger/${id} to fire`);
+        ctx.log.info(`manual-trigger "${id}" ready — POST /opus/:opusId/trigger/${id} to fire`);
       },
 
       async stop() {
         emitFn = null;
       },
 
-      /** Called externally by FlowRuntime.triggerNode(). */
+      /** Called externally by OpusRuntime.triggerNode(). */
       trigger(payload: unknown) {
         if (!emitFn) throw new Error("node not started");
-        emitFn({ out: payload ?? { triggered: true, at: new Date().toISOString() } });
+
+        const type = String(config.signalType ?? "none");
+        let signal: unknown;
+        switch (type) {
+          case "boolean": signal = Boolean(config.signalValue); break;
+          case "number":  signal = Number(config.signalValue) || 0; break;
+          case "string":  signal = String(config.signalValue ?? ""); break;
+          default:        signal = payload ?? { triggered: true, at: new Date().toISOString() }; break;
+        }
+
+        emitFn({ signal });
       }
     };
   }

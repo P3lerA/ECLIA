@@ -284,11 +284,18 @@ async function main() {
 
     if (pathname === "/api/chat" && req.method === "POST") return await handleChat(req, res, store, approvals, toolhost);
 
-    // -- Service proxies (memory) ---------------------------------------------
+    // -- Service proxies -------------------------------------------------------
     if (pathname.startsWith("/api/memory/")) {
       return await proxyToService(req, res, {
         config, configKey: "memory", pathPrefix: "/api/memory", defaultPort: 8788,
         timeoutMs: 630_000, errorCode: "memory_service_unreachable"
+      });
+    }
+
+    if (pathname.startsWith("/api/symphony/")) {
+      return await proxyToService(req, res, {
+        config, configKey: "symphony", pathPrefix: "/api/symphony", defaultPort: 8800,
+        timeoutMs: 120_000, errorCode: "symphony_service_unreachable"
       });
     }
 

@@ -301,13 +301,16 @@ export async function runToolCalls(args: {
           // - Default is {kind:'origin'} (request source).
           // - {kind:'discord'} always resolves to an existing discord origin (requested/patch/stored),
           //   and does not allow model-specified ids.
-          const effectiveOrigin = (args.requestedOrigin ?? args.patchedOrigin ?? args.storedOrigin ?? { kind: "web" }) as any;
+          // patchedOrigin is the merge of storedOrigin + requestedOrigin and carries
+          // fields like replyTo that requestedOrigin alone may lack.
+          const effectiveOrigin = (args.patchedOrigin ?? args.requestedOrigin ?? args.storedOrigin ?? { kind: "web" }) as any;
 
           const requestedDestinationKind = sendArgs.destination?.kind ?? "origin";
 
           let destination: any = undefined;
           if (requestedDestinationKind === "origin") {
-            destination = effectiveOrigin;
+            // If the origin specifies a replyTo (e.g. symphony → web), use that.
+            destination = effectiveOrigin?.replyTo ?? effectiveOrigin;
           } else if (requestedDestinationKind === "web") {
             destination = { kind: "web" };
           } else if (requestedDestinationKind === "discord") {

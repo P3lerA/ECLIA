@@ -21,28 +21,28 @@
 
 import type { NodeFactory } from "../types.js";
 
-export const gateFactory: NodeFactory = {
-  kind: "gate",
-  label: "Gate (All)",
-  role: "transform",
-  description: "Wait for all inputs before firing.  Replaces the 'all' trigger combinator.",
+export const factory: NodeFactory = {
+  kind: "gate-all",
+  label: "All",
+  role: "gate",
+  description: "Wait for all inputs before firing.  Latches across evaluations using state.",
 
   inputPorts: [
     { key: "a", label: "Input A", type: "any" },
-    { key: "b", label: "Input B", type: "any", optional: true }
+    { key: "b", label: "Input B", type: "any" }
   ],
   outputPorts: [
-    { key: "a", label: "Output A", type: "any" },
-    { key: "b", label: "Output B", type: "any" }
+    { key: "a", label: "Output A", type: "any", typeFromPort: "a" },
+    { key: "b", label: "Output B", type: "any", typeFromPort: "b" },
   ],
 
   configSchema: [],
 
   create(id) {
     return {
-      role: "transform" as const,
+      role: "gate" as const,
       id,
-      kind: "gate",
+      kind: "gate-all",
 
       async execute(ctx) {
         const hasA = ctx.inputs.a !== undefined;

@@ -1,44 +1,55 @@
 /**
  * console-log — Sink node.
  *
- * Prints whatever it receives to stdout via the flow logger.
- * Useful for testing and debugging pipelines.
+ * Prints to stdout via the flow logger.
  *
  * Input ports:
- *   in : any — the value to log
+ *   signal : any      — trigger
+ *   text   : string   — (optional) text to log; falls back to config `text`
+ *
+ * Config:
+ *   prefix : string — log prefix (default "LOG")
+ *   text   : text   — fallback text when `text` input is not connected
  */
 
 import type { NodeFactory } from "../types.js";
 
-export const consoleLogFactory: NodeFactory = {
+export const factory: NodeFactory = {
   kind: "console-log",
   label: "Console Log",
-  role: "sink",
+  role: "action",
   description: "Logs input to the server console.  Useful for testing.",
 
   inputPorts: [
-    { key: "in", label: "Input", type: "any" }
+    { key: "signal", label: "Signal", type: "any" },
+    { key: "text", label: "Text", type: "string", optional: true },
   ],
   outputPorts: [],
 
   configSchema: [
-    { key: "prefix", label: "Log prefix", type: "string", placeholder: "LOG" }
+    { key: "prefix", label: "Log prefix", type: "string", placeholder: "LOG" },
+    { key: "text", label: "Text", type: "text", placeholder: "Fallback text when input not connected" },
   ],
 
   create(id, config) {
     const prefix = typeof config.prefix === "string" && config.prefix ? config.prefix : "LOG";
+    const fallbackText = typeof config.text === "string" ? config.text : "";
 
     return {
-      role: "sink" as const,
+      role: "action" as const,
       id,
       kind: "console-log",
 
       async execute(ctx) {
-        const value = ctx.inputs.in;
-        const pretty = typeof value === "string" ? value : JSON.stringify(value, null, 2);
-        ctx.log.info(`[${prefix}] ${pretty}`);
+        // Prefer text input, then config fallback, then stringify signal
+        const text = ctx.inputs.text ?? (fallbackText || stringify(ctx.inputs.signal));
+        ctx.log.info(`[${prefix}] ${text}`);
         return {};
       }
     };
   }
 };
+
+function stringify(v: unknown): string {
+  return typeof v === "string" ? v : JSON.stringify(v, null, 2);
+}
