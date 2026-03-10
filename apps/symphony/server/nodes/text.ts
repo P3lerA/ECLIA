@@ -18,7 +18,7 @@ export const factory: NodeFactory = {
   kind: "text",
   label: "Text",
   role: "process",
-  description: "Constant text value.  Connect its output to nodes that accept text.",
+  description: "Constant text value.",
 
   inputPorts: [],
   outputPorts: [

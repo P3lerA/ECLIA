@@ -14,7 +14,7 @@ export const factory: NodeFactory = {
   kind: "boolean",
   label: "Boolean",
   role: "process",
-  description: "Constant boolean value.  Connect its output to nodes that accept boolean.",
+  description: "Constant boolean value.",
 
   inputPorts: [],
   outputPorts: [

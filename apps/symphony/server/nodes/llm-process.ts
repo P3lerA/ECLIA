@@ -28,7 +28,7 @@ export const factory: NodeFactory = {
   kind: "llm-process",
   label: "Model Action",
   role: "action",
-  description: "Send text to an LLM via the gateway and output the response.",
+  description: "Send text to an LLM via the gateway.",
 
   inputPorts: [
     { key: "text", label: "Text", type: "string" }

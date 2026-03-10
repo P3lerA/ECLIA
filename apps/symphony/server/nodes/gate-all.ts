@@ -25,7 +25,7 @@ export const factory: NodeFactory = {
   kind: "gate-all",
   label: "All",
   role: "gate",
-  description: "Wait for all inputs before firing.  Latches across evaluations using state.",
+  description: "Wait for all inputs before firing.",
 
   inputPorts: [
     { key: "a", label: "Input A", type: "any" },

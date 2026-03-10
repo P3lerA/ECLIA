@@ -678,6 +678,49 @@
   white-space: nowrap;
 }
 
+/* ── Node groups (sidebar) ───────────────────────────────── */
+
+.sym-node-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sym-node-group + .sym-node-group {
+  margin-top: 8px;
+}
+.sym-node-group-label {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 4px 10px 2px;
+}
+
+/* ── Node preview tooltip (sidebar hover) ────────────────── */
+
+.sym-node-preview {
+  position: fixed;
+  z-index: 20;
+  pointer-events: none;
+  animation: sym-preview-in .12s var(--ease-enter);
+}
+@keyframes sym-preview-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.sym-node-preview .sym-node {
+  min-width: 150px;
+  max-width: 240px;
+  box-shadow: var(--shadow-card);
+}
+.sym-preview-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 2px solid var(--surface-2);
+  flex-shrink: 0;
+}
+
 /* ── Custom nodes ─────────────────────────────────────────── */
 
 .sym-node {
