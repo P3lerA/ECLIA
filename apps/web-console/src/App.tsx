@@ -5,7 +5,7 @@ import { LandingView } from "./features/landing/LandingView";
 import { ChatView } from "./features/chat/ChatView";
 import { MenuSheet } from "./features/menu/MenuSheet";
 import { SettingsView } from "./features/settings/SettingsView";
-import { MemoryView } from "./features/memory/MemoryView";
+
 import { SymphonyView } from "./features/symphony/SymphonyView";
 import { BackgroundRoot } from "./features/background/BackgroundRoot";
 import { GatewayTokenView } from "./features/auth/GatewayTokenView";
@@ -63,8 +63,9 @@ function AppInner() {
   useSessionBootstrap(auth);
   usePersistPrefs();
 
+  const isSymphony = location.pathname.startsWith("/symphony");
   const containerWide =
-    location.pathname.startsWith("/settings") || location.pathname.startsWith("/memory") || location.pathname.startsWith("/symphony");
+    !isSymphony && location.pathname.startsWith("/settings");
 
   const [menuOpen, setMenuOpen] = React.useState(false);
 
@@ -72,15 +73,14 @@ function AppInner() {
     <div className="app">
       <BackgroundRoot />
 
-      <div className={containerWide ? "container container-wide" : "container"}>
+      <div className={isSymphony ? "container container-full" : containerWide ? "container container-wide" : "container"}>
         <Routes>
           <Route path="/connect" element={<GatewayTokenView onAuthed={auth.onAuthed} />} />
 
           <Route path="/settings" element={<SettingsView onBack={() => navigate("/")} />} />
 
-          <Route path="/memory" element={<MemoryView onBack={() => navigate("/")} />} />
-
-          <Route path="/symphony" element={<SymphonyView onBack={() => navigate("/")} />} />
+          <Route path="/symphony" element={<SymphonyView />} />
+          <Route path="/symphony/:opusId" element={<SymphonyView />} />
 
           <Route
             path="/"

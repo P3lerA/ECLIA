@@ -26,11 +26,11 @@ export function SaveDiscardBar(props: {
         </div>
       )}
 
-      <button className="btn subtle" onClick={onDiscard} disabled={!dirty || saving} aria-label="Discard changes">
+      <button className="btn subtle btn-discard" onClick={onDiscard} disabled={!dirty || saving} aria-label="Discard changes">
         Discard
       </button>
 
-      <button className="btn subtle" onClick={onSave} disabled={!canSave} aria-label={saveLabel}>
+      <button className="btn subtle btn-save" onClick={onSave} disabled={!canSave} aria-label={saveLabel}>
         {saving ? "Saving…" : saveLabel}
       </button>
 

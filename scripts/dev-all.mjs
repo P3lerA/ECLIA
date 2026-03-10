@@ -152,6 +152,7 @@ const healthUrl = `http://127.0.0.1:${apiPort}/api/health`;
 
 const services = {
   memory:   detectEnabled(rootDir, "memory"),
+  symphony: detectEnabled(rootDir, "symphony"),
   discord:  detectEnabled(rootDir, "adapters.discord"),
   telegram: detectEnabled(rootDir, "adapters.telegram"),
 };
@@ -165,8 +166,7 @@ async function main() {
 
   // 1. Pre-build shared packages (must complete before any service imports them).
   console.log("[DEV] building shared packages...");
-  execSync("pnpm -C packages/config build", { cwd: rootDir, stdio: "inherit" });
-  execSync("pnpm -C packages/gateway-client build", { cwd: rootDir, stdio: "inherit" });
+  execSync("pnpm build:shared", { cwd: rootDir, stdio: "inherit" });
 
   // 2. Start or reuse gateway.
   if (await probeHealth(healthUrl)) {
@@ -182,7 +182,7 @@ async function main() {
   console.log("[DEV] gateway ready; launching services");
 
   if (services.memory)   spawnService("MEMORY",   ["-C", "apps/memory", "dev"]);
-  spawnService("SYMPHONY", ["-C", "apps/symphony", "dev"]);
+  if (services.symphony) spawnService("SYMPHONY", ["-C", "apps/symphony", "dev"]);
   spawnService("WEB",      ["-C", "apps/web-console", "dev"]);
   if (services.discord)  spawnService("DISCORD",  ["-C", "apps/adapter/discord", "dev"]);
   if (services.telegram) spawnService("TELEGRAM", ["-C", "apps/adapter/telegram", "dev"]);

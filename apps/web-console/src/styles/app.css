@@ -69,6 +69,11 @@ button, input, select, textarea{
   */
   width: min(calc(980px + var(--settings-sidebar-w) + var(--settings-sidebar-gap)), 100%);
 }
+.container.container-full{
+  width: 100%;
+  max-width: none;
+  padding: 0;
+}
 
 /* Brand: black base text + angled gradient highlight (inspired by your reference) */
 .brand{
@@ -151,21 +156,6 @@ button, input, select, textarea{
   user-select: none;
 }
 .btn:hover{ background: var(--surface-hover); }
-/* Menu trigger hover (a bit more expressive than the default button hover) */
-.btn.menu{
-  border-radius: 999px;
-  padding: 8px 14px;
-  letter-spacing: .12em;
-  font-weight: 700;
-  transition: transform var(--motion-2) var(--ease-standard), border-color var(--motion-2) var(--ease-standard), background var(--motion-2) var(--ease-standard);
-}
-.btn.menu:hover{
-  border-color: var(--line);
-  transform: translateY(-1px);
-}
-.btn.menu:active{
-  transform: translateY(0);
-}
 .btn.icon{
   width: 44px;
   height: 44px;
@@ -174,12 +164,20 @@ button, input, select, textarea{
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  font-size: 16px;
 }
 .btn.subtle{
   border-color: var(--line-2);
   background: var(--surface);
 }
 .btn.subtle:hover{ background: var(--surface-hover); }
+
+.btn.btn-save{ color: #b45309; }
+.btn.btn-save:hover{ background: var(--surface-hover); }
+:root[data-theme="dark"] .btn.btn-save{ color: #fbbf24; }
+
+.btn.btn-discard{ color: var(--danger, #ef4444); }
+.btn.btn-discard:hover{ background: var(--surface-hover); }
 
 .btn.icon.send{
   /* Flat send button (no gradient/glass) */
@@ -1446,13 +1444,30 @@ textarea:focus{
   justify-content: center;
 }
 
-/* Small circular theme button (Landing) */
+/* Circular icon buttons on the landing page */
+.btn.icon.landing-circle,
 .btn.icon.themeDot{
   width: 38px;
   height: 38px;
   border-radius: 999px;
   font-size: 16px;
   line-height: 1;
+}
+
+/* Treble clef glyph — visually center it */
+.treble-clef{
+  font-size: 20px;
+  line-height: 1;
+  display: inline-block;
+  transform: translateY(-2px);
+}
+
+/* Memory section inline save/discard bar */
+.memory-section-save{
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
 }
 
 /* Chat: top-right theme switch (3-state) */
@@ -1506,388 +1521,4 @@ textarea:focus{
   background: var(--surface-2);
   color: var(--text);
   box-shadow: 0 1px 0 rgba(0,0,0,0.04);
-}
-
-/* ─── Symphony view ──────────────────────────────────────── */
-
-.symphonyview{
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.symphony-body{
-  flex: 1;
-  padding: 0 4px 18px;
-}
-
-.symphony-empty{
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 48px 18px;
-  text-align: center;
-  font-size: 13px;
-}
-
-.symphony-grid{
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
-}
-
-/* ─── Instrument card ────────────────────────────────────── */
-
-.instrumentCard{
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  border-radius: 16px;
-  box-shadow: var(--shadow-card);
-  cursor: pointer;
-  text-align: left;
-  color: var(--text);
-  font: inherit;
-  user-select: none;
-}
-.instrumentCard:hover{
-  background: var(--surface-hover);
-  box-shadow: var(--shadow-soft);
-}
-.instrumentCard:active{
-  transform: translateY(0) scale(.99);
-}
-
-.instrumentCard-head{
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.instrumentCard-name{
-  font-weight: 700;
-  font-size: 13px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.instrumentCard-status{
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--muted);
-  white-space: nowrap;
-}
-.instrumentCard-statusDot{
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--muted);
-  flex: none;
-}
-.instrumentCard-status.running .instrumentCard-statusDot{
-  background: #34d399;
-  box-shadow: 0 0 0 3px rgba(52,211,153,.18);
-}
-.instrumentCard-status.starting .instrumentCard-statusDot{
-  background: #fbbf24;
-  box-shadow: 0 0 0 3px rgba(251,191,36,.18);
-}
-.instrumentCard-status.error .instrumentCard-statusDot{
-  background: var(--danger);
-  box-shadow: 0 0 0 3px rgba(239,68,68,.18);
-}
-
-.instrumentCard-body{
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.instrumentCard-pill{
-  font-family: var(--mono);
-  font-size: 11px;
-  padding: 3px 8px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.instrumentCard-arrow,
-.instrumentCard-sep{
-  font-size: 11px;
-  color: var(--muted);
-  opacity: .6;
-}
-
-.instrumentCard-disabled{
-  font-size: 11px;
-  font-weight: 650;
-  color: var(--muted);
-  opacity: .7;
-}
-
-/* ─── Instrument detail modal ────────────────────────────── */
-
-.instrumentModal-backdrop{
-  position: fixed;
-  inset: 0;
-  background: var(--overlay);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 18px;
-  z-index: 80;
-}
-
-.instrumentModal{
-  width: min(960px, 100%);
-  max-height: 88vh;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  border-radius: 18px;
-  box-shadow: var(--shadow);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.instrumentModal-head{
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px 12px;
-  border-bottom: 1px solid var(--line-2);
-}
-
-.instrumentModal-headLeft{
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-.instrumentModal-headActions{
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.instrumentModal-title{
-  font-weight: 750;
-  font-size: 14px;
-  letter-spacing: .01em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.instrumentModal-body{
-  flex: 1;
-  overflow-y: auto;
-  padding: 14px 16px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.instrumentModal-columns{
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
-  flex: 1;
-  min-height: 0;
-}
-.instrumentModal-col{
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 0;
-}
-.instrumentModal-colHeader{
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.instrumentModal-colTitle{
-  font-size: 11px;
-  font-weight: 750;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.instrumentForm-addInline{
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--surface-2);
-  color: var(--muted);
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 0 1px;
-}
-.instrumentForm-addInline:hover{
-  color: var(--text);
-  border-color: var(--text);
-}
-
-.instrumentModal-row{
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.instrumentModal-stepNum{
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: var(--surface-2);
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--muted);
-  flex: none;
-}
-
-.instrumentModal-configTable{
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.instrumentModal-configRow{
-  display: flex;
-  gap: 10px;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.instrumentModal-configKey{
-  flex: 0 0 auto;
-  min-width: 90px;
-  font-family: var(--mono);
-  color: var(--muted);
-  font-weight: 600;
-}
-
-.instrumentModal-configVal{
-  flex: 1;
-  min-width: 0;
-  word-break: break-word;
-  color: var(--text);
-}
-
-.instrumentModal-deleteBtn{
-  color: var(--danger);
-  border-color: var(--line-2);
-}
-.instrumentModal-deleteBtn:hover{
-  background: rgba(239,68,68,.08);
-}
-
-/* New instrument modal: config textarea */
-.newInstrument-configInput{
-  width: 100%;
-  min-height: 120px;
-  max-height: 280px;
-  resize: vertical;
-  box-sizing: border-box;
-  font-family: var(--mono);
-  font-size: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface);
-  color: var(--text);
-  outline: none;
-  line-height: 1.5;
-}
-.newInstrument-configInput:focus{
-  border-color: var(--line);
-  box-shadow: 0 0 0 3px var(--line-2);
-}
-
-/* Instrument form (shared create/edit) */
-.instrumentForm-card{
-  border: 1px solid var(--line-2);
-  background: var(--surface);
-  border-radius: 14px;
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.instrumentForm-cardHead{
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.instrumentForm-cardLabel{
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text);
-}
-.instrumentForm-removeBtn{
-  font-size: 11px;
-  color: var(--danger);
-  border-color: var(--line-2);
-  padding: 2px 8px;
-}
-.instrumentForm-removeBtn:hover{
-  background: rgba(239,68,68,.08);
-}
-
-.schemaFields{
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.schemaFields-title{
-  font-size: 11px;
-  font-weight: 650;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--fg-2);
-  margin-top: 6px;
-}
-
-@media (max-width: 680px){
-  .symphony-grid{
-    grid-template-columns: 1fr;
-  }
-  .instrumentModal{
-    max-height: 92vh;
-    border-radius: 14px;
-  }
-  .instrumentModal-columns{
-    grid-template-columns: 1fr;
-  }
 }

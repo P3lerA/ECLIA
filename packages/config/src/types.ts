@@ -13,24 +13,6 @@ import {
   type InferenceProviderId
 } from "./provider-defaults.js";
 
-// ─── Shared UI schema types ──────────────────────────────────
-
-/**
- * Describes a single configuration field for UI form generation.
- * Used by Symphony (trigger/action/preset schemas) and potentially other subsystems.
- */
-export interface ConfigFieldSchema {
-  key: string;
-  label: string;
-  type: "string" | "number" | "boolean" | "select" | "text" | "model";
-  required?: boolean;
-  default?: unknown;
-  sensitive?: boolean;
-  placeholder?: string;
-  /** Valid choices for "select" type. */
-  options?: string[];
-}
-
 // ─── ECLIA config ────────────────────────────────────────────
 
 /**

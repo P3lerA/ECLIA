@@ -28,4 +28,10 @@ export type SessionMetaV1 = {
    * Optional: last used route key / upstream model, for UX.
    */
   lastModel?: string;
+
+  /**
+   * If true, this session won't appear in the MenuSheet session list.
+   * Used for internal/automated sessions (e.g. Symphony LLM nodes).
+   */
+  hideInMenuSheet?: boolean;
 };

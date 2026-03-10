@@ -1,245 +1,256 @@
-import React from "react";
-import { EcliaLogo } from "../common/EcliaLogo";
-import { SaveDiscardBar } from "../common/SaveDiscardBar";
-import { fetchDevConfig } from "../settings/settingsInteractions";
-import { buildModelRouteOptions, type ModelRouteOption } from "../settings/settingsUtils";
-import { ThemeModeSwitch } from "../theme/ThemeModeSwitch";
-import { InstrumentCard } from "./InstrumentCard";
-import { InstrumentDetailModal } from "./InstrumentDetailModal";
-import { NewInstrumentModal } from "./NewInstrumentModal";
-import {
-  apiListInstruments,
-  apiSetInstrumentEnabled,
-  apiDeleteInstrument,
-  apiCreateInstrument,
-  apiListPresets,
-  apiListTriggers,
-  apiListActions,
-  type InstrumentDetail,
-  type PresetInfo,
-  type KindSchema
-} from "../../core/api/symphony";
+import "@xyflow/react/dist/style.css";
+import "./symphony.css";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { ReactFlowProvider, ReactFlow, Controls, Background, type Node, type Edge, type Connection } from "@xyflow/react";
+import { useSymphonyEditor } from "./useSymphonyEditor";
+import { symphonyNodeTypes } from "./CustomNodes";
+import type { SymphonyNodeData } from "./symphonyTypes";
+import { PORT_COLORS, SymphonyRuntimeContext, buildPortTypeMap } from "./symphonyTypes";
+import { Sidebar } from "./Sidebar";
+import { InspectorPopup } from "./InspectorPopup";
+import { NodeMenu } from "./NodeMenu";
+import { ValidationModal } from "./ValidationModal";
 
-export function SymphonyView({ onBack }: { onBack: () => void }) {
-  const [instruments, setInstruments] = React.useState<InstrumentDetail[]>([]);
-  const [presets, setPresets] = React.useState<PresetInfo[]>([]);
-  const [triggerSchemas, setTriggerSchemas] = React.useState<KindSchema[]>([]);
-  const [actionSchemas, setActionSchemas] = React.useState<KindSchema[]>([]);
-  const [modelRouteOptions, setModelRouteOptions] = React.useState<ModelRouteOption[]>([]);
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
-  const [showNew, setShowNew] = React.useState(false);
+// ─── Main view ─────────────────────────────────────────────
 
-  const [selected, setSelected] = React.useState<InstrumentDetail | null>(null);
-  const [modalOpen, setModalOpen] = React.useState(false);
+export function SymphonyView() {
+  const navigate = useNavigate();
+  const { opusId: urlOpusId } = useParams<{ opusId?: string }>();
+  const editor = useSymphonyEditor();
+  const rfInstance = useRef<any>(null);
+  const [nodeMenu, setNodeMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(null);
 
-  // ── Draft overrides (map of id → draftEnabled) ────────
-  // Only contains entries that differ from the instrument's current enabled.
-  const [overrides, setOverrides] = React.useState<Map<string, boolean>>(new Map());
-  const [saving, setSaving] = React.useState(false);
-
-  const dirty = overrides.size > 0;
-  const canSave = dirty && !saving;
-
-  const toggleDraft = (id: string, currentEnabled: boolean) => {
-    setOverrides((prev) => {
-      const next = new Map(prev);
-      const draft = next.has(id) ? next.get(id)! : currentEnabled;
-      const flipped = !draft;
-      if (flipped === currentEnabled) next.delete(id);
-      else next.set(id, flipped);
-      return next;
-    });
-  };
-
-  const save = async () => {
-    if (!canSave) return;
-    setSaving(true);
-    try {
-      await Promise.all(
-        [...overrides.entries()].map(([id, enabled]) => apiSetInstrumentEnabled(id, enabled))
-      );
-      setInstruments((prev) =>
-        prev.map((inst) => {
-          const ov = overrides.get(inst.id);
-          return ov !== undefined ? { ...inst, enabled: ov } : inst;
-        })
-      );
-      setOverrides(new Map());
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const discard = () => {
-    setOverrides(new Map());
-  };
-
-  const back = () => {
-    if (dirty || saving) return;
-    onBack();
-  };
-
-  // ── Fetch ────────────────────────────────────────────────
-
-  const fetchAll = React.useCallback(async () => {
-    try {
-      const [insts, prs, trigs, acts, cfgRes] = await Promise.all([
-        apiListInstruments(), apiListPresets(), apiListTriggers(), apiListActions(),
-        fetchDevConfig()
-      ]);
-      setInstruments(insts);
-      setPresets(prs);
-      setTriggerSchemas(trigs);
-      setActionSchemas(acts);
-
-      if (cfgRes.ok) {
-        const cfg = cfgRes.config;
-        const norm = (ps?: Array<{ id: string; name?: string }>) =>
-          ps?.map((p) => ({ id: p.id, name: p.name ?? p.id })) ?? null;
-        setModelRouteOptions(buildModelRouteOptions(
-          norm(cfg.inference?.openai_compat?.profiles),
-          norm(cfg.inference?.anthropic?.profiles),
-          norm(cfg.inference?.codex_oauth?.profiles)
-        ));
+  // Sync URL → editor selection
+  useEffect(() => {
+    if (editor.loading) return;
+    if (urlOpusId && urlOpusId !== editor.activeDef?.id) {
+      if (editor.opusList.some((f) => f.id === urlOpusId)) {
+        editor.selectOpus(urlOpusId);
       }
-
-      setError(null);
-    } catch (e: any) {
-      setError(String(e?.message ?? e));
-    } finally {
-      setLoading(false);
+    } else if (!urlOpusId && editor.activeDef) {
+      editor.selectOpus(null);
     }
+  }, [urlOpusId, editor.loading, editor.opusList]);
+
+  // Fit view when switching opus
+  const activeId = editor.activeDef?.id ?? null;
+  useEffect(() => {
+    if (!activeId || !rfInstance.current) return;
+    // Delay so React Flow processes the new nodes first
+    requestAnimationFrame(() => { rfInstance.current?.fitView({ padding: 0.3 }); });
+  }, [activeId]);
+
+  const handlePaneClick = useCallback(() => {
+    editor.onPaneClick();
+    setNodeMenu(null);
+  }, [editor.onPaneClick]);
+
+  const handlePaneDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (!rfInstance.current) return;
+    const pos = rfInstance.current.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    setNodeMenu({ x: e.clientX, y: e.clientY, flowX: pos.x, flowY: pos.y });
   }, []);
 
-  React.useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+  const portTypeMap = useMemo(
+    () => buildPortTypeMap(editor.nodes as Node<SymphonyNodeData>[], editor.edges),
+    [editor.nodes, editor.edges]
+  );
 
-  // ── Delete ───────────────────────────────────────────────
+  const isValidConnection = useCallback((conn: Connection | Edge) => {
+    // Keep fast client-side validation so users cannot draw obviously invalid
+    // links. The backend repeats these checks as the safety net.
+    const src = editor.nodes.find((n) => n.id === conn.source) as Node<SymphonyNodeData> | undefined;
+    const tgt = editor.nodes.find((n) => n.id === conn.target) as Node<SymphonyNodeData> | undefined;
+    if (!src || !tgt) return false;
+    const srcPort = src.data.schema.outputPorts.find((p) => p.key === conn.sourceHandle)
+      ?? src.data.dynamicOutputs?.find((p) => p.key === conn.sourceHandle);
+    if (!srcPort) return false;
 
-  const handleDelete = React.useCallback(
-    async (id: string) => {
-      setSelected(null);
-      setModalOpen(false);
-      setOverrides((prev) => {
-        if (!prev.has(id)) return prev;
-        const next = new Map(prev);
-        next.delete(id);
-        return next;
-      });
-      setInstruments((prev) => prev.filter((inst) => inst.id !== id));
+    const tgtHandle = conn.targetHandle ?? "";
+    if (tgtHandle.startsWith("cfg:")) {
+      const cfgKey = tgtHandle.slice(4);
+      if (!tgt.data.schema.configSchema.find((f) => f.key === cfgKey && f.connectable)) return false;
+    } else {
+      const tgtPort = tgt.data.schema.inputPorts.find((p) => p.key === tgtHandle)
+        ?? tgt.data.dynamicInputs?.find((p) => p.key === tgtHandle);
+      if (!tgtPort) return false;
+    }
 
-      try {
-        await apiDeleteInstrument(id);
-      } catch {
-        fetchAll();
+    // Use resolved types (typeFrom, typeFromPort, connection inference)
+    const srcType = portTypeMap.get(`${conn.source}:${conn.sourceHandle}`) ?? srcPort.type;
+    const tgtType = portTypeMap.get(`${conn.target}:${tgtHandle}`) ?? "any";
+    if (tgtType !== "any" && srcType !== tgtType) return false;
+
+    // Reject if the target handle already has a connection
+    const alreadyConnected = editor.edges.some(
+      (e) => e.target === conn.target && e.targetHandle === tgtHandle
+    );
+    if (alreadyConnected) return false;
+
+    return true;
+  }, [editor.nodes, editor.edges, portTypeMap]);
+
+  // Ctrl/Cmd+D → duplicate selected node
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "d" && (e.ctrlKey || e.metaKey) && editor.selectedNodeId) {
+        e.preventDefault();
+        editor.duplicateNode(editor.selectedNodeId);
       }
-    },
-    [fetchAll]
-  );
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [editor.selectedNodeId, editor.duplicateNode]);
 
-  // ── Create ───────────────────────────────────────────────
+  // Collect edge/node IDs that have validation errors
+  const [errorEdgeIds, errorNodeIds] = useMemo(() => {
+    const edges = new Set<string>();
+    const nodes = new Set<string>();
+    const edgeIdSet = new Set(editor.edges.map((e) => e.id));
+    const nodeIdSet = new Set(editor.nodes.map((n) => n.id));
+    for (const err of editor.validationErrors) {
+      if (!err.target) continue;
+      if (edgeIdSet.has(err.target)) edges.add(err.target);
+      else if (nodeIdSet.has(err.target)) nodes.add(err.target);
+    }
+    return [edges, nodes] as const;
+  }, [editor.validationErrors, editor.edges, editor.nodes]);
 
-  const handleCreate = React.useCallback(
-    async (payload: Record<string, unknown>) => {
-      const inst = await apiCreateInstrument(payload);
-      setInstruments((prev) => [...prev, inst]);
-    },
-    []
-  );
+  const opusRunning = editor.runtimeStatus === "running";
+  const runtimeCtx = useMemo(() => ({
+    running: opusRunning,
+    triggerManual: editor.triggerManual,
+    portTypeMap,
+    errorNodeIds,
+    addDynamicPort: editor.addDynamicPort,
+    removeDynamicPort: editor.removeDynamicPort,
+  }), [opusRunning, editor.triggerManual, portTypeMap, errorNodeIds, editor.addDynamicPort, editor.removeDynamicPort]);
 
-  // ── Render ───────────────────────────────────────────────
+  if (editor.loading) {
+    return <div className="sym-root motion-page"><div className="sym-loading">Loading...</div></div>;
+  }
 
-  const selectedEnabled = selected
-    ? (overrides.has(selected.id) ? overrides.get(selected.id)! : selected.enabled)
-    : false;
+  if (editor.error) {
+    return (
+      <div className="sym-root motion-page">
+        <div className="sym-error">
+          <span>{editor.error}</span>
+          <button className="btn" onClick={editor.clearError}>Dismiss</button>
+        </div>
+      </div>
+    );
+  }
+
+  const selectedNode = editor.selectedNodeId
+    ? (editor.nodes.find((n) => n.id === editor.selectedNodeId) as Node<SymphonyNodeData> | undefined)
+    : undefined;
+
+  // Color edges based on resolved source port type; mark error edges red
+  const coloredEdges = editor.edges.map((e) => {
+    if (errorEdgeIds.has(e.id)) {
+      return { ...e, style: { ...e.style, stroke: "var(--danger, #ef4444)" }, animated: true };
+    }
+    const resolved = portTypeMap.get(`${e.source}:${e.sourceHandle}`) ?? "any";
+    const color = PORT_COLORS[resolved] ?? PORT_COLORS.any;
+    return { ...e, style: { ...e.style, stroke: color } };
+  });
 
   return (
-    <div className="symphonyview motion-page">
-      {/* Head */}
-      <div className="settings-head">
-        <button className="btn icon" onClick={back} type="button" aria-label="Back" disabled={dirty || saving}>
-          ←
-        </button>
-        <div className="settings-head-title">
-          <EcliaLogo size="md" onClick={back} disabled={dirty || saving} />
-          <span className="settings-title">Symphony</span>
+    <div className="sym-root motion-page">
+      {/* Canvas */}
+      <SymphonyRuntimeContext.Provider value={runtimeCtx}>
+      <ReactFlowProvider>
+        <div
+          className="sym-canvas-wrap"
+          onDoubleClick={(e) => {
+            if (!(e.target as HTMLElement).closest(".react-flow__node")) handlePaneDoubleClick(e);
+          }}
+        >
+          {editor.activeDef ? (
+            <ReactFlow
+              nodes={editor.nodes}
+              edges={coloredEdges}
+              nodeTypes={symphonyNodeTypes}
+              defaultEdgeOptions={{ interactionWidth: 20 }}
+              onInit={(instance) => { rfInstance.current = instance; }}
+              onNodesChange={editor.onNodesChange}
+              onEdgesChange={editor.onEdgesChange}
+              onConnect={editor.onConnect}
+              isValidConnection={isValidConnection}
+              onNodeClick={editor.onNodeClick}
+              onPaneClick={handlePaneClick}
+              selectionOnDrag
+              panOnDrag={[2]}
+              deleteKeyCode={["Backspace", "Delete"]}
+              zoomOnDoubleClick={false}
+              fitView
+              fitViewOptions={{ padding: 0.3 }}
+            >
+              <Controls position="bottom-left" showInteractive={false} />
+              <Background variant={"dots" as any} gap={18} size={1.5} color="var(--sym-dot)" />
+            </ReactFlow>
+          ) : (
+            <div className="sym-canvas-empty">Select or create an opus</div>
+          )}
         </div>
-        <div className="settings-head-actions">
-          <SaveDiscardBar dirty={dirty} saving={saving} canSave={canSave} onSave={save} onDiscard={discard}>
-            {presets.length > 0 && (
-              <button className="btn subtle" onClick={() => setShowNew(true)} type="button">
-                + New
-              </button>
-            )}
-            <ThemeModeSwitch compact />
-          </SaveDiscardBar>
-        </div>
-      </div>
+      </ReactFlowProvider>
+      </SymphonyRuntimeContext.Provider>
 
-      {/* Body */}
-      <div className="symphony-body">
-        {loading && (
-          <div className="symphony-empty muted">Loading instruments...</div>
-        )}
+      {/* Double-click node menu */}
+      {nodeMenu && (
+        <NodeMenu
+          x={nodeMenu.x}
+          y={nodeMenu.y}
+          nodeKinds={editor.nodeKinds}
+          onAdd={(kind) => { editor.addNode(kind, { x: nodeMenu.flowX, y: nodeMenu.flowY }); setNodeMenu(null); }}
+          onClose={() => setNodeMenu(null)}
+        />
+      )}
 
-        {!loading && error && (
-          <div className="symphony-empty">
-            <span className="muted">Failed to load instruments</span>
-            <span className="muted" style={{ fontSize: 12 }}>{error}</span>
-            <button className="btn subtle" onClick={fetchAll} type="button">Retry</button>
-          </div>
-        )}
-
-        {!loading && !error && instruments.length === 0 && (
-          <div className="symphony-empty">
-            <span className="muted">No instruments configured.</span>
-            {presets.length > 0 && (
-              <button className="btn subtle" onClick={() => setShowNew(true)} type="button">
-                + Create one
-              </button>
-            )}
-          </div>
-        )}
-
-        {!loading && !error && instruments.length > 0 && (
-          <div className="symphony-grid">
-            {instruments.map((inst) => (
-              <InstrumentCard
-                key={inst.id}
-                data={inst}
-                onClick={() => { setSelected(inst); setModalOpen(true); }}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
-      <InstrumentDetailModal
-        instrument={modalOpen ? selected : null}
-        onClose={() => setModalOpen(false)}
-        draftEnabled={selectedEnabled}
-        onToggleDraft={() => { if (selected) toggleDraft(selected.id, selected.enabled); }}
-        onDelete={handleDelete}
-        onUpdate={(updated) => {
-          setInstruments((prev) => prev.map((inst) => inst.id === updated.id ? updated : inst));
-          setSelected(updated);
+      {/* Sidebar — opus list + node palette */}
+      <Sidebar
+        opusList={editor.opusList}
+        activeId={editor.activeDef?.id ?? null}
+        activeName={editor.activeDef?.name ?? null}
+        activeRunning={opusRunning}
+        dirty={editor.dirty}
+        onSelect={(id) => { editor.selectOpus(id); navigate(`/symphony/${id}`, { replace: true }); }}
+        onCreate={async () => { const id = await editor.createOpus(); if (id) navigate(`/symphony/${id}`, { replace: true }); }}
+        onDelete={editor.deleteOpus}
+        onToggleEnabled={editor.toggleEnabled}
+        onNameChange={editor.setOpusName}
+        onSave={editor.saveOpus}
+        onDiscard={editor.discardChanges}
+        onReload={editor.reloadOpus}
+        hint={editor.hint}
+        onBack={() => navigate("/")}
+        nodeKinds={editor.nodeKinds}
+        onAddNode={(kind) => {
+          const pos = rfInstance.current
+            ? rfInstance.current.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
+            : { x: 200, y: 100 };
+          editor.addNode(kind, { x: pos.x + (Math.random() - 0.5) * 60, y: pos.y + (Math.random() - 0.5) * 60 });
         }}
-        triggerSchemas={triggerSchemas}
-        actionSchemas={actionSchemas}
-        modelRouteOptions={modelRouteOptions}
       />
 
-      <NewInstrumentModal
-        open={showNew}
-        presets={presets}
-        triggerSchemas={triggerSchemas}
-        actionSchemas={actionSchemas}
-        modelRouteOptions={modelRouteOptions}
-        onClose={() => setShowNew(false)}
-        onCreate={handleCreate}
-      />
+      {/* Inspector popup — opens on node click */}
+      {selectedNode && (
+        <InspectorPopup
+          selectedNode={selectedNode}
+          opusId={editor.activeDef?.id ?? null}
+          opusRunning={opusRunning}
+          onUpdateConfig={editor.updateNodeConfig}
+          onTrigger={editor.triggerManual}
+          onClose={handlePaneClick}
+          modelRouteOptions={editor.modelRouteOptions}
+        />
+      )}
+
+      {/* Validation error modal — only for server-side errors (dismissible) */}
+      {editor.serverErrors.length > 0 && (
+        <ValidationModal errors={editor.serverErrors} onClose={editor.clearValidationErrors} />
+      )}
     </div>
   );
 }

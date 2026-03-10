@@ -7,7 +7,9 @@
     "eclia": "dist/index.js"
   },
   "scripts": {
+    "predev": "pnpm -w run build:shared",
     "dev": "tsx src/index.ts",
+    "prebuild": "pnpm -w run build:shared",
     "build": "tsup src/index.ts --format esm --dts --clean",
     "start": "node dist/index.js"
   },

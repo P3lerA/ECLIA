@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 import { usePresence } from "../motion/usePresence";
 import { apiDeleteSession } from "../../core/api/sessions";
+import { ThemeCycleButton } from "../theme/ThemeCycleButton";
 
 const FOCUSABLE =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -90,9 +91,6 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
   }, [present, open, onClose]);
 
   if (!present) return null;
-
-  const sectionDelay = (ms: number) =>
-    ({ ["--motion-delay" as any]: `${ms}ms` }) as React.CSSProperties;
 
   const toggleSelected = (sessionId: string) => {
     setSelectedIds((prev) => {
@@ -328,6 +326,24 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
               </>
             ) : null}
 
+            <button
+              className="btn icon"
+              onClick={() => { navigate("/settings"); onClose(); }}
+              aria-label="Settings"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M11 10.27 7 3.34"/><path d="m11 13.73-4 6.93"/><path d="M12 22v-2"/><path d="M12 2v2"/><path d="M14 12h8"/><path d="m17 20.66-1-1.73"/><path d="m17 3.34-1 1.73"/><path d="M2 12h2"/><path d="m20.66 17-1.73-1"/><path d="m20.66 7-1.73 1"/><path d="m3.34 17 1.73-1"/><path d="m3.34 7 1.73 1"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="12" r="8"/></svg>
+            </button>
+
+            <button
+              className="btn icon"
+              onClick={() => { navigate("/symphony"); onClose(); }}
+              aria-label="Symphony"
+            >
+              <span className="treble-clef" aria-hidden="true">{"\uD834\uDD1E"}</span>
+            </button>
+
+            <ThemeCycleButton className="btn icon" />
+
             <button ref={closeBtnRef} className="btn icon" onClick={onClose} aria-label="Close menu">
               ✕
             </button>
@@ -343,53 +359,15 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
               aria-hidden={view !== "main"}
               {...(view !== "main" ? ({ inert: "" } as any) : {})}
             >
-              <section className="menu-section motion-item" style={sectionDelay(40)}>
-                <div className="menu-section-title">Sessions</div>
-                {renderSessions(preview)}
+              {renderSessions(preview)}
 
-                {state.sessions.length > 5 ? (
-                  <div className="menu-section-foot">
-                    <button className="btn subtle" onClick={() => setView("all-sessions")}>
-                      All sessions
-                    </button>
-                  </div>
-                ) : null}
-              </section>
-
-              <section className="menu-section motion-item" style={sectionDelay(90)}>
-                <div className="menu-section-title">Navigate</div>
-                <div className="menu-list">
-                  <button
-                    className="menu-item"
-                    onClick={() => {
-                      navigate("/settings");
-                      onClose();
-                    }}
-                  >
-                    <div className="menu-item-main">Settings</div>
-                  </button>
-
-                  <button
-                    className="menu-item"
-                    onClick={() => {
-                      navigate("/memory");
-                      onClose();
-                    }}
-                  >
-                    <div className="menu-item-main">Memory</div>
-                  </button>
-
-                  <button
-                    className="menu-item"
-                    onClick={() => {
-                      navigate("/symphony");
-                      onClose();
-                    }}
-                  >
-                    <div className="menu-item-main">Symphony</div>
+              {state.sessions.length > 5 ? (
+                <div className="menu-section-foot">
+                  <button className="btn subtle" onClick={() => setView("all-sessions")}>
+                    All sessions
                   </button>
                 </div>
-              </section>
+              ) : null}
             </div>
 
             {/* ALL SESSIONS */}
@@ -398,26 +376,23 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
               aria-hidden={view !== "all-sessions"}
               {...(view !== "all-sessions" ? ({ inert: "" } as any) : {})}
             >
-              <section className="menu-section motion-item" style={sectionDelay(40)}>
-                <div className="menu-section-title">Sessions</div>
-                <div className="menuManageStage" data-view={manageMode ? "manage" : "browse"}>
-                  <div
-                    className="menuManageView menuManageView-browse"
-                    aria-hidden={manageMode}
-                    {...(manageMode ? ({ inert: "" } as any) : {})}
-                  >
-                    {renderSessions(state.sessions)}
-                  </div>
-
-                  <div
-                    className="menuManageView menuManageView-manage"
-                    aria-hidden={!manageMode}
-                    {...(!manageMode ? ({ inert: "" } as any) : {})}
-                  >
-                    {renderSessions(state.sessions, { manage: true })}
-                  </div>
+              <div className="menuManageStage" data-view={manageMode ? "manage" : "browse"}>
+                <div
+                  className="menuManageView menuManageView-browse"
+                  aria-hidden={manageMode}
+                  {...(manageMode ? ({ inert: "" } as any) : {})}
+                >
+                  {renderSessions(state.sessions)}
                 </div>
-              </section>
+
+                <div
+                  className="menuManageView menuManageView-manage"
+                  aria-hidden={!manageMode}
+                  {...(!manageMode ? ({ inert: "" } as any) : {})}
+                >
+                  {renderSessions(state.sessions, { manage: true })}
+                </div>
+              </div>
             </div>
           </div>
         </div>

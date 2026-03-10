@@ -1,66 +1,43 @@
-import type { TriggerSourceFactory, ActionStepFactory, TriggerSource, ActionStep, ConfigFieldSchema } from "./types.js";
-
-export interface KindSchema {
-  kind: string;
-  label: string;
-  configSchema: ConfigFieldSchema[];
-}
+import type { NodeFactory, Node, NodeKindSchema, PortDef } from "./types.js";
 
 /**
- * Central registry for trigger source and action step factories.
+ * Central registry for node factories.
  *
- * Built-in kinds are registered at boot; user-defined kinds can be
- * loaded from custom modules later (the "skill" path).
+ * Built-in kinds are registered at boot.
+ * Plugins can add more via `register()`.
  */
 export class Registry {
-  private triggers = new Map<string, TriggerSourceFactory>();
-  private actions = new Map<string, ActionStepFactory>();
+  private factories = new Map<string, NodeFactory>();
 
-  // ── Registration ───────────────────────────────────────────
-
-  registerTrigger(factory: TriggerSourceFactory): void {
-    if (this.triggers.has(factory.kind)) {
-      throw new Error(`duplicate trigger kind: "${factory.kind}"`);
+  register(factory: NodeFactory): void {
+    if (this.factories.has(factory.kind)) {
+      throw new Error(`duplicate node kind: "${factory.kind}"`);
     }
-    this.triggers.set(factory.kind, factory);
+    this.factories.set(factory.kind, factory);
   }
 
-  registerAction(factory: ActionStepFactory): void {
-    if (this.actions.has(factory.kind)) {
-      throw new Error(`duplicate action kind: "${factory.kind}"`);
-    }
-    this.actions.set(factory.kind, factory);
+  get(kind: string): NodeFactory | undefined {
+    return this.factories.get(kind);
   }
 
-  // ── Instantiation ──────────────────────────────────────────
-
-  createTrigger(kind: string, id: string, config: Record<string, unknown>): TriggerSource {
-    const f = this.triggers.get(kind);
-    if (!f) throw new Error(`unknown trigger kind: "${kind}"`);
-    return f.create(id, config);
+  create(kind: string, id: string, config: Record<string, unknown>, dynamicPorts?: { inputs?: PortDef[], outputs?: PortDef[] }): Node {
+    const f = this.factories.get(kind);
+    if (!f) throw new Error(`unknown node kind: "${kind}"`);
+    return f.create(id, config, dynamicPorts);
   }
 
-  createAction(kind: string, id: string, config: Record<string, unknown>): ActionStep {
-    const f = this.actions.get(kind);
-    if (!f) throw new Error(`unknown action kind: "${kind}"`);
-    return f.create(id, config);
-  }
-
-  // ── Introspection ──────────────────────────────────────────
-
-  triggerSchemas(): KindSchema[] {
-    return [...this.triggers.values()].map((f) => ({
+  /** All registered kinds, for the API / UI. */
+  schemas(): NodeKindSchema[] {
+    return [...this.factories.values()].map((f) => ({
       kind: f.kind,
-      label: f.label ?? f.kind,
-      configSchema: f.configSchema ?? []
-    }));
-  }
-
-  actionSchemas(): KindSchema[] {
-    return [...this.actions.values()].map((f) => ({
-      kind: f.kind,
-      label: f.label ?? f.kind,
-      configSchema: f.configSchema ?? []
+      label: f.label,
+      role: f.role,
+      description: f.description,
+      inputPorts: f.inputPorts,
+      outputPorts: f.outputPorts,
+      configSchema: f.configSchema,
+      ...(f.dynamicInput && { dynamicInput: f.dynamicInput }),
+      ...(f.dynamicOutput && { dynamicOutput: f.dynamicOutput }),
     }));
   }
 }

@@ -10,6 +10,7 @@ const { config } = loadEcliaConfig(process.cwd());
 const consoleHost = config.console.host;
 const consolePort = config.console.port;
 const apiPort = config.api.port;
+const loopbackHost = "127.0.0.1";
 
 export default defineConfig({
   plugins: [react()],
@@ -19,7 +20,7 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       "/api": {
-        target: `http://localhost:${apiPort}`,
+        target: `http://${loopbackHost}:${apiPort}`,
         changeOrigin: true
       }
     }

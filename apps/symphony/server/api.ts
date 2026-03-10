@@ -1,207 +1,158 @@
 import type { Conductor } from "./conductor.js";
-import type { InstrumentDef } from "./types.js";
+import type { OpusDef } from "./types.js";
+import type { OpusRuntime } from "./opus-runtime.js";
 import { json, readJson } from "@eclia/gateway-client/utils";
-import { patchLocalToml } from "@eclia/config";
-import type { InstrumentRuntime } from "./instrument-runtime.js";
-import { buildInstrumentDef } from "./parse.js";
-
-// ─── TOML persistence helpers ────────────────────────────────
-
-function defToTomlEntry(def: InstrumentDef) {
-  return {
-    id: def.id,
-    name: def.name,
-    enabled: def.enabled,
-    triggers: def.trigger.sources.map((s) => ({ kind: s.kind, config: s.config })),
-    actions: def.actions.map((a) => ({ kind: a.kind, config: a.config }))
-  };
-}
-
-function persistDef(rootDir: string, def: InstrumentDef): void {
-  patchLocalToml(rootDir, (toml) => {
-    if (!toml.symphony) toml.symphony = {};
-    if (!Array.isArray(toml.symphony.instruments)) toml.symphony.instruments = [];
-    toml.symphony.instruments = toml.symphony.instruments.filter(
-      (e: any) => String(e?.id ?? "").trim() !== def.id
-    );
-    toml.symphony.instruments.push(defToTomlEntry(def));
-  });
-}
-
-function removeDef(rootDir: string, id: string): void {
-  patchLocalToml(rootDir, (toml) => {
-    if (!Array.isArray(toml.symphony?.instruments)) return;
-    toml.symphony.instruments = toml.symphony.instruments.filter(
-      (e: any) => String(e?.id ?? "").trim() !== id
-    );
-  });
-}
+import { OpusValidationError } from "./graph.js";
 
 /**
- * Minimal HTTP API for the Symphony conductor.
- * Called by the gateway proxy at /api/symphony/*.
+ * HTTP API handler for Symphony.
  *
  * Routes:
- *   GET  /instruments          — list all instruments (with full def)
- *   GET  /instruments/:id      — get one instrument
- *   POST /instruments          — create from preset or raw def
- *   PUT  /instruments/:id/enabled — toggle enabled + start/stop
- *   DELETE /instruments/:id    — stop + remove
- *   GET  /presets              — list available presets (with configSchema)
- *   GET  /triggers             — list trigger kinds (with configSchema)
- *   GET  /actions              — list action kinds (with configSchema)
+ *   GET    /nodes                — list registered node kinds (with ports + config schema)
+ *   GET    /opus                 — list all opus definitions
+ *   GET    /opus/:id             — get one opus (full def + status)
+ *   POST   /opus                 — create a new opus
+ *   PUT    /opus/:id             — update an opus definition
+ *   PUT    /opus/:id/enabled     — toggle enabled + start/stop
+ *   DELETE /opus/:id             — stop + remove
+ *   POST   /opus/validate        — dry-run validation without saving
  */
-export function handleSymphonyApi(conductor: Conductor, rootDir: string) {
+export function handleSymphonyApi(conductor: Conductor) {
   return async (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => {
     const u = new URL(req.url ?? "/", "http://localhost");
-    const pathname = u.pathname;
+    const p = u.pathname;
 
     try {
-      // GET /instruments
-      if (pathname === "/instruments" && req.method === "GET") {
-        const instruments = conductor.list().map((info) => {
-          const rt = conductor.get(info.id);
-          return rt ? serializeInstrument(rt, info) : { ...info, triggers: [], actions: [] };
-        });
-        return json(res, 200, { ok: true, instruments });
+      // ── Node registry ────────────────────────────────────
+      if (p === "/nodes" && req.method === "GET") {
+        return json(res, 200, { ok: true, nodes: conductor.registry.schemas() });
       }
 
-      // GET /presets
-      if (pathname === "/presets" && req.method === "GET") {
-        const presets = conductor.listPresets().map((p) => ({
-          presetId: p.presetId,
-          name: p.name,
-          description: p.description,
-          triggerKinds: p.triggerKinds,
-          actionKinds: p.actionKinds,
-          configSchema: p.configSchema ?? []
-        }));
-        return json(res, 200, { ok: true, presets });
+      // ── List opus ─────────────────────────────────────────
+      if (p === "/opus" && req.method === "GET") {
+        return json(res, 200, { ok: true, opus: conductor.list() });
       }
 
-      // GET /triggers
-      if (pathname === "/triggers" && req.method === "GET") {
-        return json(res, 200, { ok: true, triggers: conductor.registry.triggerSchemas() });
-      }
-
-      // GET /actions
-      if (pathname === "/actions" && req.method === "GET") {
-        return json(res, 200, { ok: true, actions: conductor.registry.actionSchemas() });
-      }
-
-      // POST /instruments — create from structured triggers + actions
-      if (pathname === "/instruments" && req.method === "POST") {
+      // ── Create opus ───────────────────────────────────────
+      if (p === "/opus" && req.method === "POST") {
         const body = await readJson(req);
-        const instrumentId = typeof body?.instrumentId === "string" ? body.instrumentId.trim() : "";
-        if (!instrumentId) return json(res, 400, { ok: false, error: "missing_instrument_id" });
+        const def = parseOpusDef(body);
+        if (!def) return json(res, 400, { ok: false, error: "invalid_opus_def" });
 
-        let def: InstrumentDef;
-        try {
-          def = buildInstrumentDef({
-            id: instrumentId,
-            name: body?.name,
-            enabled: true,
-            triggers: Array.isArray(body?.triggers) ? body.triggers : [],
-            actions: Array.isArray(body?.actions) ? body.actions : []
-          });
-          conductor.add(def);
-        } catch (e: any) {
-          return json(res, 400, { ok: false, error: "create_failed", hint: String(e?.message ?? e) });
+        await conductor.upsert(def);
+        return json(res, 201, { ok: true, opus: serializeOpus(conductor.get(def.id)) });
+      }
+
+      // ── Validate (dry run) ───────────────────────────────
+      if (p === "/opus/validate" && req.method === "POST") {
+        const body = await readJson(req);
+        const def = parseOpusDef(body);
+        if (!def) return json(res, 400, { ok: false, error: "invalid_opus_def" });
+        const errors = conductor.validate(def);
+        return json(res, 200, { ok: true, valid: errors.length === 0, errors });
+      }
+
+      // ── Single opus routes ────────────────────────────────
+
+      // POST /opus/:id/trigger/:nodeId — fire a manual-trigger source
+      const mTrigger = p.match(/^\/opus\/([^/]+)\/trigger\/([^/]+)$/);
+      if (mTrigger && req.method === "POST") {
+        const id = decodeURIComponent(mTrigger[1]);
+        const nodeId = decodeURIComponent(mTrigger[2]);
+        const rt = conductor.get(id);
+        if (!rt) return json(res, 404, { ok: false, error: "not_found" });
+        if (rt.getStatus() !== "running") {
+          return json(res, 400, { ok: false, error: "opus_not_running", hint: "Enable and start the opus first" });
         }
 
-        try { await conductor.start(instrumentId); } catch { /* best-effort */ }
-        persistDef(rootDir, def);
-
-        const rt = conductor.get(instrumentId);
-        const instrument = rt ? serializeInstrument(rt) : null;
-        return json(res, 200, { ok: true, instrument });
+        const body = await readJson(req).catch(() => ({}));
+        rt.triggerNode(nodeId, (body as any)?.payload);
+        return json(res, 200, { ok: true });
       }
 
-      // PUT /instruments/:id/enabled
-      const mEnabled = pathname.match(/^\/instruments\/([^/]+)\/enabled$/);
+      // POST /opus/:id/reload — tear down and re-instantiate runtime
+      const mReload = p.match(/^\/opus\/([^/]+)\/reload$/);
+      if (mReload && req.method === "POST") {
+        const id = decodeURIComponent(mReload[1]);
+        const rt = conductor.get(id);
+        if (!rt) return json(res, 404, { ok: false, error: "not_found" });
+
+        const errors = conductor.validate(rt.def);
+        if (errors.length) throw new OpusValidationError(errors);
+
+        await conductor.reload(id);
+        return json(res, 200, { ok: true, opus: serializeOpus(conductor.get(id)) });
+      }
+
+      // PUT /opus/:id/enabled
+      const mEnabled = p.match(/^\/opus\/([^/]+)\/enabled$/);
       if (mEnabled && req.method === "PUT") {
         const id = decodeURIComponent(mEnabled[1]);
-        const rt = conductor.get(id);
-        if (!rt) return json(res, 404, { ok: false, error: "not_found" });
+        if (!conductor.get(id)) return json(res, 404, { ok: false, error: "not_found" });
 
         const body = await readJson(req);
-        const enabled = Boolean(body?.enabled);
-
-        rt.def.enabled = enabled;
-        persistDef(rootDir, rt.def);
-
-        if (enabled) {
-          try { await conductor.start(id); } catch { /* best-effort */ }
-        } else {
-          try { await conductor.stop(id); } catch { /* best-effort */ }
-        }
-
-        return json(res, 200, { ok: true });
+        await conductor.setEnabled(id, Boolean(body?.enabled));
+        return json(res, 200, { ok: true, opus: serializeOpus(conductor.get(id)) });
       }
 
-      // PUT /instruments/:id — update config (trigger + actions)
-      const mUpdate = pathname.match(/^\/instruments\/([^/]+)$/);
-      if (mUpdate && req.method === "PUT") {
-        const id = decodeURIComponent(mUpdate[1]);
+      const mId = p.match(/^\/opus\/([^/]+)$/);
+      if (!mId) return json(res, 404, { ok: false, error: "not_found" });
+      const id = decodeURIComponent(mId[1]);
+
+      // GET /opus/:id
+      if (req.method === "GET") {
         const rt = conductor.get(id);
-        if (!rt) return json(res, 404, { ok: false, error: "not_found" });
-
-        const body = await readJson(req);
-        const rawTriggers = Array.isArray(body?.triggers) ? body.triggers : undefined;
-        const rawActions = Array.isArray(body?.actions) ? body.actions : undefined;
-
-        if (!rawTriggers && !rawActions) {
-          return json(res, 400, { ok: false, error: "nothing_to_update" });
-        }
-
-        const oldDef = rt.def;
-        try {
-          const newDef = buildInstrumentDef({
-            id: oldDef.id,
-            name: oldDef.name,
-            enabled: oldDef.enabled,
-            triggers: rawTriggers ?? oldDef.trigger.sources,
-            actions: rawActions ?? oldDef.actions
-          });
-          await conductor.update(id, newDef);
-          persistDef(rootDir, newDef);
-        } catch (e: any) {
-          return json(res, 500, { ok: false, error: "update_failed", hint: String(e?.message ?? e) });
-        }
-
-        const updatedRt = conductor.get(id);
-        const instrument = updatedRt ? serializeInstrument(updatedRt) : null;
-        return json(res, 200, { ok: true, instrument });
+        if (rt) return json(res, 200, { ok: true, opus: serializeOpus(rt) });
+        const failed = conductor.getFailedDef(id);
+        if (failed) return json(res, 200, { ok: true, opus: { ...failed, status: "error" as const } });
+        return json(res, 404, { ok: false, error: "not_found" });
       }
 
-      // Match /instruments/:id for both GET and DELETE
-      const mId = pathname.match(/^\/instruments\/([^/]+)$/);
+      // PUT /opus/:id — save without restarting runtime (no validation — draft save)
+      if (req.method === "PUT") {
+        const body = await readJson(req);
+        const def = parseOpusDef(body);
+        if (!def || def.id !== id) return json(res, 400, { ok: false, error: "invalid_opus_def" });
 
-      // DELETE /instruments/:id
-      if (mId && req.method === "DELETE") {
-        const id = decodeURIComponent(mId[1]);
+        const existed = !!conductor.get(id) || !!conductor.getFailedDef(id);
+        await conductor.save(def);
+        const rt = conductor.get(id);
+        const opus = rt ? serializeOpus(rt) : { ...def, status: "error" as const };
+        return json(res, existed ? 200 : 201, { ok: true, opus });
+      }
+
+      // DELETE /opus/:id
+      if (req.method === "DELETE") {
         await conductor.remove(id);
-        removeDef(rootDir, id);
         return json(res, 200, { ok: true });
-      }
-
-      // GET /instruments/:id
-      if (mId && req.method === "GET") {
-        const id = decodeURIComponent(mId[1]);
-        const rt = conductor.get(id);
-        if (!rt) return json(res, 404, { ok: false, error: "not_found" });
-        return json(res, 200, { ok: true, instrument: serializeInstrument(rt) });
       }
 
       return json(res, 404, { ok: false, error: "not_found" });
     } catch (e: any) {
+      if (e instanceof OpusValidationError) {
+        return json(res, 400, { ok: false, error: "validation_failed", errors: e.errors });
+      }
       return json(res, 500, { ok: false, error: "internal_error", hint: String(e?.message ?? e) });
     }
   };
 }
 
-// ─── Helpers ────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────
 
-function serializeInstrument(rt: InstrumentRuntime, info?: { id: string; name: string; enabled: boolean; status: string }) {
-  return { ...defToTomlEntry(rt.def), status: info?.status ?? rt.getStatus() };
+function parseOpusDef(body: any): OpusDef | null {
+  if (!body || typeof body !== "object") return null;
+  if (typeof body.id !== "string" || !body.id.trim()) return null;
+  return {
+    id: body.id.trim(),
+    name: typeof body.name === "string" ? body.name.trim() : body.id.trim(),
+    enabled: body.enabled !== false,
+    nodes: Array.isArray(body.nodes) ? body.nodes : [],
+    links: Array.isArray(body.links) ? body.links : [],
+    ui: body.ui ?? undefined
+  };
+}
+
+function serializeOpus(rt: OpusRuntime | undefined) {
+  if (!rt) return null;
+  return { ...rt.def, status: rt.getStatus() };
 }

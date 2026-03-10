@@ -1,130 +1,152 @@
-import type { InstrumentDef, InstrumentPreset, ScopedLogger } from "./types.js";
+import type { OpusDef, OpusStatus, ValidationError, EvaluationRecord, ScopedLogger } from "./types.js";
 import { Registry } from "./registry.js";
 import { StateStore } from "./state-store.js";
-import { InstrumentRuntime, type InstrumentStatus } from "./instrument-runtime.js";
+import { OpusStore } from "./opus-store.js";
+import { OpusRuntime } from "./opus-runtime.js";
+import { validateOpus, OpusValidationError } from "./graph.js";
 
-export interface InstrumentInfo {
-  id: string;
-  name: string;
-  enabled: boolean;
-  status: InstrumentStatus;
-}
-
-/**
- * The Conductor manages the full lifecycle of instruments.
- *
- * Responsibilities:
- *   - Hold the Registry (trigger/action factories) and StateStore.
- *   - Instantiate InstrumentRuntimes from InstrumentDefs.
- *   - Start / stop / restart individual instruments.
- *   - Expose a read-only view for future API routes.
- */
 export class Conductor {
   readonly registry: Registry;
-  readonly stateStore: StateStore;
+  private gatewayUrl: string;
+  private stateStore: StateStore;
+  private opusStore: OpusStore;
 
-  private instruments = new Map<string, InstrumentRuntime>();
-  private presets = new Map<string, InstrumentPreset>();
-  private makeLogger: (instrumentId: string) => ScopedLogger;
+  private runtimes = new Map<string, OpusRuntime>();
+  /** Defs that failed to instantiate — visible in list() so users can fix/delete. */
+  private failedDefs = new Map<string, OpusDef>();
+  private makeLogger: (opusId: string) => ScopedLogger;
+  private onEvaluationComplete?: (record: EvaluationRecord) => void;
 
   constructor(opts: {
     registry: Registry;
+    gatewayUrl: string;
     stateStore: StateStore;
-    makeLogger: (instrumentId: string) => ScopedLogger;
+    opusStore: OpusStore;
+    makeLogger: (opusId: string) => ScopedLogger;
+    onEvaluationComplete?: (record: EvaluationRecord) => void;
   }) {
     this.registry = opts.registry;
+    this.gatewayUrl = opts.gatewayUrl;
     this.stateStore = opts.stateStore;
+    this.opusStore = opts.opusStore;
     this.makeLogger = opts.makeLogger;
+    this.onEvaluationComplete = opts.onEvaluationComplete;
   }
 
-  // ── Preset management ──────────────────────────────────────
+  // ── Bootstrap ──────────────────────────────────────────────
 
-  registerPreset(preset: InstrumentPreset): void {
-    this.presets.set(preset.presetId, preset);
-  }
-
-  getPreset(presetId: string): InstrumentPreset | undefined {
-    return this.presets.get(presetId);
-  }
-
-  listPresets(): InstrumentPreset[] {
-    return [...this.presets.values()];
-  }
-
-  // ── Instrument CRUD ────────────────────────────────────────
-
-  /**
-   * Add an instrument from a raw definition.
-   * Does NOT auto-start; call `start(id)` explicitly.
-   */
-  add(def: InstrumentDef): void {
-    if (this.instruments.has(def.id)) {
-      throw new Error(`instrument already exists: "${def.id}"`);
+  /** Load all persisted opus definitions and start the enabled ones. */
+  async bootstrap(): Promise<void> {
+    const defs = await this.opusStore.loadAll();
+    for (const def of defs) {
+      try {
+        this.instantiate(def);
+      } catch (e: any) {
+        this.makeLogger(def.id).error("failed to load opus:", String(e?.message ?? e));
+        this.failedDefs.set(def.id, def);
+      }
     }
-    const rt = new InstrumentRuntime(
-      def,
-      this.registry,
-      this.stateStore.scope(def.id),
-      this.makeLogger(def.id)
-    );
-    this.instruments.set(def.id, rt);
+    await this.startAllEnabled();
   }
 
-  /**
-   * Replace an instrument's definition (typically after config edits).
-   * Stops the old runtime, swaps in a new one, restarts if it was running.
-   */
-  async update(id: string, newDef: InstrumentDef): Promise<void> {
-    const rt = this.instruments.get(id);
-    if (!rt) throw new Error(`instrument not found: "${id}"`);
+  // ── Validation ─────────────────────────────────────────────
 
-    const wasRunning = rt.getStatus() === "running";
+  validate(def: OpusDef): ValidationError[] {
+    return validateOpus(def, this.registry);
+  }
+
+  // ── Opus CRUD ──────────────────────────────────────────────
+
+  /** Persist an opus without restarting its runtime. */
+  async save(def: OpusDef): Promise<void> {
+    this.failedDefs.delete(def.id);
+    if (!this.runtimes.has(def.id)) {
+      try {
+        this.instantiate(def);
+      } catch {
+        // Still broken — keep in failedDefs so it stays visible.
+        this.failedDefs.set(def.id, def);
+      }
+    } else {
+      this.runtimes.get(def.id)!.def = def;
+    }
+    await this.opusStore.save(def);
+  }
+
+  /** Tear down and re-instantiate an opus, restarting if enabled.
+   *  Clears process/gate node state (latches, counters) but preserves
+   *  source node state (e.g. git-watch lastSha checkpoint). */
+  async reload(id: string): Promise<void> {
+    const rt = this.runtimes.get(id);
+    if (!rt) throw new Error(`opus not found: "${id}"`);
+    const def = rt.def;
+
+    const processNids = def.nodes
+      .filter((n) => this.registry.get(n.kind)?.role !== "source")
+      .map((n) => `${n.nid}:`);
+    await this.stateStore.clearByPrefixes(id, processNids);
+
     await rt.stop();
-    this.instruments.delete(id);
+    this.instantiate(def);
 
-    const newRt = new InstrumentRuntime(
-      newDef,
-      this.registry,
-      this.stateStore.scope(id),
-      this.makeLogger(id)
-    );
-    this.instruments.set(id, newRt);
-
-    if (wasRunning && newDef.enabled) {
-      await newRt.start();
+    if (def.enabled) {
+      await this.runtimes.get(id)!.start();
     }
+  }
+
+  /** Create or replace an opus. Always persists; never validates. */
+  async upsert(def: OpusDef): Promise<void> {
+    // Tear down existing runtime if present.
+    const old = this.runtimes.get(def.id);
+    if (old) await old.stop();
+
+    this.instantiate(def);
+    await this.opusStore.save(def);
+
+    if (def.enabled) {
+      await this.runtimes.get(def.id)!.start();
+    }
+  }
+
+  /** Toggle enabled state. Validates before starting. */
+  async setEnabled(id: string, enabled: boolean): Promise<void> {
+    const rt = this.runtimes.get(id);
+    if (!rt) throw new Error(`opus not found: "${id}"`);
+    const def = { ...rt.def, enabled };
+
+    if (enabled) {
+      const errors = this.validate(def);
+      if (errors.length) throw new OpusValidationError(errors);
+    }
+
+    await this.upsert(def);
   }
 
   async remove(id: string): Promise<void> {
-    const rt = this.instruments.get(id);
-    if (!rt) return;
-    await rt.stop();
+    this.failedDefs.delete(id);
+    const rt = this.runtimes.get(id);
+    if (rt) await rt.stop();
+    this.runtimes.delete(id);
     await this.stateStore.clear(id);
-    this.instruments.delete(id);
+    await this.opusStore.remove(id);
   }
 
   // ── Lifecycle ──────────────────────────────────────────────
 
-  async start(id: string): Promise<void> {
-    const rt = this.instruments.get(id);
-    if (!rt) throw new Error(`instrument not found: "${id}"`);
-    await rt.start();
-  }
-
-  async stop(id: string): Promise<void> {
-    const rt = this.instruments.get(id);
-    if (!rt) throw new Error(`instrument not found: "${id}"`);
-    await rt.stop();
-  }
-
-  /** Start all instruments that have `enabled: true`. */
-  async startAll(): Promise<void> {
+  async startAllEnabled(): Promise<void> {
     const tasks: Promise<void>[] = [];
-    for (const [id, rt] of this.instruments) {
+    for (const [id, rt] of this.runtimes) {
       if (rt.def.enabled) {
+        const errors = this.validate(rt.def);
+        if (errors.length) {
+          this.makeLogger(id).error("validation failed, not starting:", errors.map((e) => e.message).join("; "));
+          rt.markError();
+          rt.def = { ...rt.def, enabled: false };
+          await this.opusStore.save(rt.def);
+          continue;
+        }
         tasks.push(
           rt.start().catch((e) => {
-            // Don't let one failing instrument prevent others from starting.
             this.makeLogger(id).error("failed to start:", String(e?.message ?? e));
           })
         );
@@ -134,23 +156,42 @@ export class Conductor {
   }
 
   async stopAll(): Promise<void> {
-    await Promise.allSettled(
-      [...this.instruments.values()].map((rt) => rt.stop())
-    );
+    await Promise.allSettled([...this.runtimes.values()].map((rt) => rt.stop()));
   }
 
   // ── Introspection ──────────────────────────────────────────
 
-  list(): InstrumentInfo[] {
-    return [...this.instruments.values()].map((rt) => ({
-      id: rt.def.id,
-      name: rt.def.name,
-      enabled: rt.def.enabled,
-      status: rt.getStatus()
-    }));
+  list(): Array<OpusDef & { status: OpusStatus }> {
+    const results: Array<OpusDef & { status: OpusStatus }> = [];
+    for (const rt of this.runtimes.values()) {
+      results.push({ ...rt.def, status: rt.getStatus() });
+    }
+    for (const def of this.failedDefs.values()) {
+      results.push({ ...def, status: "error" });
+    }
+    return results;
   }
 
-  get(id: string): InstrumentRuntime | undefined {
-    return this.instruments.get(id);
+  get(id: string): OpusRuntime | undefined {
+    return this.runtimes.get(id);
+  }
+
+  /** Get the raw def for a failed opus (no runtime). */
+  getFailedDef(id: string): OpusDef | undefined {
+    return this.failedDefs.get(id);
+  }
+
+  // ── Internal ───────────────────────────────────────────────
+
+  private instantiate(def: OpusDef): void {
+    const rt = new OpusRuntime(
+      def,
+      this.registry,
+      this.stateStore.scope(def.id),
+      this.makeLogger(def.id),
+      { gatewayUrl: this.gatewayUrl, opusId: def.id }
+    );
+    rt.onEvaluationComplete = this.onEvaluationComplete;
+    this.runtimes.set(def.id, rt);
   }
 }

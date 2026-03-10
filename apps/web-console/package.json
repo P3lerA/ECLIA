@@ -4,9 +4,13 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "predev": "pnpm -w run build:shared",
     "dev": "vite",
+    "prebuild": "pnpm -w run build:shared",
     "build": "tsc -b && vite build",
+    "pretypecheck": "pnpm -w run build:shared",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretypecheck:watch": "pnpm -w run build:shared",
     "typecheck:watch": "tsc -p tsconfig.json --noEmit -w --preserveWatchOutput",
     "preview": "vite preview",
     "dev:server": "pnpm -C ../gateway dev",
@@ -14,7 +18,9 @@
     "dev:mock-server": "tsx server/dev-sse-server.ts"
   },
   "dependencies": {
+    "@eclia/symphony-protocol": "workspace:*",
     "@iconify/react": "^6.0.2",
+    "@xyflow/react": "^12.10.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
