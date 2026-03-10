@@ -173,8 +173,7 @@ function ConfigField({
       return (
         <div className="sym-field">
           <label className="sym-field-label">{field.label}</label>
-          <select className="sym-field-select" value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
-            <option value="">--</option>
+          <select className="sym-field-select" value={String(value ?? field.default ?? "")} onChange={(e) => onChange(e.target.value)}>
             {(field.options ?? []).map((opt) => <option key={opt} value={opt}>{opt}</option>)}
           </select>
         </div>

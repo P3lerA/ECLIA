@@ -26,8 +26,8 @@ export const factory: NodeFactory = {
       key: "signalType",
       label: "Signal type",
       type: "select",
-      options: ["none", "string", "number", "boolean"],
-      default: "none",
+      options: ["none (any)", "string", "number", "boolean"],
+      default: "none (any)",
     },
     {
       key: "signalValue",
@@ -58,7 +58,7 @@ export const factory: NodeFactory = {
       trigger(payload: unknown) {
         if (!emitFn) throw new Error("node not started");
 
-        const type = String(config.signalType ?? "none");
+        const type = String(config.signalType ?? "none (any)");
         let signal: unknown;
         switch (type) {
           case "boolean": signal = Boolean(config.signalValue); break;

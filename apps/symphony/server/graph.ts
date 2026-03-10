@@ -16,15 +16,23 @@ function resolveStaticType(port: PortDef, config: Record<string, unknown>): Port
 /** Build resolved port type map — same algorithm as the frontend's buildPortTypeMap. */
 function buildResolvedTypes(def: OpusDef, registry: Registry): Map<string, PortType> {
   const map = new Map<string, PortType>();
-  const mirrors: Array<{ nid: string; outKey: string; inKey: string }> = [];
+  const frozen = new Set<string>();
+  const mirrors: Array<{ nid: string; outKey: string; inKeys: string[] }> = [];
 
   for (const nd of def.nodes) {
     const f = registry.get(nd.kind);
     if (!f) continue;
-    for (const port of f.inputPorts) map.set(`${nd.nid}:${port.key}`, resolveStaticType(port, nd.config));
+    for (const port of f.inputPorts) {
+      map.set(`${nd.nid}:${port.key}`, resolveStaticType(port, nd.config));
+      if (port.typeFrom) frozen.add(`${nd.nid}:${port.key}`);
+    }
     for (const port of f.outputPorts) {
       map.set(`${nd.nid}:${port.key}`, resolveStaticType(port, nd.config));
-      if (port.typeFromPort) mirrors.push({ nid: nd.nid, outKey: port.key, inKey: port.typeFromPort });
+      if (port.typeFrom) frozen.add(`${nd.nid}:${port.key}`);
+      if (port.typeFromPort) {
+        const inKeys = Array.isArray(port.typeFromPort) ? port.typeFromPort : [port.typeFromPort];
+        mirrors.push({ nid: nd.nid, outKey: port.key, inKeys });
+      }
     }
     for (const field of f.configSchema) {
       if (field.connectable) map.set(`${nd.nid}:cfg:${field.key}`, CFG_TO_PORT[field.type] ?? "any");
@@ -36,12 +44,39 @@ function buildResolvedTypes(def: OpusDef, registry: Registry): Map<string, PortT
     for (const lk of def.links) {
       const sKey = `${lk.from}:${lk.fromPort}`, tKey = `${lk.to}:${lk.toPort}`;
       const sType = map.get(sKey) ?? "any", tType = map.get(tKey) ?? "any";
-      if (sType === "any" && tType !== "any") { map.set(sKey, tType); changed = true; }
-      else if (tType === "any" && sType !== "any") { map.set(tKey, sType); changed = true; }
+      if (sType === "any" && tType !== "any" && !frozen.has(sKey)) { map.set(sKey, tType); changed = true; }
+      else if (tType === "any" && sType !== "any" && !frozen.has(tKey)) { map.set(tKey, sType); changed = true; }
     }
-    for (const { nid, outKey, inKey } of mirrors) {
-      const inT = map.get(`${nid}:${inKey}`) ?? "any", outT = map.get(`${nid}:${outKey}`) ?? "any";
-      if (outT === "any" && inT !== "any") { map.set(`${nid}:${outKey}`, inT); changed = true; }
+    // Forward: input(s) → output
+    for (const { nid, outKey, inKeys } of mirrors) {
+      const outKey_ = `${nid}:${outKey}`;
+      if (frozen.has(outKey_)) continue;
+      const outT = map.get(outKey_) ?? "any";
+      if (outT !== "any") continue;
+      if (inKeys.length === 1) {
+        const t = map.get(`${nid}:${inKeys[0]}`) ?? "any";
+        if (t !== "any") { map.set(`${nid}:${outKey}`, t); changed = true; }
+      } else {
+        let unanimous: PortType | null = null;
+        for (const k of inKeys) {
+          const t = map.get(`${nid}:${k}`) ?? "any";
+          if (t === "any") { unanimous = null; break; }
+          if (unanimous === null) unanimous = t;
+          else if (t !== unanimous) { unanimous = null; break; }
+        }
+        if (unanimous) { map.set(`${nid}:${outKey}`, unanimous); changed = true; }
+      }
+    }
+    // Reverse: output → input(s)
+    for (const { nid, outKey, inKeys } of mirrors) {
+      const outT = map.get(`${nid}:${outKey}`) ?? "any";
+      if (outT === "any") continue;
+      for (const k of inKeys) {
+        const inKey = `${nid}:${k}`;
+        if (!frozen.has(inKey) && (map.get(inKey) ?? "any") === "any") {
+          map.set(inKey, outT); changed = true;
+        }
+      }
     }
     if (!changed) break;
   }
@@ -119,7 +154,7 @@ export function validateOpus(def: OpusDef, registry: Registry): ValidationError[
         if (srcPort && tgtType) {
           const rSrc = resolved.get(`${lk.from}:${lk.fromPort}`) ?? srcPort.type;
           const rTgt = resolved.get(`${lk.to}:${lk.toPort}`) ?? tgtType;
-          if (rSrc !== "any" && rTgt !== "any" && rSrc !== rTgt) {
+          if (rTgt !== "any" && rSrc !== rTgt) {
             errors.push({ code: "type_mismatch", message: `link "${lk.lid}": output type "${rSrc}" is incompatible with input type "${rTgt}"`, target: lk.lid });
           }
         }

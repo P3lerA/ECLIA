@@ -77,7 +77,7 @@ export function SymphonyView() {
     // Use resolved types (typeFrom, typeFromPort, connection inference)
     const srcType = portTypeMap.get(`${conn.source}:${conn.sourceHandle}`) ?? srcPort.type;
     const tgtType = portTypeMap.get(`${conn.target}:${tgtHandle}`) ?? "any";
-    if (srcType !== "any" && tgtType !== "any" && srcType !== tgtType) return false;
+    if (tgtType !== "any" && srcType !== tgtType) return false;
 
     // Reject if the target handle already has a connection
     const alreadyConnected = editor.edges.some(
@@ -100,12 +100,27 @@ export function SymphonyView() {
     return () => window.removeEventListener("keydown", handler);
   }, [editor.selectedNodeId, editor.duplicateNode]);
 
+  // Collect edge/node IDs that have validation errors
+  const [errorEdgeIds, errorNodeIds] = useMemo(() => {
+    const edges = new Set<string>();
+    const nodes = new Set<string>();
+    const edgeIdSet = new Set(editor.edges.map((e) => e.id));
+    const nodeIdSet = new Set(editor.nodes.map((n) => n.id));
+    for (const err of editor.validationErrors) {
+      if (!err.target) continue;
+      if (edgeIdSet.has(err.target)) edges.add(err.target);
+      else if (nodeIdSet.has(err.target)) nodes.add(err.target);
+    }
+    return [edges, nodes] as const;
+  }, [editor.validationErrors, editor.edges, editor.nodes]);
+
   const opusRunning = editor.activeStatus === "running";
   const runtimeCtx = useMemo(() => ({
     running: opusRunning,
     triggerManual: editor.triggerManual,
     portTypeMap,
-  }), [opusRunning, editor.triggerManual, portTypeMap]);
+    errorNodeIds,
+  }), [opusRunning, editor.triggerManual, portTypeMap, errorNodeIds]);
 
   if (editor.loading) {
     return <div className="sym-root"><div className="sym-loading">Loading...</div></div>;
@@ -126,8 +141,11 @@ export function SymphonyView() {
     ? (editor.nodes.find((n) => n.id === editor.selectedNodeId) as Node<SymphonyNodeData> | undefined)
     : undefined;
 
-  // Color edges based on resolved source port type
+  // Color edges based on resolved source port type; mark error edges red
   const coloredEdges = editor.edges.map((e) => {
+    if (errorEdgeIds.has(e.id)) {
+      return { ...e, style: { ...e.style, stroke: "var(--danger, #ef4444)" }, animated: true };
+    }
     const resolved = portTypeMap.get(`${e.source}:${e.sourceHandle}`) ?? "any";
     const color = PORT_COLORS[resolved] ?? PORT_COLORS.any;
     return { ...e, style: { ...e.style, stroke: color } };

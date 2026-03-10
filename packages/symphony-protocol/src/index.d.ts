@@ -19,8 +19,10 @@ export interface PortDef {
   optional?: boolean;
   /** Config key whose value determines the actual port type at design time. */
   typeFrom?: string;
-  /** Input port key on the same node whose resolved type this output mirrors. */
-  typeFromPort?: string;
+  /** Input port key(s) on the same node whose resolved type this output mirrors.
+   *  Array form: all referenced ports must agree on the same concrete type;
+   *  if they disagree the output stays "any". */
+  typeFromPort?: string | string[];
 }
 
 // ─── Node metadata ──────────────────────────────────────────

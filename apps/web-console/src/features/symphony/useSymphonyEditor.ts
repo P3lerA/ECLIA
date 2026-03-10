@@ -14,6 +14,7 @@ import type {
   OpusLinkDef,
   OpusStatus,
   NodeKindSchema,
+  ValidationError,
 } from "@eclia/symphony-protocol";
 import {
   apiListOpus,
@@ -95,6 +96,30 @@ function opusToListEntry(f: OpusWithStatus): OpusListEntry {
 
 function fallbackSchema(kind: string): NodeKindSchema {
   return { kind, label: `Unknown (${kind})`, role: "process", inputPorts: [], outputPorts: [], configSchema: [] };
+}
+
+/** Lightweight client-side validation — catches issues visible without a server round-trip. */
+function lintOpusDef(def: OpusDef, kindMap: Map<string, NodeKindSchema>): ValidationError[] {
+  const errs: ValidationError[] = [];
+  const connectedCfg = new Set<string>();
+  for (const lk of def.links) {
+    if (lk.toPort.startsWith("cfg:")) connectedCfg.add(`${lk.to}:${lk.toPort.slice(4)}`);
+  }
+  for (const nd of def.nodes) {
+    const schema = kindMap.get(nd.kind);
+    if (!schema) {
+      errs.push({ code: "unknown_kind", message: `unknown node kind: "${nd.kind}"`, target: nd.nid });
+      continue;
+    }
+    for (const f of schema.configSchema) {
+      if (!f.required) continue;
+      const hasValue = nd.config[f.key] != null && nd.config[f.key] !== "";
+      if (!hasValue && !connectedCfg.has(`${nd.nid}:${f.key}`)) {
+        errs.push({ code: "missing_config", message: `node "${nd.nid}" (${nd.kind}): required config "${f.label}" is empty`, target: nd.nid });
+      }
+    }
+  }
+  return errs;
 }
 
 function uid(): string {
@@ -198,6 +223,9 @@ export function useSymphonyEditor() {
           setEdges(opusDefToEdges(def));
           setSelectedNodeId(null);
           setDirty(false);
+          const lint = lintOpusDef(def, kindMapRef.current);
+          setValidationErrors(lint);
+          if (lint.length > 0) setActiveStatus("error");
           requestAnimationFrame(() => { suppressDirty.current = false; });
         } catch (e: any) {
           if (gen !== selectGenRef.current) return;
@@ -348,6 +376,7 @@ export function useSymphonyEditor() {
       } catch (e: any) {
         if (e instanceof SymphonyValidationError) {
           setValidationErrors(e.errors);
+          if (activeDef?.id === id) setActiveStatus("error");
         } else {
           setError(String(e?.message ?? e));
         }
@@ -457,6 +486,7 @@ export function useSymphonyEditor() {
     } catch (e: any) {
       if (e instanceof SymphonyValidationError) {
         setValidationErrors(e.errors);
+        setActiveStatus("error");
       } else {
         setError(String(e?.message ?? e));
       }

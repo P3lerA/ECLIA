@@ -17,7 +17,7 @@ function SymphonyNodeComponent({ data, selected, id }: NodeProps & { data: Symph
     .map((f) => ({ label: f.label, value: f.sensitive ? "***" : String(config[f.key]) }));
 
   return (
-    <div className={`sym-node${selected ? " sym-node--selected" : ""}`}>
+    <div className={`sym-node${selected ? " sym-node--selected" : ""}${rt.errorNodeIds.has(id) ? " sym-node--error" : ""}`}>
       <div className="sym-node-header">
         <span className={`sym-node-role sym-node-role--${role}`}>{roleLabel(role)}</span>
         <span className="sym-node-label">{label}</span>

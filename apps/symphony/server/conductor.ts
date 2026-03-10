@@ -130,6 +130,14 @@ export class Conductor {
     const tasks: Promise<void>[] = [];
     for (const [id, rt] of this.runtimes) {
       if (rt.def.enabled) {
+        const errors = this.validate(rt.def);
+        if (errors.length) {
+          this.makeLogger(id).error("validation failed, not starting:", errors.map((e) => e.message).join("; "));
+          rt.markError();
+          rt.def = { ...rt.def, enabled: false };
+          await this.opusStore.save(rt.def);
+          continue;
+        }
         tasks.push(
           rt.start().catch((e) => {
             this.makeLogger(id).error("failed to start:", String(e?.message ?? e));

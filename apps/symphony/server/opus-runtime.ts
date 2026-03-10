@@ -38,7 +38,6 @@ export class OpusRuntime {
   private sources: SourceNode[] = [];
   /** Pre-compiled graph topology. */
   private graph: CompiledGraph;
-
   /** Serialise graph runs so emissions don't interleave. */
   private runQueue: Promise<void> = Promise.resolve();
 
@@ -76,6 +75,11 @@ export class OpusRuntime {
 
   getStatus(): OpusStatus {
     return this.status;
+  }
+
+  /** Set status to "error" without attempting to start (e.g. validation failure). */
+  markError(): void {
+    this.status = "error";
   }
 
   // ── Lifecycle ──────────────────────────────────────────────
