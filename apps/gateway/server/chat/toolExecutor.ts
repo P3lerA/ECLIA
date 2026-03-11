@@ -1,4 +1,4 @@
-import { parseExecArgs } from "@eclia/tool-protocol";
+import { parseBashArgs } from "@eclia/tool-protocol";
 
 import type { SessionStore } from "../sessionStore.js";
 import type { SessionMetaV1 } from "../sessionTypes.js";
@@ -11,8 +11,8 @@ import {
   type ToolSafetyCheck
 } from "../tools/approvalFlow.js";
 import {
-  checkExecNeedsApproval,
-  type ExecAllowlistRule,
+  checkBashNeedsApproval,
+  type BashAllowlistRule,
   type ToolAccessMode
 } from "../tools/policy.js";
 import {
@@ -25,12 +25,12 @@ import {
   invokeWebTool,
   parseWebArgs
 } from "../tools/native/webTool.js";
-import { EXEC_TOOL_NAME, SEND_TOOL_NAME, WEB_TOOL_NAME, MEMORY_TOOL_NAME } from "../tools/toolSchemas.js";
+import { BASH_TOOL_NAME, SEND_TOOL_NAME, WEB_TOOL_NAME, MEMORY_TOOL_NAME } from "../tools/toolSchemas.js";
 import { invokeMemoryTool, safeMemoryToolResultForModel } from "../tools/native/memoryTool.js";
 import type { McpStdioClient } from "../mcp/stdioClient.js";
 import type { ToolCall, ToolResult, UpstreamProvider } from "../upstream/provider.js";
 import { safeJsonStringify } from "@eclia/utils";
-import { sanitizeExecResultForUiAndModel } from "../tools/execResultSanitize.js";
+import { sanitizeBashResultForUiAndModel } from "../tools/bashResultSanitize.js";
 
 import { guessDiscordAdapterBaseUrl, postDiscordAdapterSend } from "./discordAdapter.js";
 import { guessTelegramAdapterBaseUrl, postTelegramAdapterSend } from "./telegramAdapter.js";
@@ -46,7 +46,7 @@ type PlannedToolCall = {
   approvalInfo: any | null;
   waiter?: ToolApprovalWaiter;
   safetyCheck?: ToolSafetyCheck;
-  execArgs?: ReturnType<typeof parseExecArgs>;
+  bashArgs?: ReturnType<typeof parseBashArgs>;
   sendArgs?: ReturnType<typeof parseSendArgs>;
   webArgs?: ReturnType<typeof parseWebArgs>;
 };
@@ -58,13 +58,13 @@ export async function runToolCalls(args: {
   rootDir: string;
   provider: UpstreamProvider;
 
-  mcpExec: McpStdioClient;
+  mcpBash: McpStdioClient;
   nameToMcpTool: (name: string) => string;
 
   toolCalls: ToolCall[];
   enabledToolSet: Set<string> | null;
   toolAccessMode: ToolAccessMode;
-  execAllowlist: ExecAllowlistRule[];
+  bashAllowlist: BashAllowlistRule[];
 
   requestedOrigin: SessionMetaV1["origin"] | undefined;
   patchedOrigin: SessionMetaV1["origin"] | undefined;
@@ -97,15 +97,15 @@ export async function runToolCalls(args: {
     let approvalInfo: any | null = null;
     let waiter: ToolApprovalWaiter | undefined;
     let safetyCheck: ToolSafetyCheck | undefined;
-    let execArgs: ReturnType<typeof parseExecArgs> | undefined;
+    let bashArgs: ReturnType<typeof parseBashArgs> | undefined;
     let sendArgs: ReturnType<typeof parseSendArgs> | undefined;
     let webArgs: ReturnType<typeof parseWebArgs> | undefined;
 
     const toolEnabled = !args.enabledToolSet || args.enabledToolSet.has(call.name);
 
-    if (toolEnabled && call.name === EXEC_TOOL_NAME) {
-      execArgs = parseExecArgs(parsed);
-      safetyCheck = checkExecNeedsApproval(execArgs, args.toolAccessMode, args.execAllowlist);
+    if (toolEnabled && call.name === BASH_TOOL_NAME) {
+      bashArgs = parseBashArgs(parsed);
+      safetyCheck = checkBashNeedsApproval(bashArgs, args.toolAccessMode, args.bashAllowlist);
 
       const plan = planToolApproval({ approvals: args.approvals, sessionId: args.sessionId, check: safetyCheck, timeoutMs: 5 * 60_000 });
       approvalInfo = plan.approval;
@@ -133,7 +133,7 @@ export async function runToolCalls(args: {
       approvalInfo,
       waiter,
       safetyCheck,
-      execArgs,
+      bashArgs,
       sendArgs,
       webArgs
     });
@@ -173,23 +173,23 @@ export async function runToolCalls(args: {
         ok: false,
         error: { code: "tool_disabled", message: `Tool is disabled by client settings: ${name}` }
       };
-    } else if (name === EXEC_TOOL_NAME) {
+    } else if (name === BASH_TOOL_NAME) {
       if (p.parseError) {
         ok = false;
         output = {
-          type: "exec_result",
+          type: "bash_result",
           ok: false,
           error: { code: "bad_arguments_json", message: `Invalid JSON arguments: ${p.parseError}` },
           argsRaw: call.argsRaw
         };
       } else {
-        const execArgs = p.execArgs ?? parseExecArgs(p.parsed);
-        const check = p.safetyCheck ?? checkExecNeedsApproval(execArgs ?? {}, args.toolAccessMode, args.execAllowlist);
+        const bashArgs = p.bashArgs ?? parseBashArgs(p.parsed);
+        const check = p.safetyCheck ?? checkBashNeedsApproval(bashArgs ?? {}, args.toolAccessMode, args.bashAllowlist);
         const waiter = p.waiter;
 
-        const invokeExec = async (): Promise<{ ok: boolean; result: any }> => {
+        const invokeBash = async (): Promise<{ ok: boolean; result: any }> => {
           const mcpToolName = args.nameToMcpTool(name);
-          const callTimeoutMs = Math.max(5_000, Math.min(60 * 60_000, (execArgs?.timeoutMs ?? 60_000) + 15_000));
+          const callTimeoutMs = Math.max(5_000, Math.min(60 * 60_000, (bashArgs?.timeoutMs ?? 60_000) + 15_000));
 
           let mcpOut: any;
           try {
@@ -198,16 +198,16 @@ export async function runToolCalls(args: {
                 ? { ...(p.parsed as any), __eclia: { sessionId: args.sessionId, callId: call.callId } }
                 : { __eclia: { sessionId: args.sessionId, callId: call.callId } };
 
-            mcpOut = await args.mcpExec.callTool(mcpToolName, mcpArgs, { timeoutMs: callTimeoutMs });
+            mcpOut = await args.mcpBash.callTool(mcpToolName, mcpArgs, { timeoutMs: callTimeoutMs });
           } catch (e: any) {
             const msg = String(e?.message ?? e);
             return {
               ok: false,
               result: {
-                type: "exec_result",
+                type: "bash_result",
                 ok: false,
                 error: { code: "toolhost_error", message: msg },
-                args: execArgs ?? p.parsed
+                args: bashArgs ?? p.parsed
               }
             };
           }
@@ -218,27 +218,27 @@ export async function runToolCalls(args: {
 
           // Prefer MCP structuredContent when available (canonical machine-readable payload).
           // Fall back to parsing the first text block for backward compatibility.
-          let execOut: any = null;
+          let bashOut: any = null;
           if (
             mcpOut &&
             typeof mcpOut === "object" &&
             (mcpOut as any).structuredContent &&
             typeof (mcpOut as any).structuredContent === "object"
           ) {
-            execOut = (mcpOut as any).structuredContent;
+            bashOut = (mcpOut as any).structuredContent;
           } else {
             try {
-              execOut = firstText ? JSON.parse(firstText) : null;
+              bashOut = firstText ? JSON.parse(firstText) : null;
             } catch {
-              execOut = null;
+              bashOut = null;
             }
           }
 
-          if (!execOut || typeof execOut !== "object") {
+          if (!bashOut || typeof bashOut !== "object") {
             return {
               ok: false,
               result: {
-                type: "exec_result",
+                type: "bash_result",
                 ok: false,
                 error: { code: "toolhost_bad_result", message: "Toolhost returned an invalid result" },
                 raw: firstText || safeJsonStringify(mcpOut)
@@ -246,8 +246,8 @@ export async function runToolCalls(args: {
             };
           }
 
-          const nextOk = Boolean(execOut.ok) && !mcpOut?.isError;
-          return { ok: nextOk, result: { ...execOut, ok: nextOk } };
+          const nextOk = Boolean(bashOut.ok) && !mcpOut?.isError;
+          return { ok: nextOk, result: { ...bashOut, ok: nextOk } };
         };
 
         if (check.requireApproval) {
@@ -255,27 +255,27 @@ export async function runToolCalls(args: {
           if (decision.decision !== "approve") {
             ok = false;
             output = {
-              type: "exec_result",
+              type: "bash_result",
               ok: false,
-              error: approvalOutcomeToError(decision, { actionLabel: "exec" }),
+              error: approvalOutcomeToError(decision, { actionLabel: "bash" }),
               policy: { mode: args.toolAccessMode, ...check, approvalId: waiter?.approvalId },
-              args: execArgs ?? p.parsed
+              args: bashArgs ?? p.parsed
             };
           } else {
-            const r = await invokeExec();
+            const r = await invokeBash();
             ok = r.ok;
             output = {
-              type: "exec_result",
+              type: "bash_result",
               ...r.result,
               ok,
               policy: { mode: args.toolAccessMode, ...check, approvalId: waiter?.approvalId, decision: "approve" }
             };
           }
         } else {
-          const r = await invokeExec();
+          const r = await invokeBash();
           ok = r.ok;
           output = {
-            type: "exec_result",
+            type: "bash_result",
             ...r.result,
             ok,
             policy: { mode: args.toolAccessMode, ...check }
@@ -617,8 +617,8 @@ export async function runToolCalls(args: {
       output = { ok: false, error: { code: "unknown_tool", message: `Unknown tool: ${name}` } };
     }
 
-    if (output && typeof output === "object" && (output as any).type === "exec_result") {
-      output = await sanitizeExecResultForUiAndModel({
+    if (output && typeof output === "object" && (output as any).type === "bash_result") {
+      output = await sanitizeBashResultForUiAndModel({
         rootDir: args.rootDir,
         sessionId: args.sessionId,
         callId: call.callId,

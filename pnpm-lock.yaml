@@ -180,7 +180,7 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
-  apps/toolhost-exec-posix:
+  apps/toolhost-bash-posix:
     dependencies:
       '@eclia/tool-protocol':
         specifier: workspace:*
@@ -190,7 +190,7 @@ importers:
         specifier: ^25.2.3
         version: 25.3.3
 
-  apps/toolhost-exec-win32:
+  apps/toolhost-bash-win32:
     dependencies:
       '@eclia/tool-protocol':
         specifier: workspace:*

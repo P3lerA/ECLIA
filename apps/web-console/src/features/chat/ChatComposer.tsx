@@ -3,7 +3,7 @@ import { PromptBar } from "../common/PromptBar";
 import { useSendMessage } from "./useSendMessage";
 import { useAppDispatch, useAppState } from "../../state/AppState";
 
-function ExecFullAccessIcon({ className }: { className?: string }) {
+function BashFullAccessIcon({ className }: { className?: string }) {
   return (
     <svg
       className={className}
@@ -22,7 +22,7 @@ function ExecFullAccessIcon({ className }: { className?: string }) {
   );
 }
 
-function ExecSafeModeIcon({ className }: { className?: string }) {
+function BashSafeModeIcon({ className }: { className?: string }) {
   return (
     <svg
       className={className}
@@ -136,16 +136,16 @@ export function ChatComposer({ onOpenMenu }: { onOpenMenu: () => void }) {
               title={`Tool access: ${accessMode === "full" ? "full" : "safe"}`}
             >
               {accessMode === "full" ? (
-                <ExecFullAccessIcon className="execModeIcon" />
+                <BashFullAccessIcon className="bashModeIcon" />
               ) : (
-                <ExecSafeModeIcon className="execModeIcon" />
+                <BashSafeModeIcon className="bashModeIcon" />
               )}
             </button>
             <button className="chatbar-btn" onClick={onOpenMenu} aria-label="Menu">
-              <MenuIcon className="execModeIcon" />
+              <MenuIcon className="bashModeIcon" />
             </button>
             <button className="chatbar-btn" onClick={() => void send()} aria-label="Send">
-              <SendUpIcon className="execModeIcon" />
+              <SendUpIcon className="bashModeIcon" />
             </button>
           </>
         }

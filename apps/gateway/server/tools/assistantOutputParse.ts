@@ -77,7 +77,7 @@ export function parseAssistantToolCallsFromText(text: string, allowedToolNames: 
     },
     {
       kind: "tagged_tool",
-      // Example: [tool:exec] {"command":"..."}
+      // Example: [tool:bash] {"command":"..."}
       re: /^\[tool:([a-zA-Z0-9._-]+)\]\s*(\{.*\})\s*(?:<\/tool:\1>)?\s*$/
     }
   ];

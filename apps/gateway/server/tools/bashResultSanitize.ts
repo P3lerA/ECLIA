@@ -117,18 +117,18 @@ async function externalizeLargeTextField(args: {
 /**
  * Prevent huge tool payloads (e.g. massive stdout) from freezing the UI or blowing up model context.
  *
- * Currently this focuses on exec results:
+ * Currently this focuses on bash results:
  * - If stdout/stderr exceed MAX_INLINE_TEXT_BYTES, we write them to .eclia/artifacts/<session>/<callId>_stdout.txt etc.
  * - We keep a small preview inline and attach artifact refs.
  */
-export async function sanitizeExecResultForUiAndModel(args: {
+export async function sanitizeBashResultForUiAndModel(args: {
   rootDir: string;
   sessionId: string;
   callId: string;
   output: any;
 }): Promise<any> {
   const out = args.output;
-  if (!out || typeof out !== "object" || out.type !== "exec_result") return out;
+  if (!out || typeof out !== "object" || out.type !== "bash_result") return out;
 
   const artifactsRoot = path.join(args.rootDir, ".eclia", "artifacts");
   try {

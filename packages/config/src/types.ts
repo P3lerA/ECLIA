@@ -154,7 +154,7 @@ export type EcliaConfig = {
 
     /**
      * When enabled, the gateway will attempt to recover tool calls from assistant
-     * plaintext output (e.g. "Tool exec (calling): ...") if the upstream provider
+     * plaintext output (e.g. "Tool bash (calling): ...") if the upstream provider
      * fails to produce structured tool_calls.
      *
      * WARNING: This is a best-effort fallback intended for debugging and compatibility.

@@ -1,10 +1,10 @@
 import type { CSSProperties } from "react";
-import execIconSvg from "../../assets/tool/exec.svg?raw";
+import bashIconSvg from "../../assets/tool/bash.svg?raw";
 import sendIconSvg from "../../assets/tool/send.svg?raw";
 import webIconSvg from "../../assets/tool/web.svg?raw";
 
 const TOOL_ICON_SVGS: Record<string, string> = {
-  exec: execIconSvg,
+  bash: bashIconSvg,
   send: sendIconSvg,
   web: webIconSvg
 };

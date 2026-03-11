@@ -42,14 +42,14 @@ function normalizeEnv(extra) {
 }
 
 /**
- * Best-effort exec args normalization.
+ * Best-effort bash args normalization.
  *
- * The exec tool intentionally accepts a single entry point: `command`.
+ * The bash tool intentionally accepts a single entry point: `command`.
  *
  * IMPORTANT: this is intentionally permissive about types (numbers, etc.) so the
  * model can succeed even when it sends slightly-wrong shapes.
  */
-export function parseExecArgs(raw) {
+export function parseBashArgs(raw) {
   const obj = isRecord(raw) ? raw : {};
   return {
     command: typeof obj.command === "string" && obj.command.trim() ? obj.command.trim() : undefined,

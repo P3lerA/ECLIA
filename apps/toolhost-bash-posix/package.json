@@ -1,5 +1,5 @@
 {
-  "name": "toolhost-exec-win32",
+  "name": "toolhost-bash-posix",
   "private": true,
   "version": "0.1.0",
   "type": "module",

@@ -723,7 +723,7 @@ textarea:focus{
   justify-content: center;
   box-shadow: none;
 }
-.execModeIcon{
+.bashModeIcon{
   width: 22px;
   height: 22px;
   display: block;

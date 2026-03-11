@@ -14,7 +14,7 @@ import { SessionStore } from "../sessionStore.js";
 import type { SessionMetaV1 } from "../sessionTypes.js";
 import type { OpenAICompatMessage } from "../transcriptTypes.js";
 import { ToolApprovalHub } from "../tools/approvalHub.js";
-import { loadExecAllowlist, type ToolAccessMode } from "../tools/policy.js";
+import { loadBashAllowlist, type ToolAccessMode } from "../tools/policy.js";
 import { MEMORY_TOOL_NAME } from "../tools/toolSchemas.js";
 import { McpStdioClient } from "../mcp/stdioClient.js";
 import { sseHeaders, initSse, send, startSseKeepAlive } from "../sse.js";
@@ -90,7 +90,7 @@ type ChatReqBody = {
   /**
    * Tool access mode (client preference).
    * - full: auto-run tools.
-   * - safe: auto-run allowlisted exec commands only; otherwise require user approval.
+   * - safe: auto-run allowlisted bash commands only; otherwise require user approval.
    */
   toolAccessMode?: ToolAccessMode;
 
@@ -327,7 +327,7 @@ export async function handleChat(
   approvals: ToolApprovalHub,
   toolhost: Toolhost
 ) {
-  const mcpExec = toolhost.mcp;
+  const mcpBash = toolhost.mcp;
   const toolsForModel = toolhost.toolsForModel;
   const nameToMcpTool = toolhost.nameToMcpTool;
 
@@ -661,7 +661,7 @@ export async function handleChat(
       `[gateway] POST /api/chat  session=${sessionId} model=${backend.upstreamModel} ctx≈${usedTokens} tools=${toolsForModelEffective.length ? "on" : "off"} mode=${toolAccessMode}`
     );
 
-    const execAllowlist = loadExecAllowlist(raw);
+    const bashAllowlist = loadBashAllowlist(raw);
 
     const upstreamAbort = new AbortController();
     let clientClosed = false;
@@ -794,12 +794,12 @@ export async function handleChat(
           sessionId,
           rootDir,
           provider: backend.provider,
-          mcpExec,
+          mcpBash,
           nameToMcpTool,
           toolCalls,
           enabledToolSet,
           toolAccessMode,
-          execAllowlist,
+          bashAllowlist,
           requestedOrigin,
           patchedOrigin: metaPatch.origin,
           storedOrigin: priorMeta.origin,

@@ -4,7 +4,7 @@ export const ECLIA_TOOL_RESULT_VERSION: 1;
 export const ECLIA_URI_SCHEME: "eclia";
 export const ECLIA_ARTIFACT_URI_HOST: "artifact";
 
-export type ExecToolArgs = {
+export type BashToolArgs = {
   command?: string;
   cwd?: string;
   timeoutMs?: number;
@@ -13,7 +13,7 @@ export type ExecToolArgs = {
   env?: Record<string, string>;
 };
 
-export type NormalizedExecToolArgs = {
+export type NormalizedBashToolArgs = {
   command?: string;
   cwd?: string;
   timeoutMs: number;
@@ -56,7 +56,7 @@ export type ToolResultEnvelopeV1<TData = unknown> = {
   meta?: Record<string, unknown>;
 };
 
-export function parseExecArgs(raw: unknown): NormalizedExecToolArgs;
+export function parseBashArgs(raw: unknown): NormalizedBashToolArgs;
 
 export function normalizeRepoRelPath(p: string): string;
 export function encodePathForUri(relPath: string): string;

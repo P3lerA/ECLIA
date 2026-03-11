@@ -7,7 +7,7 @@ import { loadEcliaConfig } from "@eclia/config";
 
 import { SessionStore } from "./sessionStore.js";
 import { ToolApprovalHub } from "./tools/approvalHub.js";
-import { EXEC_TOOL_NAME, SEND_TOOL_NAME, WEB_TOOL_NAME, MEMORY_TOOL_NAME } from "./tools/toolSchemas.js";
+import { BASH_TOOL_NAME, SEND_TOOL_NAME, WEB_TOOL_NAME, MEMORY_TOOL_NAME } from "./tools/toolSchemas.js";
 import { SEND_TOOL_SCHEMA } from "./tools/native/sendTool.js";
 import { WEB_TOOL_SCHEMA } from "./tools/native/webTool.js";
 import { MEMORY_TOOL_SCHEMA } from "./tools/native/memoryTool.js";
@@ -106,11 +106,11 @@ async function main() {
     console.warn(`[gateway] warning: failed to create CODEX_HOME at ${codexHome}:`, e);
   }
 
-  // MCP exec toolhost (stdio) ------------------------------------------------
+  // MCP bash toolhost (stdio) ------------------------------------------------
 
-  const toolhostApp = process.platform === "win32" ? "toolhost-exec-win32" : "toolhost-exec-posix";
+  const toolhostApp = process.platform === "win32" ? "toolhost-bash-win32" : "toolhost-bash-posix";
   const toolhostEntry = path.join(rootDir, "apps", toolhostApp, "server", "index.js");
-  const mcpExec = await McpStdioClient.spawn({
+  const mcpBash = await McpStdioClient.spawn({
     command: process.execPath,
     argv: [toolhostEntry],
     cwd: rootDir,
@@ -119,22 +119,22 @@ async function main() {
   });
 
   // Discover tools (MCP tools/list) and adapt them to upstream OpenAI tool schema.
-  const mcpTools = await mcpExec.listTools();
-  const execTool = mcpTools.find((t) => t && t.name === "exec");
-  if (!execTool) {
-    console.error(`[gateway] fatal: toolhost did not expose required tool: exec`);
+  const mcpTools = await mcpBash.listTools();
+  const bashTool = mcpTools.find((t) => t && t.name === "bash");
+  if (!bashTool) {
+    console.error(`[gateway] fatal: toolhost did not expose required tool: bash`);
     process.exit(1);
   }
 
-  const parameters = (execTool as McpToolDef).inputSchema ?? { type: "object" };
+  const parameters = (bashTool as McpToolDef).inputSchema ?? { type: "object" };
 
   const toolsForModel = [
     {
       type: "function",
       function: {
-        name: EXEC_TOOL_NAME,
+        name: BASH_TOOL_NAME,
         description:
-          execTool.description ||
+          bashTool.description ||
           "Execute a shell command on the local machine. Provide a command string in 'command'. Returns stdout/stderr/exitCode.",
         parameters
       }
@@ -145,7 +145,7 @@ async function main() {
         name: SEND_TOOL_NAME,
         description:
           "Send text and/or artifacts to the request origin (web/discord) or an explicitly specified destination. " +
-          "Artifact refs (from exec results) are always allowed. In safe mode, sending local files by absolute path or manually specifying a destination requires user approval.",
+          "Artifact refs (from bash results) are always allowed. In safe mode, sending local files by absolute path or manually specifying a destination requires user approval.",
         parameters: SEND_TOOL_SCHEMA
       }
     },
@@ -175,7 +175,7 @@ async function main() {
   ];
 
   const toolhost = {
-    mcp: mcpExec,
+    mcp: mcpBash,
     toolsForModel,
     nameToMcpTool: (name: string) => name
   };

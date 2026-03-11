@@ -3,7 +3,7 @@ import { ToolApprovalHub, type ToolApprovalOutcome } from "./approvalHub.js";
 /**
  * Generic "safe mode" approval helpers.
  *
- * The gateway currently supports interactive tool approvals for exec, and future tools (e.g. send)
+ * The gateway currently supports interactive tool approvals for bash, and future tools (e.g. send)
  * should reuse these helpers so that safe/full access behavior stays consistent.
  */
 

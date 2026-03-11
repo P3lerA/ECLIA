@@ -2,11 +2,11 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { parseExecArgs, artifactRefFromRepoRelPath } from "@eclia/tool-protocol";
+import { parseBashArgs, artifactRefFromRepoRelPath } from "@eclia/tool-protocol";
 
 
 /**
- * Minimal MCP stdio server that exposes a single tool: `exec`.
+ * Minimal MCP stdio server that exposes a single tool: `bash`.
  *
  * Transport requirements (stdio):
  * - Read newline-delimited JSON-RPC messages from stdin
@@ -64,7 +64,7 @@ function expandEcliaSkillsDirPlaceholders(s, skillsDirAbs) {
     .replace(/\$env:ECLIA_SKILLS_DIR\b/g, skillsDirAbs);
 }
 
-function expandExecArgsSkillsDir(args, skillsDirAbs) {
+function expandBashArgsSkillsDir(args, skillsDirAbs) {
   if (!args || typeof args !== "object" || !skillsDirAbs) return args;
 
   if (typeof args.cwd === "string") args.cwd = expandEcliaSkillsDirPlaceholders(args.cwd, skillsDirAbs);
@@ -73,7 +73,7 @@ function expandExecArgsSkillsDir(args, skillsDirAbs) {
   return args;
 }
 
-// --- Exec implementation ----------------------------------------------------
+// --- Bash implementation ----------------------------------------------------
 
 function resolveCwd(projectRoot, cwdArg) {
   const root = path.resolve(projectRoot);
@@ -295,13 +295,13 @@ function readEcliaMeta(rawArgs) {
   return { sessionId, callId };
 }
 
-async function runExecTool(rawArgs, signal) {
+async function runBashTool(rawArgs, signal) {
   const t0 = nowMs();
   const meta = readEcliaMeta(rawArgs);
-  const args = parseExecArgs(rawArgs);
+  const args = parseBashArgs(rawArgs);
   const projectRoot = process.cwd();
   const skillsDirAbs = path.join(projectRoot, "skills");
-  expandExecArgsSkillsDir(args, skillsDirAbs);
+  expandBashArgsSkillsDir(args, skillsDirAbs);
 
   const artifactsRoot = path.join(projectRoot, ".eclia", "artifacts");
   const artifactDirAbs =
@@ -320,7 +320,7 @@ async function runExecTool(rawArgs, signal) {
   const cwdRes = resolveCwd(projectRoot, args.cwd);
   if (!cwdRes.ok) {
     return {
-      type: "exec_result",
+      type: "bash_result",
       ok: false,
       error: { code: "bad_cwd", message: cwdRes.error },
       cwd: projectRoot,
@@ -344,11 +344,11 @@ async function runExecTool(rawArgs, signal) {
   // Keep the original request for transparency/debugging.
   const requested = { command: args.command };
 
-  // Exec tool accepts a single entry point: a shell command string.
+  // Bash tool accepts a single entry point: a shell command string.
   const commandStr = args.command;
   if (!commandStr) {
     return {
-      type: "exec_result",
+      type: "bash_result",
       ok: false,
       error: { code: "missing_command", message: "Provide 'command' (shell command string)." },
       cwd,
@@ -396,7 +396,7 @@ async function runExecTool(rawArgs, signal) {
     });
   } catch (e) {
     return {
-      type: "exec_result",
+      type: "bash_result",
       ok: false,
       error: { code: "spawn_failed", message: String(e?.message ?? e) },
       cwd,
@@ -516,7 +516,7 @@ async function runExecTool(rawArgs, signal) {
   }
 
   return {
-    type: "exec_result",
+    type: "bash_result",
     ok,
     cwd,
     exitCode,
@@ -538,8 +538,8 @@ async function runExecTool(rawArgs, signal) {
 
 // --- MCP tool defs ----------------------------------------------------------
 
-const EXEC_TOOL_DEF = {
-  name: "exec",
+const BASH_TOOL_DEF = {
+  name: "bash",
   title: "Execute Command",
   description: "Execute a command on this machine (POSIX shell: macOS/Linux). For large/binary outputs, write files to $ECLIA_ARTIFACT_DIR (provided automatically). Files created there will be returned as artifacts. Each artifact includes: path (repo-relative), uri (eclia://artifact/...), and ref (<eclia://artifact/...>) for copy/paste referencing. Returns stdout/stderr/exitCode.",
   inputSchema: {
@@ -583,7 +583,7 @@ let initialized = false;
 let shuttingDown = false;
 
 function log(...args) {
-  process.stderr.write(`[toolhost-exec-posix] ${args.join(" ")}\n`);
+  process.stderr.write(`[toolhost-bash-posix] ${args.join(" ")}\n`);
 }
 
 async function handleRequest(msg) {
@@ -603,7 +603,7 @@ async function handleRequest(msg) {
       result: {
         protocolVersion: pv,
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "eclia-toolhost-exec-posix", title: "ECLIA Exec Toolhost (POSIX)", version: "0.1.0" }
+        serverInfo: { name: "eclia-toolhost-bash-posix", title: "ECLIA Bash Toolhost (POSIX)", version: "0.1.0" }
       }
     };
   }
@@ -618,18 +618,18 @@ async function handleRequest(msg) {
   }
 
   if (method === "tools/list") {
-    return { jsonrpc: "2.0", id, result: { tools: [EXEC_TOOL_DEF] } };
+    return { jsonrpc: "2.0", id, result: { tools: [BASH_TOOL_DEF] } };
   }
 
   if (method === "tools/call") {
     const toolName = String(params.name ?? "").trim();
     const toolArgs = isRecord(params.arguments) ? params.arguments : {};
 
-    if (toolName !== "exec") {
+    if (toolName !== "bash") {
       return jsonRpcError(id, -32602, `Unknown tool: ${toolName}`);
     }
 
-    const r = await runExecTool(toolArgs, undefined);
+    const r = await runBashTool(toolArgs, undefined);
 
     // MCP-native output:
     // - structuredContent is the canonical machine-readable payload

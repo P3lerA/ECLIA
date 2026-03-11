@@ -1,8 +1,8 @@
 export const TOOL_DEFS = [
   {
-    name: "exec",
-    label: "exec",
-    description: "Execute a shell command on the local machine via the gateway toolhost.",
+    name: "bash",
+    label: "bash",
+    description: "Run a shell command on the local machine via the gateway toolhost.",
     defaultEnabled: true
   },
   {

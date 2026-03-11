@@ -261,7 +261,7 @@ function ToolBlockView({ block }: { block: ToolBlock }) {
 
   const artifacts = extractArtifacts(payload);
   const isSendTool = block.name === "send";
-  const isExecTool = block.name === "exec";
+  const isBashTool = block.name === "bash";
 
   // UX: successful send results don't need to dump the raw payload in rich mode.
   // Keep the raw payload available via "Display Plain Output".
@@ -325,7 +325,7 @@ function ToolBlockView({ block }: { block: ToolBlock }) {
             const label = p.split("/").pop() || p;
             const bytes = typeof a?.bytes === "number" ? a.bytes : undefined;
             const isImage = kind === "image" || mime.startsWith("image/");
-            const showInlinePreview = isImage && !isExecTool;
+            const showInlinePreview = isImage && !isBashTool;
 
             return (
               <div key={i} className="artifact-item">
@@ -369,7 +369,7 @@ function ToolPayloadRendered({ block, payload }: { block: ToolBlock; payload: an
     );
   }
 
-  if (formatted?.kind === "exec_stdout_stderr") {
+  if (formatted?.kind === "bash_stdout_stderr") {
     const stdout = formatted.stdout ?? "";
     const stderr = formatted.stderr ?? "";
 
@@ -395,7 +395,7 @@ function ToolPayloadRendered({ block, payload }: { block: ToolBlock; payload: an
     );
   }
 
-  if (formatted?.kind === "exec_error_summary") {
+  if (formatted?.kind === "bash_error_summary") {
     const stdout = formatted.stdout ?? "";
     const stderr = formatted.stderr ?? "";
     const exitCode = formatted.exitCode;

@@ -48,8 +48,8 @@ export type AppSettings = {
   maxOutputTokens: number | null;
 
   /**
-   * Tool access mode for potentially dangerous tools (starting with exec).
-   * - full: allow the gateway to execute automatically.
+   * Tool access mode for potentially dangerous tools (starting with bash).
+   * - full: allow the gateway to run automatically.
    * - safe: only auto-run allowlisted commands, otherwise require approval.
    */
   toolAccessMode: "full" | "safe";

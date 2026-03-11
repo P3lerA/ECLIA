@@ -283,7 +283,7 @@ function uniqueDestPath(dirAbs: string, desiredName: string): string {
 
 export type PreparedSendAttachments = {
   refs: string[]; // normalized angle refs
-  artifacts: any[]; // artifact metadata (same shape as exec_result.artifacts)
+  artifacts: any[]; // artifact metadata (same shape as bash_result.artifacts)
   copiedFromPaths: Array<{ source: string; ref: string; path: string }>;
 };
 

@@ -7,12 +7,12 @@ export type FormattedToolPayload =
       parseError?: string;
     }
   | {
-      kind: "exec_stdout_stderr";
+      kind: "bash_stdout_stderr";
       stdout?: string;
       stderr?: string;
     }
   | {
-      kind: "exec_error_summary";
+      kind: "bash_error_summary";
       stdout?: string;
       stderr?: string;
       exitCode: number | null;
@@ -79,9 +79,9 @@ export function tryFormatToolPayload(block: ToolBlock, payload: any, opts?: Tool
 
       const parseError = isRecord(payload) && typeof payload.parseError === "string" ? payload.parseError : undefined;
 
-      // Tool-specific: exec calls are almost always of the form { command: "..." }.
+      // Tool-specific: bash calls are almost always of the form { command: "..." }.
       // For readability, show just the command string instead of JSON.
-      if (block.name === "exec") {
+      if (block.name === "bash") {
         const parsed = isRecord(payload) ? (payload as any).parsed : null;
         const cmdFromParsed = isRecord(parsed) && typeof (parsed as any).command === "string" ? String((parsed as any).command) : "";
         const cmdFromPayload = isRecord(payload) && typeof (payload as any).command === "string" ? String((payload as any).command) : "";
@@ -110,12 +110,12 @@ export function tryFormatToolPayload(block: ToolBlock, payload: any, opts?: Tool
       return { kind: "tool_call_raw", raw, parseError };
     }
 
-    // 2) Exec results: show only stdout/stderr (and exitCode on errors).
+    // 2) Bash results: show only stdout/stderr (and exitCode on errors).
     // The payload shape differs between:
     // - live SSE blocks: payload === output
     // - persisted blocks: payload === { callId, ok, output }
-    const isExecTool = block.name === "exec";
-    if (isExecTool && (block.status === "ok" || block.status === "error")) {
+    const isBashTool = block.name === "bash";
+    if (isBashTool && (block.status === "ok" || block.status === "error")) {
       const out = isRecord(payload) && isRecord(payload.output) ? payload.output : payload;
       if (!isRecord(out)) return null;
 
@@ -131,14 +131,14 @@ export function tryFormatToolPayload(block: ToolBlock, payload: any, opts?: Tool
 
       if (ok) {
         return {
-          kind: "exec_stdout_stderr",
+          kind: "bash_stdout_stderr",
           stdout: stdout || undefined,
           stderr: stderr || undefined
         };
       }
 
       return {
-        kind: "exec_error_summary",
+        kind: "bash_error_summary",
         stdout: stdout || undefined,
         stderr: stderr || undefined,
         exitCode: parseExitCode((out as any).exitCode)
@@ -147,7 +147,7 @@ export function tryFormatToolPayload(block: ToolBlock, payload: any, opts?: Tool
 
     // 3) Send errors: show only stdout/stderr/exitCode (if present). In most cases,
     // send failures carry an { error: { code, message } } payload, so we surface the
-    // message as stderr to keep the UI consistent with exec errors.
+    // message as stderr to keep the UI consistent with bash errors.
     const isSendTool = block.name === "send";
     if (isSendTool && block.status === "error") {
       const out = isRecord(payload) && isRecord(payload.output) ? payload.output : payload;

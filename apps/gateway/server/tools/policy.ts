@@ -2,7 +2,7 @@ import path from "node:path";
 
 export type ToolAccessMode = "full" | "safe";
 
-export type ExecAllowlistRule =
+export type BashAllowlistRule =
   | { type: "exact"; raw: string; value: string }
   | { type: "regex"; raw: string; re: RegExp };
 
@@ -10,7 +10,7 @@ function isRecord(v: unknown): v is Record<string, any> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function parseAllowlistRule(raw: string): ExecAllowlistRule | null {
+function parseAllowlistRule(raw: string): BashAllowlistRule | null {
   const s = String(raw ?? "").trim();
   if (!s) return null;
 
@@ -31,12 +31,12 @@ function parseAllowlistRule(raw: string): ExecAllowlistRule | null {
   return { type: "exact", raw: s, value: s };
 }
 
-export function loadExecAllowlist(raw: Record<string, any>): ExecAllowlistRule[] {
+export function loadBashAllowlist(raw: Record<string, any>): BashAllowlistRule[] {
   try {
     if (!isRecord(raw)) return [];
     const tools = isRecord(raw.tools) ? raw.tools : {};
-    const exec = isRecord((tools as any).exec) ? (tools as any).exec : {};
-    const allow = (exec as any).allowlist;
+    const bash = isRecord((tools as any).bash) ? (tools as any).bash : {};
+    const allow = (bash as any).allowlist;
 
     const arr: string[] = Array.isArray(allow)
       ? allow.filter((x) => typeof x === "string")
@@ -44,7 +44,7 @@ export function loadExecAllowlist(raw: Record<string, any>): ExecAllowlistRule[]
         ? [allow]
         : [];
 
-    const rules: ExecAllowlistRule[] = [];
+    const rules: BashAllowlistRule[] = [];
     for (const item of arr) {
       const r = parseAllowlistRule(item);
       if (r) rules.push(r);
@@ -76,7 +76,7 @@ function basenameSafe(p: string): string {
   return path.posix.basename(s.replace(/\\/g, "/"));
 }
 
-function matchesAllowlist(commandName: string, allowlist: ExecAllowlistRule[]): string | null {
+function matchesAllowlist(commandName: string, allowlist: BashAllowlistRule[]): string | null {
   const name = String(commandName ?? "").trim();
   if (!name) return null;
 
@@ -98,10 +98,10 @@ function matchesAllowlist(commandName: string, allowlist: ExecAllowlistRule[]): 
   return null;
 }
 
-export function checkExecNeedsApproval(
-  execArgs: { command?: string } | any,
+export function checkBashNeedsApproval(
+  bashArgs: { command?: string } | any,
   mode: ToolAccessMode,
-  allowlist: ExecAllowlistRule[]
+  allowlist: BashAllowlistRule[]
 ): {
   requireApproval: boolean;
   reason: string;
@@ -111,7 +111,7 @@ export function checkExecNeedsApproval(
     return { requireApproval: false, reason: "mode_full" };
   }
 
-  const command = typeof execArgs?.command === "string" ? execArgs.command : "";
+  const command = typeof bashArgs?.command === "string" ? bashArgs.command : "";
 
   // Missing command: don't ask for approval; it will error anyway.
   if (!command) return { requireApproval: false, reason: "missing_command" };

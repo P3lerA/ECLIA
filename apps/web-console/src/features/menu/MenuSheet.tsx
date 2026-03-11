@@ -1,8 +1,8 @@
 import React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useAppDispatch, useAppState } from "../../state/AppState";
+import { getState, useAppDispatch, useAppState } from "../../state/AppState";
 import { usePresence } from "../motion/usePresence";
-import { apiDeleteSession } from "../../core/api/sessions";
+import { apiDeleteSession, apiGetSessionStatus } from "../../core/api/sessions";
 import { ThemeCycleButton } from "../theme/ThemeCycleButton";
 
 const FOCUSABLE =
@@ -31,6 +31,32 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
       setSelectedIds(new Set());
     }
   }, [open]);
+
+  // When the menu opens, poll session statuses to catch sessions running
+  // from other clients (Discord, other tabs, etc.).
+  React.useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+
+    const pollStatuses = async () => {
+      const sessions = getState().sessions;
+      const ids = sessions.filter((s) => !s.localOnly).map((s) => s.id);
+      for (const id of ids.slice(0, 20)) {
+        if (cancelled) break;
+        try {
+          const status = await apiGetSessionStatus(id);
+          if (cancelled) break;
+          const phase = status.active ? status.phase : null;
+          dispatch({ type: "session/setPhase", sessionId: id, phase });
+        } catch {
+          // ignore — gateway may not support status endpoint
+        }
+      }
+    };
+
+    void pollStatuses();
+    return () => { cancelled = true; };
+  }, [open, dispatch]);
 
   // Leaving the "all-sessions" view should also exit manage mode.
   React.useEffect(() => {
