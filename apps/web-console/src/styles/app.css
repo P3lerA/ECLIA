@@ -987,6 +987,21 @@ textarea:focus{
   font-size: 12px;
   color: var(--muted);
 }
+.session-pulse{
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(76,217,100,.95);
+  box-shadow: 0 0 0 2px rgba(76,217,100,.14);
+  margin-left: 6px;
+  vertical-align: middle;
+  animation: k-pulse-breathe 1.4s ease-in-out infinite;
+}
+@keyframes k-pulse-breathe{
+  0%,100%{ opacity: .35; }
+  50%{ opacity: 1; }
+}
 /* Settings page */
 .settingsview{
   flex: 1;
@@ -1034,6 +1049,7 @@ textarea:focus{
   border-radius: 999px;
   background: rgba(255,176,46,.95);
   box-shadow: 0 0 0 3px rgba(255,176,46,.14);
+  animation: k-pulse-breathe 1.4s ease-in-out infinite;
 }
 
 .btn:disabled{

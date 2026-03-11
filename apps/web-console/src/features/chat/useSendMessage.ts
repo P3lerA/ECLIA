@@ -1,13 +1,12 @@
 import React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useAppDispatch, useAppState } from "../../state/AppState";
+import { getState, useAppDispatch } from "../../state/AppState";
 import { runtime } from "../../core/runtime";
 import { makeId } from "../../core/ids";
 import type { ChatEvent } from "../../core/types";
 import { apiGetSession, apiResetSession, toUiSession } from "../../core/api/sessions";
 
 export function useSendMessage() {
-  const state = useAppState();
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const location = useLocation();
@@ -17,6 +16,9 @@ export function useSendMessage() {
       const trimmed = text.trim();
 
       if (!trimmed) return;
+
+      // Snapshot the current state at call time — no stale closures.
+      const state = getState();
 
       // Commands (client-side)
       if (trimmed === "/clear") {
@@ -175,9 +177,12 @@ export function useSendMessage() {
         dispatch({ type: "session/setPhase", sessionId, phase: null });
       } finally {
         // Best-effort: re-sync this session from the gateway so IDs/blocks stay canonical.
-        if (state.settings.sessionSyncEnabled) {
+        // Guard: only apply the sync if the user hasn't navigated away to a different session,
+        // otherwise we'd overwrite state for a session that's no longer in view.
+        if (getState().settings.sessionSyncEnabled && getState().activeSessionId === sessionId) {
           try {
             const { session, messages, hasMore } = await apiGetSession(sessionId);
+            if (getState().activeSessionId !== sessionId) return; // changed during fetch
             const ui = toUiSession(session);
             dispatch({
               type: "session/update",
@@ -191,21 +196,7 @@ export function useSendMessage() {
         }
       }
     },
-    [
-      state.activeSessionId,
-      state.model,
-      state.transport,
-      state.settings.sessionSyncEnabled,
-      state.settings.contextLimitEnabled,
-      state.settings.contextTokenLimit,
-      state.settings.temperature,
-      state.settings.topP,
-      state.settings.toolAccessMode,
-      state.settings.enabledTools,
-      location.pathname,
-      navigate,
-      dispatch
-    ]
+    [location.pathname, navigate, dispatch]
   );
 
   return { sendText };

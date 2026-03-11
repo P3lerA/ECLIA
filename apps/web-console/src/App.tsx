@@ -1,6 +1,6 @@
 import React from "react";
 import { Routes, Route, Navigate, useNavigate, useLocation, useParams } from "react-router-dom";
-import { useAppDispatch, useAppState } from "./state/AppState";
+import { getState, useAppDispatch } from "./state/AppState";
 import { LandingView } from "./features/landing/LandingView";
 import { ChatView } from "./features/chat/ChatView";
 import { MenuSheet } from "./features/menu/MenuSheet";
@@ -14,7 +14,6 @@ import { useAuthGate, useSessionBootstrap, usePersistPrefs } from "./appHooks";
 function SessionRoute({ onOpenMenu }: { onOpenMenu: () => void }) {
   const { sessionId } = useParams();
   const location = useLocation();
-  const state = useAppState();
   const dispatch = useAppDispatch();
 
   const dockFromLanding = Boolean((location.state as any)?.dockFromLanding);
@@ -22,16 +21,13 @@ function SessionRoute({ onOpenMenu }: { onOpenMenu: () => void }) {
   React.useEffect(() => {
     if (!sessionId) return;
 
-    // Ensure the session exists in UI state early to avoid a "Session not found" flash
-    // on hard-refresh / direct-links.
-    //
-    // IMPORTANT: This effect is intentionally keyed only by `sessionId`.
-    // When the user triggers "New session" while currently on `/session/:id`, we
-    // will update the active session id *before* navigating away to `/`.
-    // If we re-run on `activeSessionId` changes, we'd immediately "snap back" to
-    // the old session because the URL param still points to it, effectively locking
-    // the UI into a single session.
-    const exists = state.sessions.some((s) => s.id === sessionId);
+    // Read the latest state directly to avoid stale closures.
+    // This effect is keyed only by `sessionId` — NOT `activeSessionId` — to
+    // prevent snap-back when the user triggers "New session" while still on
+    // `/session/:id` (the URL param hasn't changed yet, but activeSessionId has).
+    const current = getState();
+
+    const exists = current.sessions.some((s) => s.id === sessionId);
     if (!exists) {
       const now = Date.now();
       dispatch({
@@ -47,7 +43,7 @@ function SessionRoute({ onOpenMenu }: { onOpenMenu: () => void }) {
       });
     }
 
-    if (state.activeSessionId !== sessionId) {
+    if (current.activeSessionId !== sessionId) {
       dispatch({ type: "session/select", sessionId });
     }
   }, [dispatch, sessionId]);

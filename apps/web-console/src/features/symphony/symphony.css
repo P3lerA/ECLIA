@@ -974,6 +974,7 @@
   background: rgba(255,176,46,.95);
   box-shadow: 0 0 0 3px rgba(255,176,46,.14);
   flex-shrink: 0;
+  animation: k-pulse-breathe 1.4s ease-in-out infinite;
 }
 .sym-save-text {
   font-size: 12px;

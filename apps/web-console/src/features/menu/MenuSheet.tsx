@@ -192,6 +192,7 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
         {sessions.map((s) => {
           const active = s.id === state.activeSessionId;
           const selected = manage && selectedIds.has(s.id);
+          const running = Boolean(state.phaseBySession[s.id]);
           return (
             <button
               key={s.id}
@@ -223,7 +224,10 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
               {manage ? (
                 <div className="menu-item-row">
                   <div className="menu-item-text">
-                    <div className="menu-item-main">{s.title}</div>
+                    <div className="menu-item-main">
+                      {s.title}
+                      {running ? <span className="session-pulse" aria-label="Running" /> : null}
+                    </div>
                     <div className="menu-item-sub">{s.meta}</div>
                   </div>
                   <input
@@ -237,7 +241,10 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
                 </div>
               ) : (
                 <>
-                  <div className="menu-item-main">{s.title}</div>
+                  <div className="menu-item-main">
+                    {s.title}
+                    {running ? <span className="session-pulse" aria-label="Running" /> : null}
+                  </div>
                   <div className="menu-item-sub">{s.meta}</div>
                 </>
               )}

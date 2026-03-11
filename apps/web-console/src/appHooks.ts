@@ -129,7 +129,7 @@ export function useSessionBootstrap(auth: Pick<AuthGate, "authRequired" | "authR
         // If the gateway has no persisted sessions yet, keep whatever local draft the UI has.
         if (metas.length === 0) return;
 
-        const persisted = metas.map((m) => ({ ...toUiSession(m), started: false }));
+        const persisted = metas.map((m) => toUiSession(m));
         const persistedIds = new Set(persisted.map((s) => s.id));
 
         // Read current state directly — avoids stale refs and eliminates full re-renders.

@@ -1,5 +1,6 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import { getState, useAppDispatch } from "../../state/AppState";
 import { useSendMessage } from "../chat/useSendMessage";
 import { EcliaLogo } from "../common/EcliaLogo";
 import { PromptBar } from "../common/PromptBar";
@@ -27,8 +28,22 @@ function SendUpIcon() {
 
 export function LandingView({ onOpenMenu }: { onOpenMenu: () => void }) {
   const navigate = useNavigate();
+  const dispatch = useAppDispatch();
   const { sendText } = useSendMessage();
   const [text, setText] = React.useState("");
+
+  // If the active session already has messages (e.g. user navigated back via
+  // browser history), ensure we switch to a fresh draft so the next message
+  // doesn't silently land in the previous conversation.
+  React.useEffect(() => {
+    const s = getState();
+    const msgs = s.messagesBySession[s.activeSessionId];
+    const hasMessages = Array.isArray(msgs) && msgs.length > 0;
+    const session = s.sessions.find((x) => x.id === s.activeSessionId);
+    if (hasMessages || session?.started) {
+      dispatch({ type: "session/new" });
+    }
+  }, [dispatch]);
 
   const send = React.useCallback(async () => {
     const v = text;

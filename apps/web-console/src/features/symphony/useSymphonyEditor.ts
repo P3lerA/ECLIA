@@ -448,6 +448,7 @@ export function useSymphonyEditor() {
 
   const addNode = useCallback(
     (kind: string, position?: { x: number; y: number }) => {
+      if (!activeDef) return;
       const schema = kindMapRef.current.get(kind);
       if (!schema) return;
       const nid = uid();

@@ -1,11 +1,8 @@
 /**
  * notify — Action node.
  *
- * Sends a message to a specified platform adapter (Discord, Telegram)
- * or to the web console session.
- *
- * For Discord/Telegram, posts directly to the adapter's /send endpoint.
- * For web, posts to the gateway's session transcript.
+ * Sends a message to a platform adapter (Discord or Telegram)
+ * by posting to the adapter's /send endpoint.
  *
  * Input ports:
  *   text : string  — the message to send
@@ -75,7 +72,7 @@ export const factory: NodeFactory = {
   kind: "notify",
   label: "Notify",
   role: "action",
-  description: "Send a message to Discord, Telegram, or the web console.",
+  description: "Send a message to any adapter",
 
   inputPorts: [
     { key: "text", label: "Text", type: "string" },
@@ -89,8 +86,8 @@ export const factory: NodeFactory = {
       key: "sendDestination",
       label: "Destination",
       type: "select",
-      options: ["discord", "telegram", "web"],
-      default: "web",
+      options: ["discord", "telegram"],
+      default: "discord",
     },
     {
       key: "sendChannelId",
@@ -113,39 +110,9 @@ export const factory: NodeFactory = {
           return { ok: false };
         }
 
-        const dest = String(config.sendDestination ?? "web");
+        const dest = String(config.sendDestination ?? "discord");
         const channelId = String(config.sendChannelId ?? "");
 
-        if (dest === "web") {
-          // Post to gateway session transcript
-          const sessionId = `sym_${ctx.services.opusId}_notify_${id}`;
-          const gwUrl = ctx.services.gatewayUrl;
-          try {
-            // Ensure session exists
-            await fetch(`${gwUrl}/api/sessions`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                sessionId,
-                title: `Notify · ${id}`,
-                origin: { kind: "symphony", opusId: ctx.services.opusId, nodeId: id },
-              }),
-            });
-            // Append as assistant message
-            await fetch(`${gwUrl}/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ role: "assistant", content: text }),
-            });
-            ctx.log.info(`notify → web (session ${sessionId})`);
-            return { ok: true };
-          } catch (e: any) {
-            ctx.log.error(`notify web failed: ${e?.message}`);
-            return { ok: false };
-          }
-        }
-
-        // Discord or Telegram
         if (!channelId) {
           ctx.log.error(`notify: ${dest} requires a channel/chat ID`);
           return { ok: false };
