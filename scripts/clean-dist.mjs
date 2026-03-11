@@ -1,14 +1,17 @@
 // Robust cross-platform dist/ cleaner.
 // Uses rename (atomic, immune to file locks) instead of rmSync directly.
-// The previous dist is parked as dist._old and cleaned up on the next run.
+// Old dirs are parked as dist._old_<ts> and cleaned up best-effort on next run.
 
-import { renameSync, rmSync, existsSync } from "node:fs";
+import { renameSync, rmSync, existsSync, readdirSync } from "node:fs";
 
-const dist = "dist";
-const old = "dist._old";
-
-// Clean up leftovers from a previous build first
-if (existsSync(old)) rmSync(old, { recursive: true, force: true });
+// Best-effort cleanup of any previous dist._old_* leftovers
+try {
+  for (const f of readdirSync(".")) {
+    if (f.startsWith("dist._old_")) {
+      try { rmSync(f, { recursive: true, force: true }); } catch {}
+    }
+  }
+} catch {}
 
 // Park current dist out of the way
-if (existsSync(dist)) renameSync(dist, old);
+if (existsSync("dist")) renameSync("dist", `dist._old_${Date.now()}`);

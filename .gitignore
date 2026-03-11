@@ -1,6 +1,6 @@
 node_modules
 dist
-dist._old
+dist._old*
 dist-ssr
 *.tsbuildinfo
 *.local
