@@ -18,7 +18,8 @@ import { normalizeDiscordStreamMode, normalizeGuildIds, sameStringArray } from "
 const DEFAULT_OPENAI_PROFILE = {
   base_url: OPENAI_COMPAT_DEFAULT_BASE_URL,
   model: OPENAI_COMPAT_DEFAULT_MODEL,
-  auth_header: OPENAI_COMPAT_DEFAULT_AUTH_HEADER
+  auth_header: OPENAI_COMPAT_DEFAULT_AUTH_HEADER,
+  wire_format: "completion"
 } as const;
 
 const DEFAULT_ANTHROPIC_PROFILE = {
@@ -62,7 +63,10 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
     const authHeader = String(p.auth_header ?? DEFAULT_OPENAI_PROFILE.auth_header).trim() || DEFAULT_OPENAI_PROFILE.auth_header;
     const apiKeyConfigured = Boolean(p.api_key_configured);
 
-    profiles.push({ id, name, baseUrl, modelId, authHeader, apiKeyConfigured });
+    const rawWireFormat = String(p.wire_format ?? "").trim();
+    const wireFormat: "completion" | "responses" = rawWireFormat === "responses" ? "responses" : "completion";
+
+    profiles.push({ id, name, baseUrl, modelId, authHeader, wireFormat, apiKeyConfigured });
   }
 
   if (profiles.length === 0) {
@@ -72,6 +76,7 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
       baseUrl: DEFAULT_OPENAI_PROFILE.base_url,
       modelId: DEFAULT_OPENAI_PROFILE.model,
       authHeader: DEFAULT_OPENAI_PROFILE.auth_header,
+      wireFormat: DEFAULT_OPENAI_PROFILE.wire_format,
       apiKeyConfigured: false
     });
   }
@@ -330,6 +335,7 @@ export function buildDevConfigPatch(args: BuildDevConfigPatchArgs): any {
           base_url: p.baseUrl.trim(),
           model: p.modelId.trim(),
           auth_header: p.authHeader.trim() || OPENAI_COMPAT_DEFAULT_AUTH_HEADER,
+          wire_format: p.wireFormat || "completion",
           ...(p.apiKey.trim().length ? { api_key: p.apiKey.trim() } : {})
         }))
       },
@@ -435,12 +441,16 @@ export function applyDevConfigPatchToCfgBase(cfgBase: CfgBase, body: any): CfgBa
         const prev = cfgBase.openaiCompatProfiles.find((x) => x.id === p.id);
         const apiKeyConfigured = Boolean(String(p.api_key ?? "").trim()) || Boolean(prev?.apiKeyConfigured);
 
+        const rawWF = String(p.wire_format ?? "").trim();
+        const wireFormat: "completion" | "responses" = rawWF === "responses" ? "responses" : "completion";
+
         return {
           id: String(p.id),
           name: String(p.name),
           baseUrl: String(p.base_url),
           modelId: String(p.model),
           authHeader: String(p.auth_header ?? OPENAI_COMPAT_DEFAULT_AUTH_HEADER),
+          wireFormat,
           apiKeyConfigured
         };
       })
@@ -558,25 +568,10 @@ export function draftAfterDevSave(d: SettingsDraft, nextBase: CfgBase, dirtyDevI
     userPreferredName: nextBase.userPreferredName,
     assistantName: nextBase.assistantName,
     inferenceProfiles: dirtyDevInference
-      ? nextBase.openaiCompatProfiles.map((p) => ({
-          id: p.id,
-          name: p.name,
-          baseUrl: p.baseUrl,
-          modelId: p.modelId,
-          authHeader: p.authHeader,
-          apiKey: ""
-        }))
+      ? nextBase.openaiCompatProfiles.map(({ apiKeyConfigured: _, ...rest }) => ({ ...rest, apiKey: "" }))
       : d.inferenceProfiles.map((p) => ({ ...p, apiKey: "" })),
     anthropicProfiles: dirtyDevInference
-      ? nextBase.anthropicProfiles.map((p) => ({
-          id: p.id,
-          name: p.name,
-          baseUrl: p.baseUrl,
-          modelId: p.modelId,
-          authHeader: p.authHeader,
-          anthropicVersion: p.anthropicVersion,
-          apiKey: ""
-        }))
+      ? nextBase.anthropicProfiles.map(({ apiKeyConfigured: _, ...rest }) => ({ ...rest, apiKey: "" }))
       : d.anthropicProfiles.map((p) => ({ ...p, apiKey: "" })),
     codexOAuthProfiles: nextBase.codexOAuthProfiles,
     inferenceSystemInstruction: nextBase.systemInstruction,
@@ -594,13 +589,7 @@ export function draftAfterDevSave(d: SettingsDraft, nextBase: CfgBase, dirtyDevI
 
     webActiveProfileId: dirtyDevWeb ? nextBase.webActiveProfileId : d.webActiveProfileId,
     webProfiles: dirtyDevWeb
-      ? nextBase.webProfiles.map((p) => ({
-          id: p.id,
-          name: p.name,
-          provider: p.provider,
-          projectId: p.projectId,
-          apiKey: ""
-        }))
+      ? nextBase.webProfiles.map(({ apiKeyConfigured: _, ...rest }) => ({ ...rest, apiKey: "" }))
       : d.webProfiles.map((p) => ({ ...p, apiKey: "" })),
 
     debugCaptureUpstreamRequests: nextBase.debugCaptureUpstreamRequests,

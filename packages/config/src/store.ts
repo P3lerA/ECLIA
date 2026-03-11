@@ -125,21 +125,23 @@ export function writeLocalEcliaConfig(
       const id = coerceProfileId(p.id, `profile_${i + 1}`);
       const existing = currentProfiles?.find((x) => isRecord(x) && coerceProfileId((x as any).id, "") === id);
 
-      const next: Record<string, any> = { ...p, id };
+      // Spread existing profile first so that TOML-only fields survive the round-trip.
+      // Then overlay the patch; patch keys win.
+      const next: Record<string, any> = {
+        ...(isRecord(existing) ? existing : {}),
+        ...p,
+        id
+      };
 
-      // Preserve api_key when omitted.
+      // Preserve api_key when the patch omits it (UI sends api_key only when the user typed a new one).
       if (!Object.prototype.hasOwnProperty.call(p, "api_key")) {
-        const existingKey = coerceOptionalString((existing as any)?.api_key);
-        if (existingKey) next.api_key = existingKey;
-        // Legacy fallback: if user is migrating from the old single-key schema.
-        if (!existingKey && id === DEFAULT_PROFILE_ID && legacyKey) next.api_key = legacyKey;
+        // existing api_key is already in next via spread, but handle legacy fallback.
+        if (!next.api_key && id === DEFAULT_PROFILE_ID && legacyKey) next.api_key = legacyKey;
       }
 
-      // Preserve auth_header when omitted (old configs may have it only at the top-level).
+      // Preserve auth_header via legacy fallback (existing already spread in).
       if (!Object.prototype.hasOwnProperty.call(p, "auth_header")) {
-        const existingHeader = coerceOptionalString((existing as any)?.auth_header);
-        if (existingHeader) next.auth_header = existingHeader;
-        if (!existingHeader && id === DEFAULT_PROFILE_ID && legacyAuthHeader) next.auth_header = legacyAuthHeader;
+        if (!next.auth_header && id === DEFAULT_PROFILE_ID && legacyAuthHeader) next.auth_header = legacyAuthHeader;
       }
 
       preserved.push(next);
@@ -168,24 +170,22 @@ export function writeLocalEcliaConfig(
         const id = coerceProfileId((p as any).id, `profile_${i + 1}`);
         const existing = currentAnthropicProfiles?.find((x) => isRecord(x) && coerceProfileId((x as any).id, "") === id);
 
-        const next: Record<string, any> = { ...p, id };
+        // Spread existing profile first so that TOML-only fields survive the round-trip.
+        const next: Record<string, any> = {
+          ...(isRecord(existing) ? existing : {}),
+          ...p,
+          id
+        };
 
+        // Legacy fallbacks (existing fields already spread in).
         if (!Object.prototype.hasOwnProperty.call(p, "api_key")) {
-          const existingKey = coerceOptionalString((existing as any)?.api_key);
-          if (existingKey) next.api_key = existingKey;
-          if (!existingKey && id === DEFAULT_PROFILE_ID && legacyKey) next.api_key = legacyKey;
+          if (!next.api_key && id === DEFAULT_PROFILE_ID && legacyKey) next.api_key = legacyKey;
         }
-
         if (!Object.prototype.hasOwnProperty.call(p, "auth_header")) {
-          const existingHeader = coerceOptionalString((existing as any)?.auth_header);
-          if (existingHeader) next.auth_header = existingHeader;
-          if (!existingHeader && id === DEFAULT_PROFILE_ID && legacyAuthHeader) next.auth_header = legacyAuthHeader;
+          if (!next.auth_header && id === DEFAULT_PROFILE_ID && legacyAuthHeader) next.auth_header = legacyAuthHeader;
         }
-
         if (!Object.prototype.hasOwnProperty.call(p, "anthropic_version")) {
-          const existingVersion = coerceOptionalString((existing as any)?.anthropic_version);
-          if (existingVersion) next.anthropic_version = existingVersion;
-          if (!existingVersion && id === DEFAULT_PROFILE_ID && legacyVersion) next.anthropic_version = legacyVersion;
+          if (!next.anthropic_version && id === DEFAULT_PROFILE_ID && legacyVersion) next.anthropic_version = legacyVersion;
         }
 
         preserved.push(next);
@@ -225,14 +225,16 @@ export function writeLocalEcliaConfig(
         const id = coerceProfileId((p as any).id, `profile_${i + 1}`);
         const existing = currentWebProfiles?.find((x) => isRecord(x) && coerceProfileId((x as any).id, "") === id);
 
-        const next: Record<string, any> = { ...p, id };
+        // Spread existing profile first so that TOML-only fields survive the round-trip.
+        const next: Record<string, any> = {
+          ...(isRecord(existing) ? existing : {}),
+          ...p,
+          id
+        };
 
-        // Preserve api_key when omitted.
+        // Legacy fallback (existing api_key already spread in).
         if (!Object.prototype.hasOwnProperty.call(p, "api_key")) {
-          const existingKey = coerceOptionalString((existing as any)?.api_key);
-          if (existingKey) next.api_key = existingKey;
-          // Legacy fallback: if user is migrating from older Tavily-only schema.
-          if (!existingKey && id === activeId && legacyTavilyKey) next.api_key = legacyTavilyKey;
+          if (!next.api_key && id === activeId && legacyTavilyKey) next.api_key = legacyTavilyKey;
         }
 
         preserved.push(next);
@@ -273,24 +275,11 @@ export function writeLocalEcliaConfig(
       provider: normalized.inference.provider,
       openai_compat: {
         ...(isRecord(nextLocal.inference?.openai_compat) ? (nextLocal.inference as any).openai_compat : {}),
-        profiles: normalized.inference.openai_compat.profiles.map((p) => ({
-          id: p.id,
-          name: p.name,
-          base_url: p.base_url,
-          model: p.model,
-          auth_header: p.auth_header
-        }))
+        profiles: normalized.inference.openai_compat.profiles.map(({ api_key: _k, ...rest }) => rest)
       },
       anthropic: {
         ...(isRecord((nextLocal.inference as any)?.anthropic) ? (nextLocal.inference as any).anthropic : {}),
-        profiles: normalized.inference.anthropic.profiles.map((p) => ({
-          id: p.id,
-          name: p.name,
-          base_url: p.base_url,
-          model: p.model,
-          auth_header: p.auth_header,
-          anthropic_version: p.anthropic_version
-        }))
+        profiles: normalized.inference.anthropic.profiles.map(({ api_key: _k, ...rest }) => rest)
       }
     },
     adapters: {

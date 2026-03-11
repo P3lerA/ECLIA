@@ -9,6 +9,7 @@ import { createNoAuthCredential, createStaticApiKeyCredential, type CredentialPr
 import { createAnthropicProvider } from "./anthropicProvider.js";
 import { createCodexAppServerProvider } from "./codexAppServerProvider.js";
 import { createOpenAICompatProvider } from "./openaiCompatProvider.js";
+import { createOpenAIResponsesProvider } from "./openaiResponsesProvider.js";
 import type { UpstreamProvider } from "./provider.js";
 
 export type ResolvedUpstreamBackend = {
@@ -24,7 +25,10 @@ export function resolveUpstreamBackend(routeModel: string, config: EcliaConfig):
     const profile = sel.profile;
     const upstreamModel = sel.upstreamModel;
 
-    const provider = createOpenAICompatProvider({ baseUrl: profile.base_url, upstreamModel });
+    const provider =
+      profile.wire_format === "responses"
+        ? createOpenAIResponsesProvider({ baseUrl: profile.base_url, upstreamModel })
+        : createOpenAICompatProvider({ baseUrl: profile.base_url, upstreamModel });
 
     const missingMessage = `Missing API key for profile \"${profile.name}\". Set inference.openai_compat.profiles[].api_key in eclia.config.local.toml (or add it in Settings).`;
 

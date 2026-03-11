@@ -202,7 +202,7 @@ export function openAICompatToAnthropicMessages(openaiMessages: OpenAICompatMess
   return { system, messages: out };
 }
 
-export function buildAnthropicToolResultMessage(args: { results: Array<{ callId: string; content: string; ok: boolean }> }): AnthropicMessage {
+export function buildAnthropicToolResultMessage(args: { results: Array<{ callId: string; content: string | any[]; ok: boolean }> }): AnthropicMessage {
   const blocks = args.results.map((r) => {
     const b: any = { type: "tool_result", tool_use_id: r.callId, content: r.content };
     if (!r.ok) b.is_error = true;

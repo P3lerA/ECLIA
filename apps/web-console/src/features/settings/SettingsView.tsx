@@ -119,36 +119,15 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
         webActiveProfileId: cfgBase?.webActiveProfileId ?? prev?.webActiveProfileId ?? DEFAULT_PROFILE_ID,
         webProfiles: cfgBase
-          ? cfgBase.webProfiles.map((p) => ({
-              id: p.id,
-              name: p.name,
-              provider: p.provider,
-              projectId: p.projectId,
-              apiKey: ""
-            }))
+          ? cfgBase.webProfiles.map(({ apiKeyConfigured: _, ...rest }) => ({ ...rest, apiKey: "" }))
           : prev?.webProfiles ?? [{ id: DEFAULT_PROFILE_ID, name: DEFAULT_PROFILE_NAME, provider: DEFAULT_WEB_PROVIDER, apiKey: "", projectId: "" }],
 
         inferenceProfiles: cfgBase
-          ? cfgBase.openaiCompatProfiles.map((p) => ({
-              id: p.id,
-              name: p.name,
-              baseUrl: p.baseUrl,
-              modelId: p.modelId,
-              authHeader: p.authHeader,
-              apiKey: ""
-            }))
+          ? cfgBase.openaiCompatProfiles.map(({ apiKeyConfigured: _, ...rest }) => ({ ...rest, apiKey: "" }))
           : prev?.inferenceProfiles ?? [],
 
         anthropicProfiles: cfgBase
-          ? cfgBase.anthropicProfiles.map((p) => ({
-              id: p.id,
-              name: p.name,
-              baseUrl: p.baseUrl,
-              modelId: p.modelId,
-              authHeader: p.authHeader,
-              anthropicVersion: p.anthropicVersion,
-              apiKey: ""
-            }))
+          ? cfgBase.anthropicProfiles.map(({ apiKeyConfigured: _, ...rest }) => ({ ...rest, apiKey: "" }))
           : prev?.anthropicProfiles ?? [],
 
 

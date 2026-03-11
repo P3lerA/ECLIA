@@ -52,6 +52,7 @@ export type ConfigApiRequestBody = {
         model?: string;
         api_key?: string;
         auth_header?: string;
+        wire_format?: "completion" | "responses";
       }>;
     };
     anthropic?: {
@@ -156,6 +157,7 @@ export type ConfigApiConfig = {
         base_url?: string;
         model?: string;
         auth_header?: string;
+        wire_format?: "completion" | "responses";
         api_key_configured?: boolean;
       }>;
     };

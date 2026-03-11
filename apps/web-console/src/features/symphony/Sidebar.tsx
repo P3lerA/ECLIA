@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EcliaLogo } from "../common/EcliaLogo";
 import { ThemeModeSwitch } from "../theme/ThemeModeSwitch";
 import { roleLabel, PORT_COLORS } from "./symphonyTypes";
@@ -26,6 +26,7 @@ export function Sidebar({
   onBack,
   nodeKinds,
   onAddNode,
+  onWidthChange,
 }: {
   opusList: OpusListEntry[];
   activeId: string | null;
@@ -44,11 +45,20 @@ export function Sidebar({
   onBack: () => void;
   nodeKinds: NodeKindSchema[];
   onAddNode: (kind: string) => void;
+  onWidthChange?: (width: number) => void;
 }) {
+  const RAIL_W = 44;
   const [activeTab, setActiveTab] = useState<"opus" | "nodes" | null>("opus");
   const [panelWidth, setPanelWidth] = useState(340);
   const [resizing, setResizing] = useState(false);
   const dragRef = useRef<{ startX: number; startW: number } | null>(null);
+
+  const expanded = activeTab != null;
+  const totalWidth = expanded ? panelWidth + RAIL_W : RAIL_W;
+
+  const widthCbRef = useRef(onWidthChange);
+  widthCbRef.current = onWidthChange;
+  useEffect(() => { widthCbRef.current?.(totalWidth); }, [totalWidth]);
 
   const toggleTab = (tab: "opus" | "nodes") =>
     setActiveTab((prev) => (prev === tab ? null : tab));
@@ -69,8 +79,6 @@ export function Sidebar({
     dragRef.current = null;
     setResizing(false);
   }, []);
-
-  const expanded = activeTab != null;
 
   return (
     <div className="sym-sidebar">
@@ -279,9 +287,19 @@ function NodeListWithPreview({ nodeKinds, onAddNode }: { nodeKinds: NodeKindSche
 
 function NodePreview({ schema, top, left }: { schema: NodeKindSchema; top: number; left: number }) {
   const connectableFields = schema.configSchema.filter((f) => f.connectable);
+  const ref = useRef<HTMLDivElement>(null);
+  const [adjustedTop, setAdjustedTop] = useState(top);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) { setAdjustedTop(top); return; }
+    const h = el.offsetHeight;
+    const maxTop = window.innerHeight - h - 8;
+    setAdjustedTop(Math.max(8, Math.min(top, maxTop)));
+  }, [top, schema]);
 
   return (
-    <div className="sym-node-preview" style={{ top, left }}>
+    <div ref={ref} className="sym-node-preview" style={{ top: adjustedTop, left }}>
       <div className="sym-node">
         <div className="sym-node-header">
           <span className={`sym-node-role sym-node-role--${schema.role}`}>{roleLabel(schema.role)}</span>

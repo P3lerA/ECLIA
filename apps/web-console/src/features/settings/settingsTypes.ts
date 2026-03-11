@@ -71,6 +71,7 @@ export type SettingsDraft = {
     baseUrl: string;
     modelId: string;
     authHeader: string;
+    wireFormat: "completion" | "responses";
     apiKey: string; // input only; empty = unchanged
   }>;
 
@@ -124,6 +125,7 @@ export type OpenAICompatProfileBase = {
   baseUrl: string;
   modelId: string;
   authHeader: string;
+  wireFormat: "completion" | "responses";
   apiKeyConfigured: boolean;
 };
 

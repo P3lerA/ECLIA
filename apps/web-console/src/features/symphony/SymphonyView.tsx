@@ -19,7 +19,9 @@ export function SymphonyView() {
   const { opusId: urlOpusId } = useParams<{ opusId?: string }>();
   const editor = useSymphonyEditor();
   const rfInstance = useRef<any>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
   const [nodeMenu, setNodeMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(null);
+  const [sidebarW, setSidebarW] = useState(44);
 
   // Sync URL → editor selection
   useEffect(() => {
@@ -157,11 +159,12 @@ export function SymphonyView() {
   });
 
   return (
-    <div className="sym-root motion-page">
+    <div className="sym-root motion-page" style={{ "--sym-sidebar-actual-w": `${sidebarW}px` } as React.CSSProperties}>
       {/* Canvas */}
       <SymphonyRuntimeContext.Provider value={runtimeCtx}>
       <ReactFlowProvider>
         <div
+          ref={canvasRef}
           className="sym-canvas-wrap"
           onDoubleClick={(e) => {
             if (!(e.target as HTMLElement).closest(".react-flow__node")) handlePaneDoubleClick(e);
@@ -227,11 +230,15 @@ export function SymphonyView() {
         onBack={() => navigate("/")}
         nodeKinds={editor.nodeKinds}
         onAddNode={(kind) => {
+          const rect = canvasRef.current?.getBoundingClientRect();
+          const cx = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
+          const cy = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
           const pos = rfInstance.current
-            ? rfInstance.current.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
+            ? rfInstance.current.screenToFlowPosition({ x: cx, y: cy })
             : { x: 200, y: 100 };
           editor.addNode(kind, { x: pos.x + (Math.random() - 0.5) * 60, y: pos.y + (Math.random() - 0.5) * 60 });
         }}
+        onWidthChange={setSidebarW}
       />
 
       {/* Inspector popup — opens on node click */}

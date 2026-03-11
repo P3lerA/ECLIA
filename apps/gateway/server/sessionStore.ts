@@ -286,7 +286,8 @@ export class SessionStore {
       const routeKey = typeof (upstreamIn as any).routeKey === "string" ? String((upstreamIn as any).routeKey) : "";
       const model = typeof (upstreamIn as any).model === "string" ? String((upstreamIn as any).model) : "";
       const baseUrl = typeof (upstreamIn as any).baseUrl === "string" ? String((upstreamIn as any).baseUrl) : "";
-      if (routeKey || model || baseUrl) upstream = { routeKey, model, baseUrl };
+      const providerKind = typeof (upstreamIn as any).providerKind === "string" ? String((upstreamIn as any).providerKind) : undefined;
+      if (routeKey || model || baseUrl) upstream = { routeKey, model, baseUrl, ...(providerKind ? { providerKind } : {}) };
     }
 
     let git: TranscriptTurnV1["git"] | undefined;

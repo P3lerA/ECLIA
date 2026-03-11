@@ -336,6 +336,23 @@ export function InferenceSection(props: InferenceSectionProps) {
                     disabled={devDisabled}
                   />
                 </label>
+
+                <label className="field">
+                  <div className="field-label">Wire format</div>
+                  <select
+                    className="select"
+                    value={p.wireFormat || "completion"}
+                    onChange={(e) =>
+                      patchOpenAICompatProfile(p.id, {
+                        wireFormat: e.target.value as "completion" | "responses"
+                      })
+                    }
+                    disabled={devDisabled}
+                  >
+                    <option value="completion">Chat Completions</option>
+                    <option value="responses">Responses API</option>
+                  </select>
+                </label>
               </div>
 
               <div className="profileActions">

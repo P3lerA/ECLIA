@@ -69,6 +69,8 @@ export type TranscriptTurnV1 = {
     model: string;
     /** Provider base URL. For non-HTTP providers, may be a sentinel like `codex_app_server`. */
     baseUrl: string;
+    /** Provider kind (e.g. `openai_compat`, `openai_responses`, `anthropic`, `codex_oauth`). */
+    providerKind?: string;
   };
 
   /** Local git metadata snapshot (best-effort; null when unavailable). */

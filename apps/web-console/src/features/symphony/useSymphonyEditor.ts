@@ -472,7 +472,7 @@ export function useSymphonyEditor() {
       setDirty(true);
       setServerErrors([]);
     },
-    [setNodes]
+    [activeDef, setNodes]
   );
 
   // ── Duplicate node ─────────────────────────────────────

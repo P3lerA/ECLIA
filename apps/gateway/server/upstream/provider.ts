@@ -9,8 +9,15 @@ export type ToolCall = {
 
 export type ToolResult = {
   callId: string;
-  /** Content string that will be passed back to the upstream in its tool-result format. */
-  content: string;
+  /**
+   * Content passed back to the upstream in its tool-result format.
+   *
+   * - `string` — text content (default; all existing tools).
+   * - `any[]` — multimodal content blocks (e.g. screenshot images for computer use).
+   *   The provider adapter is responsible for translating these into the upstream's
+   *   native format (Anthropic image blocks, Responses API computer_call_output, etc.).
+   */
+  content: string | any[];
   /** Whether the tool execution succeeded (used by some providers for is_error flags). */
   ok: boolean;
 };

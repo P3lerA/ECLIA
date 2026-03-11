@@ -272,6 +272,14 @@ export type OpenAICompatProfile = {
    * Default: Authorization
    */
   auth_header?: string;
+
+  /**
+   * Wire format for the upstream API.
+   *
+   * - "completion" (default) — OpenAI Chat Completions API (/v1/chat/completions)
+   * - "responses" — OpenAI Responses API (/v1/responses)
+   */
+  wire_format?: "completion" | "responses";
 };
 
 export type AnthropicProfile = {

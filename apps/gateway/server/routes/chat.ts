@@ -498,7 +498,7 @@ export async function handleChat(
     // Populated only if this turn actually injects recalled memories into the upstream prompt.
     let injectedMemoryForTurn: Array<{ id: string; raw: string; score: number | null }> = [];
 
-    const buildTurnMeta = (args: { usedTokens: number; upstreamModel?: string; upstreamBaseUrl?: string; memory?: Array<{ id: string; raw: string; score: number | null }> }) => {
+    const buildTurnMeta = (args: { usedTokens: number; upstreamModel?: string; upstreamBaseUrl?: string; providerKind?: string; memory?: Array<{ id: string; raw: string; score: number | null }> }) => {
       const baseUrl = String(args.upstreamBaseUrl ?? "");
       const memory = Array.isArray(args.memory) ? args.memory : injectedMemoryForTurn;
       return {
@@ -508,7 +508,8 @@ export async function handleChat(
         upstream: {
           routeKey: canonicalRouteModel,
           model: String(args.upstreamModel ?? canonicalRouteModel),
-          baseUrl
+          baseUrl,
+          ...(args.providerKind ? { providerKind: args.providerKind } : {})
         },
         git,
         runtime: runtimeForTurn,
@@ -552,7 +553,8 @@ export async function handleChat(
         buildTurnMeta({
           usedTokens: 0,
           upstreamModel: backend.upstreamModel,
-          upstreamBaseUrl: backend.provider.origin.baseUrl ?? backend.provider.origin.adapter
+          upstreamBaseUrl: backend.provider.origin.baseUrl ?? backend.provider.origin.adapter,
+          providerKind: backend.provider.kind
         }),
         Date.now()
       );
@@ -824,7 +826,8 @@ export async function handleChat(
         buildTurnMeta({
           usedTokens,
           upstreamModel: backend.upstreamModel,
-          upstreamBaseUrl: backend.provider.origin.baseUrl ?? backend.provider.origin.adapter
+          upstreamBaseUrl: backend.provider.origin.baseUrl ?? backend.provider.origin.adapter,
+          providerKind: backend.provider.kind
         }),
         Date.now()
       );
@@ -865,7 +868,8 @@ export async function handleChat(
         buildTurnMeta({
           usedTokens,
           upstreamModel: backend.upstreamModel,
-          upstreamBaseUrl: backend.provider.origin.baseUrl ?? backend.provider.origin.adapter
+          upstreamBaseUrl: backend.provider.origin.baseUrl ?? backend.provider.origin.adapter,
+          providerKind: backend.provider.kind
         }),
         Date.now()
       );

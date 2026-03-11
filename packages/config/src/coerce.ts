@@ -165,13 +165,18 @@ export function coerceConfig(raw: Record<string, any>): EcliaConfig {
       if (seen.has(id)) continue;
       seen.add(id);
 
-      const name = coerceString(p.name, `Profile ${i + 1}`);
-      const base_url = coerceString(p.base_url, base.inference.openai_compat.profiles[0].base_url);
-      const model = coerceString(p.model, base.inference.openai_compat.profiles[0].model);
-      const api_key = coerceOptionalString(p.api_key);
-      const auth_header = coerceString(p.auth_header, base.inference.openai_compat.profiles[0].auth_header ?? OPENAI_COMPAT_DEFAULT_AUTH_HEADER);
+      const rawWF = coerceOptionalString(p.wire_format);
 
-      profiles.push({ id, name, base_url, model, api_key, auth_header });
+      profiles.push({
+        ...(p as any),
+        id,
+        name: coerceString(p.name, `Profile ${i + 1}`),
+        base_url: coerceString(p.base_url, base.inference.openai_compat.profiles[0].base_url),
+        model: coerceString(p.model, base.inference.openai_compat.profiles[0].model),
+        api_key: coerceOptionalString(p.api_key),
+        auth_header: coerceString(p.auth_header, base.inference.openai_compat.profiles[0].auth_header ?? OPENAI_COMPAT_DEFAULT_AUTH_HEADER),
+        wire_format: rawWF === "responses" ? "responses" : "completion"
+      });
     }
   }
 
@@ -183,7 +188,8 @@ export function coerceConfig(raw: Record<string, any>): EcliaConfig {
       base_url: coerceString(openaiRaw.base_url, base.inference.openai_compat.profiles[0].base_url),
       model: coerceString(openaiRaw.model, base.inference.openai_compat.profiles[0].model),
       api_key: coerceOptionalString(openaiRaw.api_key),
-      auth_header: coerceString(openaiRaw.auth_header, base.inference.openai_compat.profiles[0].auth_header ?? OPENAI_COMPAT_DEFAULT_AUTH_HEADER)
+      auth_header: coerceString(openaiRaw.auth_header, base.inference.openai_compat.profiles[0].auth_header ?? OPENAI_COMPAT_DEFAULT_AUTH_HEADER),
+      wire_format: "completion"
     });
   }
 
@@ -201,17 +207,19 @@ export function coerceConfig(raw: Record<string, any>): EcliaConfig {
       if (seenAnthropic.has(id)) continue;
       seenAnthropic.add(id);
 
-      const name = coerceString((p as any).name, `Profile ${i + 1}`);
-      const base_url = coerceString((p as any).base_url, base.inference.anthropic.profiles[0].base_url);
-      const model = coerceString((p as any).model, base.inference.anthropic.profiles[0].model);
-      const api_key = coerceOptionalString((p as any).api_key);
-      const auth_header = coerceString((p as any).auth_header, base.inference.anthropic.profiles[0].auth_header ?? ANTHROPIC_DEFAULT_AUTH_HEADER);
-      const anthropic_version = coerceString(
-        (p as any).anthropic_version,
-        base.inference.anthropic.profiles[0].anthropic_version ?? ANTHROPIC_DEFAULT_VERSION
-      );
-
-      anthropicProfiles.push({ id, name, base_url, model, api_key, auth_header, anthropic_version });
+      anthropicProfiles.push({
+        ...(p as any),
+        id,
+        name: coerceString((p as any).name, `Profile ${i + 1}`),
+        base_url: coerceString((p as any).base_url, base.inference.anthropic.profiles[0].base_url),
+        model: coerceString((p as any).model, base.inference.anthropic.profiles[0].model),
+        api_key: coerceOptionalString((p as any).api_key),
+        auth_header: coerceString((p as any).auth_header, base.inference.anthropic.profiles[0].auth_header ?? ANTHROPIC_DEFAULT_AUTH_HEADER),
+        anthropic_version: coerceString(
+          (p as any).anthropic_version,
+          base.inference.anthropic.profiles[0].anthropic_version ?? ANTHROPIC_DEFAULT_VERSION
+        )
+      });
     }
   }
 

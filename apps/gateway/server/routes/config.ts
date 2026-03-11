@@ -90,25 +90,16 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
           system_instruction: (config.inference as any).system_instruction,
           provider: config.inference.provider,
           openai_compat: {
-            profiles: config.inference.openai_compat.profiles.map((p) => ({
-              id: p.id,
-              name: p.name,
-              base_url: p.base_url,
-              model: p.model,
-              auth_header: p.auth_header,
-              api_key_configured: Boolean(p.api_key && p.api_key.trim())
+            profiles: config.inference.openai_compat.profiles.map(({ api_key, ...rest }) => ({
+              ...rest,
+              api_key_configured: Boolean(api_key && api_key.trim())
             }))
           },
           anthropic: {
-            profiles: (config.inference as any).anthropic?.profiles?.map((p: any) => ({
-              id: p.id,
-              name: p.name,
-              base_url: p.base_url,
-              model: p.model,
-              auth_header: p.auth_header,
-              anthropic_version: p.anthropic_version,
-              api_key_configured: Boolean(p.api_key && String(p.api_key).trim())
-            })) ?? []
+            profiles: (config.inference.anthropic?.profiles ?? []).map(({ api_key, ...rest }) => ({
+              ...rest,
+              api_key_configured: Boolean(api_key && String(api_key).trim())
+            }))
           },
           codex_oauth: {
             // ECLIA supports a single Codex OAuth profile (Codex auth is global).
@@ -408,6 +399,10 @@ export async function handleConfig(req: http.IncomingMessage, res: http.ServerRe
         if (typeof row.base_url === "string" && row.base_url.trim()) next.base_url = row.base_url.trim();
         if (typeof row.model === "string" && row.model.trim()) next.model = row.model.trim();
         if (typeof row.auth_header === "string" && row.auth_header.trim()) next.auth_header = row.auth_header.trim();
+        if (typeof row.wire_format === "string") {
+          const wf = row.wire_format.trim();
+          if (wf === "completion" || wf === "responses") next.wire_format = wf;
+        }
 
         // api_key: optional; empty means unchanged.
         if (typeof row.api_key === "string" && row.api_key.trim()) next.api_key = row.api_key.trim();

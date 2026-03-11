@@ -156,7 +156,7 @@ export type ModelRouteOption = {
 };
 
 export function buildModelRouteOptions(
-  openaiProfiles: Array<{ id: string; name: string }> | null | undefined,
+  openaiProfiles: Array<{ id: string; name: string; wireFormat?: string }> | null | undefined,
   anthropicProfiles: Array<{ id: string; name: string }> | null | undefined,
   codexOAuthProfiles: Array<{ id: string; name: string }> | null | undefined
 ): ModelRouteOption[] {
@@ -169,10 +169,12 @@ export function buildModelRouteOptions(
     const value = openaiProfileRoute(id);
     if (seen.has(value)) continue;
     seen.add(value);
+    const name = String(p.name ?? "").trim() || "Untitled";
+    const suffix = p.wireFormat === "responses" ? " (Responses)" : "";
     options.push({
       group: "OpenAI-compatible",
       value,
-      label: String(p.name ?? "").trim() || "Untitled"
+      label: name + suffix
     });
   }
 
@@ -245,7 +247,7 @@ export function normalizeActiveModel(
 
 export function sameOpenAICompatProfiles(
   draft: SettingsDraft["inferenceProfiles"],
-  base: Array<{ id: string; name: string; baseUrl: string; modelId: string; authHeader: string }>
+  base: Array<{ id: string; name: string; baseUrl: string; modelId: string; authHeader: string; wireFormat: string }>
 ): boolean {
   if (draft.length !== base.length) return false;
   for (let i = 0; i < draft.length; i++) {
@@ -256,6 +258,7 @@ export function sameOpenAICompatProfiles(
     if (a.baseUrl.trim() !== b.baseUrl) return false;
     if (a.modelId.trim() !== b.modelId) return false;
     if (a.authHeader.trim() !== b.authHeader) return false;
+    if ((a.wireFormat || "completion") !== (b.wireFormat || "completion")) return false;
   }
   return true;
 }

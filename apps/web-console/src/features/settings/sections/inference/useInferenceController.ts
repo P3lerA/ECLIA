@@ -19,7 +19,8 @@ import { anthropicProfileRoute, codexProfileRoute, newLocalId, openaiProfileRout
 const DEFAULT_OPENAI_PROFILE = {
   base_url: OPENAI_COMPAT_DEFAULT_BASE_URL,
   model: OPENAI_COMPAT_DEFAULT_MODEL,
-  auth_header: OPENAI_COMPAT_DEFAULT_AUTH_HEADER
+  auth_header: OPENAI_COMPAT_DEFAULT_AUTH_HEADER,
+  wire_format: "completion"
 } as const;
 
 const DEFAULT_ANTHROPIC_PROFILE = {
@@ -206,6 +207,7 @@ export function useInferenceController(args: UseInferenceControllerArgs) {
         baseUrl: DEFAULT_OPENAI_PROFILE.base_url,
         modelId: DEFAULT_OPENAI_PROFILE.model,
         authHeader: DEFAULT_OPENAI_PROFILE.auth_header,
+        wireFormat: DEFAULT_OPENAI_PROFILE.wire_format,
         apiKey: ""
       };
       return { ...d, inferenceProfiles: [...d.inferenceProfiles, next] };

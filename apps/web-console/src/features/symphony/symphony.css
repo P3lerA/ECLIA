@@ -38,7 +38,11 @@
 }
 .sym-canvas-wrap {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: var(--sym-sidebar-actual-w, 44px);
+  transition: left var(--motion-2, .2s) var(--ease-standard, ease);
 }
 .sym-canvas-empty {
   position: absolute;
