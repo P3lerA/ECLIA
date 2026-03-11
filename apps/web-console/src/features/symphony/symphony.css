@@ -182,6 +182,10 @@
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
+  scrollbar-width: none;          /* Firefox */
+}
+.sym-sidebar-body::-webkit-scrollbar {
+  display: none;                  /* Chrome / Safari / Edge */
 }
 
 .sym-sidebar-foot {
