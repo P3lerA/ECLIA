@@ -10,6 +10,28 @@ const FOCUSABLE =
 
 type MenuView = "main" | "all-sessions";
 
+function MusicFourIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="17"
+      height="17"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M9 18V5l12-2v13" />
+      <path d="m9 9 12-2" />
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="18" cy="16" r="3" />
+    </svg>
+  );
+}
+
 export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
@@ -372,7 +394,7 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
               onClick={() => { navigate("/symphony"); onClose(); }}
               aria-label="Symphony"
             >
-              <span className="treble-clef" aria-hidden="true">{"\uD834\uDD1E"}</span>
+              <MusicFourIcon />
             </button>
 
             <ThemeCycleButton className="btn icon" />

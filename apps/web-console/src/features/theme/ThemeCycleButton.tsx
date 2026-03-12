@@ -28,10 +28,47 @@ function SunIcon() {
   );
 }
 
+function MoonIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" />
+    </svg>
+  );
+}
+
+function EclipseIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 2a7 7 0 1 0 10 10" />
+    </svg>
+  );
+}
+
 function iconFor(mode: ThemeMode): React.ReactNode {
   if (mode === "light") return <SunIcon />;
-  if (mode === "dark") return "☾";
-  return "◐"; // system
+  if (mode === "dark") return <MoonIcon />;
+  return <EclipseIcon />;
 }
 
 function labelFor(mode: ThemeMode): string {

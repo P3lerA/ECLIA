@@ -102,6 +102,10 @@ export type StoredPrefsV1 = {
    */
   webResultTruncateChars?: number;
 
+  /**
+   * Operation mode: "chat" or "computer_use".
+   */
+  operationMode?: "chat" | "computer_use";
 };
 
 const KEY = "eclia-prefs-v1";
@@ -186,6 +190,9 @@ export function readStoredPrefs(): StoredPrefsV1 {
       out.webResultTruncateChars = Math.trunc((parsed as any).webResultTruncateChars);
     }
 
+    if ((parsed as any).operationMode === "chat" || (parsed as any).operationMode === "computer_use") {
+      out.operationMode = (parsed as any).operationMode;
+    }
 
     return out;
   } catch {

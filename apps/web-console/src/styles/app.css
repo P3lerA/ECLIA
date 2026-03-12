@@ -1470,14 +1470,6 @@ textarea:focus{
   line-height: 1;
 }
 
-/* Treble clef glyph — visually center it */
-.treble-clef{
-  font-size: 20px;
-  line-height: 1;
-  display: inline-block;
-  transform: translateY(-2px);
-}
-
 /* Memory section inline save/discard bar */
 .memory-section-save{
   display: flex;

@@ -5,6 +5,7 @@ import { runtime } from "../../core/runtime";
 import { makeId } from "../../core/ids";
 import type { ChatEvent } from "../../core/types";
 import { apiGetSession, apiResetSession, toUiSession } from "../../core/api/sessions";
+import { supportsComputerUse } from "../../core/configCache";
 
 export function useSendMessage() {
   const dispatch = useAppDispatch();
@@ -69,6 +70,18 @@ export function useSendMessage() {
       // Assistant streaming placeholder
       const assistantId = makeId();
       dispatch({ type: "assistant/stream/start", sessionId, messageId: assistantId });
+
+      // Validate computer_use mode requires a Responses API profile.
+      const opMode = state.settings.operationMode;
+      if (opMode === "computer_use" && !supportsComputerUse(state.model)) {
+        dispatch({
+          type: "assistant/stream/append",
+          sessionId,
+          text: "Computer use requires an OpenAI-compatible profile with Responses API (wire_format = \"responses\"). Change the wire format in Settings or switch back to chat mode."
+        });
+        dispatch({ type: "assistant/stream/finalize", sessionId });
+        return;
+      }
 
       const transport = runtime.transports.get(state.transport);
       const abort = new AbortController();
@@ -160,7 +173,8 @@ export function useSendMessage() {
             temperature: state.settings.temperature ?? undefined,
             topP: state.settings.topP ?? undefined,
             topK: state.settings.topK ?? undefined,
-            maxOutputTokens: state.settings.maxOutputTokens ?? undefined
+            maxOutputTokens: state.settings.maxOutputTokens ?? undefined,
+            operationMode: opMode !== "chat" ? opMode : undefined
           },
           { onEvent },
           abort.signal

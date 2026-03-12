@@ -22,9 +22,20 @@ export type ToolResult = {
   ok: boolean;
 };
 
+export type ComputerCallResult = {
+  /** The computer_call item id. */
+  callId: string;
+  /** Single action or batched actions from the model. */
+  actions: Array<Record<string, any>>;
+  /** Pending safety checks that must be acknowledged. */
+  pendingSafetyChecks?: Array<{ id: string; code: string; message: string }>;
+};
+
 export type ProviderTurnResult = {
   assistantText: string;
   toolCalls: Map<string, ToolCall>;
+  /** Present when the model returned a computer_call item (Responses API only). */
+  computerCall?: ComputerCallResult;
   finishReason: string | null;
 };
 

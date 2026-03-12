@@ -4,6 +4,7 @@ import path from "node:path";
 
 import {
   canonicalizeRouteKeyForConfig,
+  joinUrl,
   loadEcliaConfig,
   readSystemMemoryTemplate,
   renderSystemInstructionTemplate,
@@ -20,7 +21,6 @@ import { McpStdioClient } from "../mcp/stdioClient.js";
 import { sseHeaders, initSse, send, startSseKeepAlive } from "../sse.js";
 import { withSessionLock } from "../sessionLock.js";
 import { resolveUpstreamBackend } from "../upstream/resolve.js";
-import type { ToolCall } from "../upstream/provider.js";
 import { json, readJson } from "@eclia/gateway-client/utils";
 import { safeInt } from "../httpUtils.js";
 import { composeSystemInstruction } from "../instructions/systemInstruction.js";
@@ -30,16 +30,14 @@ import { readGitInfo } from "../gitInfo.js";
 import { recallMemories, type RecallTranscriptMessage, type RetrievedMemory } from "../memoryClient.js";
 import { setActiveRequest, clearActiveRequest } from "../activeRequests.js";
 
-import { appendSessionWarning } from "../debug/warnings.js";
-import { parseAssistantToolCallsFromText } from "../tools/assistantOutputParse.js";
-
 import {
   deriveTitle,
   deriveTitleFromOrigin,
   extractRequestedOrigin,
   transcriptRecordsToMessages
 } from "../chat/sessionUtils.js";
-import { runToolCalls } from "../chat/toolExecutor.js";
+import { runChatLoop } from "../chat/chatLoop.js";
+import { runComputerUseLoop } from "../computerUse/computerUseLoop.js";
 
 type ChatReqBody = {
   sessionId?: string;
@@ -132,6 +130,22 @@ type ChatReqBody = {
    * The messages are NOT persisted to the session transcript (only the current userText is).
    */
   messages?: Array<{ role: "system" | "user" | "assistant" | "tool"; content: any }>;
+
+  /**
+   * Operation mode.
+   * - "chat" (default): normal tool-calling chat loop.
+   * - "computer_use": screenshot → model → execute actions loop (Responses API).
+   */
+  operationMode?: "chat" | "computer_use";
+
+  /** Computer use: logical display width declared to the model (default 1280). */
+  displayWidth?: number;
+  /** Computer use: logical display height declared to the model (default 800). */
+  displayHeight?: number;
+  /** Computer use: max iterations before forced stop (default 30). */
+  computerUseMaxIterations?: number;
+  /** Computer use: post-action delay in ms (default 500). */
+  computerUseActionDelayMs?: number;
 };
 
 type Toolhost = {
@@ -170,18 +184,6 @@ function clampOptionalPositiveInt(v: unknown, min: number, max: number): number 
   if (i <= 0) return null;
   return Math.max(min, Math.min(max, i));
 }
-
-function isToolCall(v: unknown): v is ToolCall {
-  return (
-    v !== null &&
-    typeof v === "object" &&
-    typeof (v as any).callId === "string" &&
-    typeof (v as any).name === "string" &&
-    typeof (v as any).argsRaw === "string" &&
-    ((v as any).index === undefined || typeof (v as any).index === "number")
-  );
-}
-
 
 function contentToString(v: any): string {
   if (typeof v === "string") return v;
@@ -272,37 +274,6 @@ function buildRetrievedContextText(memories: RetrievedMemory[]): string {
 }
 
 
-async function persistAssistantText(args: {
-  store: SessionStore;
-  sessionId: string;
-  text: string;
-  toolCallsForTranscript?: ToolCall[];
-}) {
-  // Canonical transcript (OpenAI-compatible): assistant message + optional tool_calls.
-  const ts = Date.now();
-  const tc = Array.isArray(args.toolCallsForTranscript) ? args.toolCallsForTranscript : [];
-  const tool_calls = tc
-    .filter((c) => c && typeof c.callId === "string" && typeof c.name === "string" && typeof c.argsRaw === "string")
-    .map((c) => ({
-      id: c.callId,
-      type: "function" as const,
-      function: {
-        name: c.name,
-        arguments: c.argsRaw
-      }
-    }));
-
-  await args.store.appendTranscript(
-    args.sessionId,
-    {
-      role: "assistant",
-      content: args.text,
-      ...(tool_calls.length ? { tool_calls } : {})
-    } as any,
-    ts
-  );
-}
-
 async function persistAssistantError(args: {
   store: SessionStore;
   sessionId: string;
@@ -352,6 +323,7 @@ export async function handleChat(
 
   const toolAccessMode: ToolAccessMode = body.toolAccessMode === "safe" ? "safe" : "full";
   const streamMode: "full" | "final" = body.streamMode === "final" ? "final" : "full";
+  const operationMode: "chat" | "computer_use" = body.operationMode === "computer_use" ? "computer_use" : "chat";
   const includeHistory = body.includeHistory !== false;
   const requestedOrigin = extractRequestedOrigin(body);
 
@@ -673,10 +645,7 @@ export async function handleChat(
       approvals.cancelSession(sessionId);
     });
 
-    const origin = backend.provider.origin;
-
     const captureUpstreamRequests = Boolean((config as any)?.debug?.capture_upstream_requests);
-    let upstreamReqSeq = 0;
 
     // Capture dumps should live alongside the session store under <repo>/.eclia/debug/<sessionId>/.
     // Derive <repo> from the store path rather than process.cwd()/config discovery to avoid surprises.
@@ -694,111 +663,46 @@ export async function handleChat(
 
 
     try {
-      // Multi-turn tool loop
-      while (!clientClosed) {
-        // Phase: generating
-        if (streamMode === "full") send(res, "phase", { phase: "generating" });
-        setActiveRequest(sessionId, "generating");
+      if (operationMode === "computer_use") {
+        const responsesUrl = joinUrl(
+          backend.provider.origin.baseUrl ?? "",
+          "/responses"
+        );
 
-        const turn = await backend.provider.streamTurn({
+        await runComputerUseLoop({
+          url: responsesUrl,
+          headers,
+          model: backend.upstreamModel,
+          instructions: systemInstruction,
+          userText,
+          displayWidth: clampOptionalInt(body.displayWidth, 320, 7680) ?? 1280,
+          displayHeight: clampOptionalInt(body.displayHeight, 240, 4320) ?? 800,
+          maxIterations: clampOptionalInt(body.computerUseMaxIterations, 1, 200) ?? 30,
+          actionDelayMs: clampOptionalInt(body.computerUseActionDelayMs, 0, 10_000) ?? 500,
+          signal: upstreamAbort.signal,
+          emit: (event, data) => send(res, event, data),
+          isCancelled: () => clientClosed,
+          debug: captureUpstreamRequests ? { rootDir: debugRootDir, sessionId, seq: 0 } : undefined,
+          sessionDir: path.join(debugRootDir, ".eclia", "sessions", sessionId),
+          store,
+          sessionId
+        });
+      } else {
+        await runChatLoop({
+          provider: backend.provider,
           headers,
           messages: upstreamMessages,
-          signal: upstreamAbort.signal,
           tools: toolsForModelEffective,
           temperature: temperature ?? undefined,
           topP: topP ?? undefined,
           topK: topK ?? undefined,
           maxOutputTokens: maxOutputTokens ?? undefined,
-          onDelta: (text) => {
-            if (streamMode === "full") send(res, "delta", { text });
-          },
-          debug: captureUpstreamRequests ? { rootDir: debugRootDir, sessionId, seq: ++upstreamReqSeq } : undefined
-        });
-
-        const assistantText = turn.assistantText;
-        let toolCallsMap = turn.toolCalls;
-
-        const parseAssistantOutput = Boolean((config as any)?.debug?.parse_assistant_output);
-        const parsedWarningByCall = new Map<string, string>();
-        if (parseAssistantOutput && toolCallsMap.size === 0) {
-          const allowed = new Set<string>();
-          // Allow only tools that are actually exposed to the model for this request.
-          for (const t of toolsForModelEffective as any[]) {
-            const n = typeof t?.function?.name === "string" ? t.function.name : typeof t?.name === "string" ? t.name : "";
-            if (n) allowed.add(n);
-          }
-
-          const parsed = parseAssistantToolCallsFromText(assistantText, allowed);
-          if (parsed.length) {
-            // NOTE: We keep assistantText as-is (it may contain the transcript).
-            // This is a compatibility fallback; the warning below makes it visible in approval UI and debug logs.
-            toolCallsMap = new Map();
-            for (const row of parsed) {
-              toolCallsMap.set(row.call.callId, row.call);
-              parsedWarningByCall.set(row.call.callId, row.warning);
-
-              appendSessionWarning({
-                rootDir,
-                sessionId,
-                event: {
-                  kind: "parsed_assistant_output_tool_call",
-                  provider: origin.vendor ?? origin.adapter,
-                  upstreamModel: backend.upstreamModel,
-                  tool: row.call.name,
-                  callId: row.call.callId,
-                  line: row.line
-                }
-              });
-            }
-
-            console.warn(
-              `[gateway] Parsed ${parsed.length} tool call(s) from assistant plaintext output (provider=${origin.vendor} model=${backend.upstreamModel}).`
-            );
-          }
-        }
-
-        if (turn.finishReason === "tool_calls" && toolCallsMap.size === 0) {
-          console.warn(
-            `[gateway] finish_reason=tool_calls but parsed 0 tool calls (provider=${origin.vendor} model=${backend.upstreamModel})`
-          );
-        }
-
-        const toolCalls = Array.from(toolCallsMap.values())
-          .filter(isToolCall)
-          .filter((c) => c.name && c.name.trim());
-        toolCalls.sort((a, b) => (a.index ?? 999999) - (b.index ?? 999999));
-
-        // Persist assistant message (even if empty; it anchors tool blocks).
-        await persistAssistantText({ store, sessionId, text: assistantText, toolCallsForTranscript: toolCalls });
-
-        // Close the current assistant streaming phase in the UI.
-        if (streamMode === "full") send(res, "assistant_end", {});
-
-        if (toolCalls.length === 0) {
-          // No tool calls: final answer.
-          if (streamMode === "final") send(res, "final", { text: assistantText });
-          break;
-        }
-
-        // Append the provider-specific assistant tool-call message to the upstream transcript.
-        upstreamMessages.push(backend.provider.buildAssistantToolCallMessage({ assistantText, toolCalls }));
-
-        // Phase: tool_executing
-        if (streamMode === "full") {
-          const toolNames = toolCalls.map((c) => c.name);
-          send(res, "phase", { phase: "tool_executing", tools: toolNames });
-        }
-        setActiveRequest(sessionId, "tool_executing");
-
-        const { toolMessages } = await runToolCalls({
           store,
           approvals,
           sessionId,
           rootDir,
-          provider: backend.provider,
           mcpBash,
           nameToMcpTool,
-          toolCalls,
           enabledToolSet,
           toolAccessMode,
           bashAllowlist,
@@ -807,17 +711,14 @@ export async function handleChat(
           storedOrigin: priorMeta.origin,
           config,
           rawConfig: raw,
-          parseWarningByCall: parsedWarningByCall,
-          emit: (event, data) => {
-            if (streamMode === "full") send(res, event, data);
-          },
-          isCancelled: () => clientClosed
+          parseAssistantOutput: Boolean((config as any)?.debug?.parse_assistant_output),
+          streamMode,
+          signal: upstreamAbort.signal,
+          emit: (event, data) => send(res, event, data),
+          isCancelled: () => clientClosed,
+          debug: captureUpstreamRequests ? { rootDir: debugRootDir, sessionId } : undefined,
+          captureUpstream: captureUpstreamRequests
         });
-
-        upstreamMessages.push(...toolMessages);
-
-        // Start a fresh assistant streaming phase (the model's post-tool response).
-        if (streamMode === "full") send(res, "assistant_start", { messageId: crypto.randomUUID() });
       }
 
       // Mark end of a logical user-turn (even if it involved tool loops).

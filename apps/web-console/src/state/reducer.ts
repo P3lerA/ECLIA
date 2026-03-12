@@ -86,6 +86,13 @@ export type AppSettings = {
    * UI-only (does not affect tool execution).
    */
   webResultTruncateChars: number;
+
+  /**
+   * Operation mode for the next request.
+   * - chat: standard tool-calling loop (default)
+   * - computer_use: screenshot-driven computer use loop (requires Responses API)
+   */
+  operationMode: "chat" | "computer_use";
 };
 
 export type AppGPU = {

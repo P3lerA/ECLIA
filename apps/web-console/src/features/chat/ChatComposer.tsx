@@ -80,6 +80,50 @@ function SendUpIcon({ className }: { className?: string }) {
   );
 }
 
+function MousePointerClickIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M14 4.1 12 6" />
+      <path d="m5.1 8-2.9-.8" />
+      <path d="m6 12-1.9 2" />
+      <path d="M7.2 2.2 8 5.1" />
+      <path d="M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z" />
+    </svg>
+  );
+}
+
+function MessageSquareTextIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ width: 20, height: 20 }}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z" />
+      <path d="M7 11h10" />
+      <path d="M7 15h6" />
+      <path d="M7 7h8" />
+    </svg>
+  );
+}
+
 export function ChatComposer({ onOpenMenu }: { onOpenMenu: () => void }) {
   const { sendText } = useSendMessage();
   const [text, setText] = React.useState("");
@@ -95,6 +139,15 @@ export function ChatComposer({ onOpenMenu }: { onOpenMenu: () => void }) {
       value: accessMode === "full" ? "safe" : "full"
     });
   }, [accessMode, dispatch]);
+
+  const opMode = state.settings.operationMode;
+  const toggleOpMode = React.useCallback(() => {
+    dispatch({
+      type: "settings/set",
+      key: "operationMode",
+      value: opMode === "chat" ? "computer_use" : "chat"
+    });
+  }, [opMode, dispatch]);
 
   const send = React.useCallback(async () => {
     const v = text;
@@ -129,6 +182,18 @@ export function ChatComposer({ onOpenMenu }: { onOpenMenu: () => void }) {
         }
         actions={
           <>
+            <button
+              className="chatbar-btn"
+              onClick={toggleOpMode}
+              aria-label="Operation mode"
+              title={opMode === "computer_use" ? "Computer use" : "Chat"}
+            >
+              {opMode === "computer_use" ? (
+                <MousePointerClickIcon className="bashModeIcon" />
+              ) : (
+                <MessageSquareTextIcon className="bashModeIcon" />
+              )}
+            </button>
             <button
               className="chatbar-btn"
               onClick={toggleAccessMode}

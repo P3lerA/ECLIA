@@ -156,6 +156,8 @@ export async function runGatewayChat(args: {
   topP?: number;
   /** Top-K sampling override (1–1000). */
   topK?: number;
+  /** Operation mode: "chat" (default) or "computer_use". */
+  operationMode?: "chat" | "computer_use";
   onRecord?: (record: TranscriptRecord) => Promise<void>;
 }): Promise<{ text: string; meta?: any }> {
   let resp: Response;
@@ -178,6 +180,7 @@ export async function runGatewayChat(args: {
         ...(typeof args.temperature === "number" ? { temperature: args.temperature } : {}),
         ...(typeof args.topP === "number" ? { topP: args.topP } : {}),
         ...(typeof args.topK === "number" ? { topK: args.topK } : {}),
+        ...(args.operationMode ? { operationMode: args.operationMode } : {}),
         origin: args.origin
       })
     });

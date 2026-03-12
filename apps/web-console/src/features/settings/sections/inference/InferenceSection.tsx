@@ -306,11 +306,6 @@ export function InferenceSection(props: InferenceSectionProps) {
                     spellCheck={false}
                     disabled={devDisabled}
                   />
-                  <div className="field-sub muted">
-                    {apiKeyConfigured
-                      ? "A key is already configured (not shown). Enter a new one to replace it."
-                      : "No key detected. Set it here or in eclia.config.local.toml."}
-                  </div>
                 </label>
 
                 <label className="field">
@@ -437,11 +432,6 @@ export function InferenceSection(props: InferenceSectionProps) {
                     spellCheck={false}
                     disabled={devDisabled}
                   />
-                  <div className="field-sub muted">
-                    {apiKeyConfigured
-                      ? "A key is already configured (not shown). Enter a new one to replace it."
-                      : "No key detected. Set it here or in eclia.config.local.toml."}
-                  </div>
                 </label>
 
                 <label className="field">

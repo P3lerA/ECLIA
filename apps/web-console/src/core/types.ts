@@ -134,6 +134,12 @@ export type ChatRequest = {
    * If omitted, provider defaults apply.
    */
   maxOutputTokens?: number;
+
+  /**
+   * Operation mode: "chat" (tool-calling loop) or "computer_use" (screenshot loop).
+   * If omitted, defaults to "chat".
+   */
+  operationMode?: "chat" | "computer_use";
 };
 
 export type ChatEvent =

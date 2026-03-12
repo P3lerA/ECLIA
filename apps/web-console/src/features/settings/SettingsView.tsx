@@ -15,6 +15,7 @@ import { useStagedDraft } from "../common/useStagedDraft";
 import type { CfgBase, SettingsDraft } from "./settingsTypes";
 import { fetchDevConfig, saveDevConfig } from "./settingsInteractions";
 import { applyDevConfigPatchToCfgBase, buildDevConfigPatch, devConfigToCfgBase, draftAfterDevSave } from "./settingsDevConfigModel";
+import { populateConfigCache, populateConfigCacheFromProfiles } from "../../core/configCache";
 import {
   isValidPort,
   normalizeActiveModel,
@@ -73,6 +74,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         if (cancelled) return;
         if (!j.ok) throw new Error(j.hint ?? j.error);
 
+        if (j.config) populateConfigCache(j.config);
         setCfgBase(devConfigToCfgBase(j.config));
       } catch {
         if (cancelled) return;
@@ -455,6 +457,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           if (!j.ok) throw new Error(j.hint ?? j.error);
 
           const nextBase = applyDevConfigPatchToCfgBase(cfgBase, body);
+          // Refresh the config cache so computer_use validation uses the latest wireFormat.
+          populateConfigCacheFromProfiles(nextBase.openaiCompatProfiles);
 
           setCfgBase(nextBase);
           nextCfgBase = nextBase;

@@ -59,10 +59,19 @@ type FunctionCallAccum = {
   outputIndex: number;
 };
 
+export type ComputerCallAccum = {
+  callId: string;
+  actions: Array<Record<string, any>>;
+  pendingSafetyChecks: Array<{ id: string; code: string; message: string }>;
+};
+
 export type UpstreamTurnResult = {
   assistantText: string;
   toolCalls: Map<string, { callId: string; index?: number; name: string; argsRaw: string }>;
+  computerCall?: ComputerCallAccum;
   finishReason: string | null;
+  /** The upstream response ID — used for `previous_response_id` chaining. */
+  responseId?: string;
 };
 
 export async function streamOpenAIResponsesTurn(args: {
@@ -79,13 +88,21 @@ export async function streamOpenAIResponsesTurn(args: {
   topP?: number;
   /** Optional output token limit override (max_output_tokens). */
   maxOutputTokens?: number;
+  /** Enable truncation (recommended for computer use loops). */
+  truncation?: "auto" | "disabled";
+  /** Chain to a previous response instead of resending full history. */
+  previousResponseId?: string;
   onDelta: (text: string) => void;
   debug?: UpstreamRequestDebugCapture;
 }): Promise<UpstreamTurnResult> {
+  // When using previous_response_id chaining (computer use loops), the upstream
+  // must persist responses (store: true) so subsequent turns can reference them.
+  const needsStore = Boolean(args.previousResponseId) || Boolean(args.truncation);
+
   const requestBody: any = {
     model: args.model,
     stream: true,
-    store: false,
+    store: needsStore,
     input: args.input
   };
 
@@ -96,6 +113,14 @@ export async function streamOpenAIResponsesTurn(args: {
   if (Array.isArray(args.tools) && args.tools.length) {
     requestBody.tools = args.tools;
     requestBody.tool_choice = "auto";
+  }
+
+  if (args.truncation) {
+    requestBody.truncation = args.truncation;
+  }
+
+  if (args.previousResponseId) {
+    requestBody.previous_response_id = args.previousResponseId;
   }
 
   if (typeof args.temperature === "number" && Number.isFinite(args.temperature)) {
@@ -155,11 +180,13 @@ export async function streamOpenAIResponsesTurn(args: {
 
   let assistantText = "";
   let finishReason: string | null = null;
+  let responseId: string | undefined;
 
   // Track function calls by item id (fc_xxx) during streaming,
   // then finalize into toolCalls keyed by call_id.
   const fcByItemId = new Map<string, FunctionCallAccum>();
   const toolCalls = new Map<string, { callId: string; index?: number; name: string; argsRaw: string }>();
+  let computerCall: ComputerCallAccum | undefined;
 
   while (true) {
     const { value, done } = await reader.read();
@@ -181,6 +208,13 @@ export async function streamOpenAIResponsesTurn(args: {
       }
 
       const type = safeText(parsed?.type);
+
+      // ── Response created — capture response ID ───────────────────
+      if (type === "response.created") {
+        const id = safeText(parsed?.response?.id);
+        if (id) responseId = id;
+        continue;
+      }
 
       // ── Text streaming ────────────────────────────────────────────
       if (type === "response.output_text.delta") {
@@ -205,7 +239,21 @@ export async function streamOpenAIResponsesTurn(args: {
             fcByItemId.set(itemId, { itemId, callId, name, argsRaw: "", outputIndex });
           }
         }
-        // Future: handle item.type === "computer_call" here.
+        // ── Computer call: new item ─────────────────────────────────
+        if (item?.type === "computer_call") {
+          const callId = safeText(item.call_id);
+          const action = item.action;
+          const actions = Array.isArray(item.actions)
+            ? item.actions
+            : action && typeof action === "object"
+              ? [action]
+              : [];
+          const pending = Array.isArray(item.pending_safety_checks) ? item.pending_safety_checks : [];
+
+          if (callId) {
+            computerCall = { callId, actions, pendingSafetyChecks: pending };
+          }
+        }
         continue;
       }
 
@@ -243,24 +291,51 @@ export async function streamOpenAIResponsesTurn(args: {
             toolCalls.set(callId, { callId, index: outputIndex, name, argsRaw });
           }
         }
+        if (item?.type === "computer_call") {
+          const callId = safeText(item.call_id);
+          const action = item.action;
+          const actions = Array.isArray(item.actions)
+            ? item.actions
+            : action && typeof action === "object"
+              ? [action]
+              : computerCall?.actions ?? [];
+          const pending = Array.isArray(item.pending_safety_checks)
+            ? item.pending_safety_checks
+            : computerCall?.pendingSafetyChecks ?? [];
+
+          if (callId) {
+            computerCall = { callId, actions, pendingSafetyChecks: pending };
+          }
+        }
         continue;
       }
 
       // ── Response completed ────────────────────────────────────────
       if (type === "response.completed") {
-        if (toolCalls.size > 0) {
+        if (computerCall) {
+          finishReason = "computer_call";
+        } else if (toolCalls.size > 0) {
           finishReason = "tool_calls";
         } else {
           finishReason = "stop";
         }
 
-        return { assistantText, toolCalls, finishReason };
+        return { assistantText, toolCalls, computerCall, finishReason, responseId };
       }
 
       // ── Response incomplete (token limit / content filter) ─────
       if (type === "response.incomplete") {
-        finishReason = toolCalls.size > 0 ? "tool_calls" : "length";
-        return { assistantText, toolCalls, finishReason };
+        const reason = safeText(parsed?.response?.incomplete_details?.reason);
+
+        // Content filter — abort regardless of accumulated output.
+        if (reason === "content_filter") {
+          throw new Error("Upstream terminated response: content filter triggered");
+        }
+
+        // max_output_tokens — if a complete computer_call or tool_calls were
+        // streamed before the cutoff, they're still valid and actionable.
+        finishReason = computerCall ? "computer_call" : toolCalls.size > 0 ? "tool_calls" : "length";
+        return { assistantText, toolCalls, computerCall, finishReason, responseId };
       }
 
       // ── Response failed ───────────────────────────────────────────
@@ -277,6 +352,7 @@ export async function streamOpenAIResponsesTurn(args: {
   }
 
   // Stream ended without response.completed (unexpected but handle gracefully).
-  if (toolCalls.size > 0) finishReason = "tool_calls";
-  return { assistantText, toolCalls, finishReason };
+  if (computerCall) finishReason = "computer_call";
+  else if (toolCalls.size > 0) finishReason = "tool_calls";
+  return { assistantText, toolCalls, computerCall, finishReason, responseId };
 }

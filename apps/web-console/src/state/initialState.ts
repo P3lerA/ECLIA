@@ -58,7 +58,9 @@ export function makeInitialState(): AppState {
       webResultTruncateChars:
         typeof prefs.webResultTruncateChars === "number" && Number.isFinite(prefs.webResultTruncateChars)
           ? Math.trunc(prefs.webResultTruncateChars)
-          : 4000
+          : 4000,
+
+      operationMode: prefs.operationMode === "computer_use" ? "computer_use" : "chat"
     },
 
     model: prefs.model ?? "openai-compatible",

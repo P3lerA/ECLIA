@@ -7,6 +7,7 @@ import { apiGetSession, apiGetSessionStatus, apiListSessions, toUiSession } from
 import { makeId } from "./core/ids";
 import { applyTheme, subscribeSystemThemeChange, writeStoredThemeMode } from "./theme/theme";
 import { writeStoredPrefs } from "./persist/prefs";
+import { populateConfigCache } from "./core/configCache";
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -47,6 +48,12 @@ export function useAuthGate(): AuthGate {
         // This keeps artifact URLs clean (no gateway token in query params) while
         // preserving bearer-token auth for programmatic clients.
         if (r.ok) {
+          // Populate config cache for wireFormat lookups (computer use validation).
+          try {
+            const configJson = await r.clone().json();
+            if (configJson?.config) populateConfigCache(configJson.config);
+          } catch { /* best-effort */ }
+
           const s = await apiFetch("/api/auth/artifacts-session", { method: "POST" });
           if (s.status === 401) {
             setAuthRequired(true);
@@ -280,7 +287,8 @@ export function usePersistPrefs(): void {
       topK: settings.topK ?? undefined,
       maxOutputTokens: settings.maxOutputTokens ?? undefined,
       toolAccessMode: settings.toolAccessMode,
-      enabledTools: settings.enabledTools
+      enabledTools: settings.enabledTools,
+      operationMode: settings.operationMode
     });
   }, [settings, transport, model]);
 }
