@@ -22,6 +22,7 @@
 
 import CoreGraphics
 import Foundation
+import ImageIO
 
 // MARK: - Mouse helpers
 
@@ -34,7 +35,9 @@ func click(x: Double, y: Double, button: CGMouseButton = .left) {
     let p = CGPoint(x: x, y: y)
     let (down, up): (CGEventType, CGEventType) = button == .right
         ? (.rightMouseDown, .rightMouseUp)
-        : (.leftMouseDown, .leftMouseUp)
+        : button == .center
+          ? (.otherMouseDown, .otherMouseUp)
+          : (.leftMouseDown, .leftMouseUp)
     postMouse(down, at: p, button: button)
     usleep(50_000) // 50ms hold
     postMouse(up, at: p, button: button)
@@ -63,20 +66,28 @@ func moveMouse(x: Double, y: Double) {
     postMouse(.mouseMoved, at: CGPoint(x: x, y: y))
 }
 
-func drag(x1: Double, y1: Double, x2: Double, y2: Double) {
-    let start = CGPoint(x: x1, y: y1)
-    let end = CGPoint(x: x2, y: y2)
+func drag(points: [CGPoint]) {
+    guard points.count >= 2 else { return }
+    let start = points[0]
+    let end = points[points.count - 1]
+
     postMouse(.leftMouseDown, at: start)
     usleep(50_000)
-    // Interpolate a few points for smooth drag.
-    let steps = 10
-    for i in 1...steps {
-        let t = Double(i) / Double(steps)
-        let ix = x1 + (x2 - x1) * t
-        let iy = y1 + (y2 - y1) * t
-        postMouse(.leftMouseDragged, at: CGPoint(x: ix, y: iy))
-        usleep(10_000)
+
+    // Walk each segment, interpolating between consecutive waypoints.
+    for seg in 0..<(points.count - 1) {
+        let from = points[seg]
+        let to = points[seg + 1]
+        let steps = 10
+        for i in 1...steps {
+            let t = Double(i) / Double(steps)
+            let ix = from.x + (to.x - from.x) * t
+            let iy = from.y + (to.y - from.y) * t
+            postMouse(.leftMouseDragged, at: CGPoint(x: ix, y: iy))
+            usleep(10_000)
+        }
     }
+
     postMouse(.leftMouseUp, at: end)
 }
 
@@ -202,23 +213,22 @@ func postKey(_ keyCode: CGKeyCode, flags: CGEventFlags, down: Bool) {
 }
 
 func typeText(_ text: String) {
-    // Use CGEvent's unicode string capability for reliable text input.
-    // Process in chunks (CGEvent supports up to ~20 characters per event for reliability).
+    // Send one character per CGEvent key-down/key-up pair.
+    // Rich editors (MathQuill/Desmos, Google Docs, etc.) only read the first
+    // character from each event, so chunking breaks them. Single-char mode
+    // is ~8ms per character — fast enough for the short strings models type.
     let chars = Array(text.utf16)
-    let chunkSize = 16
 
-    for start in stride(from: 0, to: chars.count, by: chunkSize) {
-        let end = min(start + chunkSize, chars.count)
-        let chunk = Array(chars[start..<end])
-
+    for ch in chars {
+        var buf: [UniChar] = [ch]
         guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true) else { continue }
-        keyDown.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
+        keyDown.keyboardSetUnicodeString(stringLength: 1, unicodeString: &buf)
         keyDown.post(tap: .cghidEventTap)
 
         guard let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else { continue }
         keyUp.post(tap: .cghidEventTap)
 
-        usleep(20_000) // Small delay between chunks.
+        usleep(8_000) // 8ms per char — ~120 chars/sec, reliable for rich editors.
     }
 }
 
@@ -254,7 +264,15 @@ case "click":
         fputs("eclia-input click: requires <x> <y> [left|right]\n", stderr)
         exit(1)
     }
-    let button: CGMouseButton = (args.count >= 5 && args[4].lowercased() == "right") ? .right : .left
+    let btnArg = args.count >= 5 ? args[4].lowercased() : "left"
+    let button: CGMouseButton
+    switch btnArg {
+    case "right":   button = .right
+    case "middle":  button = .center
+    case "back":    button = CGMouseButton(rawValue: 3)!
+    case "forward": button = CGMouseButton(rawValue: 4)!
+    default:        button = .left
+    }
     click(x: x, y: y, button: button)
 
 case "doubleclick":
@@ -276,23 +294,35 @@ case "move":
     moveMouse(x: x, y: y)
 
 case "drag":
-    guard args.count >= 6,
-          let x1 = Double(args[2]),
-          let y1 = Double(args[3]),
-          let x2 = Double(args[4]),
-          let y2 = Double(args[5]) else {
-        fputs("eclia-input drag: requires <x1> <y1> <x2> <y2>\n", stderr)
+    // Accept variable-length pairs: drag x1 y1 x2 y2 [x3 y3 ...]
+    let coordArgs = args.dropFirst(2) // skip "eclia-input" and "drag"
+    guard coordArgs.count >= 4, coordArgs.count % 2 == 0 else {
+        fputs("eclia-input drag: requires <x1> <y1> <x2> <y2> [x3 y3 ...]\n", stderr)
         exit(1)
     }
-    drag(x1: x1, y1: y1, x2: x2, y2: y2)
+    var points: [CGPoint] = []
+    let coordArray = Array(coordArgs)
+    for i in stride(from: 0, to: coordArray.count, by: 2) {
+        guard let px = Double(coordArray[i]), let py = Double(coordArray[i + 1]) else {
+            fputs("eclia-input drag: invalid coordinate at position \(i)\n", stderr)
+            exit(1)
+        }
+        points.append(CGPoint(x: px, y: py))
+    }
+    drag(points: points)
 
 case "type":
-    guard args.count >= 3 else {
-        fputs("eclia-input type: requires <text>\n", stderr)
+    let text: String
+    if args.count >= 3 && args[2] == "-" {
+        // Read text from stdin (preserves newlines, no arg-length limit).
+        text = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    } else if args.count >= 3 {
+        // Join remaining args to support text with spaces.
+        text = args[2...].joined(separator: " ")
+    } else {
+        fputs("eclia-input type: requires <text> or - for stdin\n", stderr)
         exit(1)
     }
-    // Join remaining args to support text with spaces.
-    let text = args[2...].joined(separator: " ")
     typeText(text)
 
 case "keypress", "key":
@@ -312,6 +342,113 @@ case "scroll":
     }
     let dx: Int32 = args.count >= 6 ? (Int32(args[5]) ?? 0) : 0
     scroll(x: x, y: y, dy: dy, dx: dx)
+
+case "screenshot":
+    // Capture main display, encode as JPEG, output "width height\nbase64..." to stdout.
+    // Primary: CGWindowListCreateImage (zero disk IO, needs screen-recording permission).
+    // Fallback: screencapture CLI (system-privileged, always works, uses temp file).
+
+    func encodeJPEG(_ image: CGImage) -> Data? {
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(
+            data as CFMutableData,
+            "public.jpeg" as CFString,
+            1,
+            nil
+        ) else { return nil }
+        CGImageDestinationAddImage(dest, image, [
+            kCGImageDestinationLossyCompressionQuality: 0.8
+        ] as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return data as Data
+    }
+
+    func outputScreenshot(_ image: CGImage) {
+        guard let jpeg = encodeJPEG(image) else {
+            fputs("eclia-input screenshot: JPEG encode failed\n", stderr)
+            exit(1)
+        }
+        let base64 = jpeg.base64EncodedString()
+        FileHandle.standardOutput.write(Data("\(image.width) \(image.height)\n".utf8))
+        FileHandle.standardOutput.write(Data(base64.utf8))
+        FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+
+    // Try CGWindowListCreateImage first (fast, zero disk IO).
+    if let image = CGWindowListCreateImage(
+        CGRect.null,
+        .optionOnScreenOnly,
+        kCGNullWindowID,
+        [.nominalResolution]
+    ) {
+        outputScreenshot(image)
+    } else {
+        // Fallback: screencapture CLI → temp file → CGImage → JPEG → base64.
+        fputs("eclia-input screenshot: CGWindowList unavailable, falling back to screencapture\n", stderr)
+        let tmpPath = NSTemporaryDirectory() + "eclia_cap_\(ProcessInfo.processInfo.processIdentifier).png"
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        proc.arguments = ["-x", "-C", tmpPath]
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+        } catch {
+            fputs("eclia-input screenshot: screencapture failed: \(error)\n", stderr)
+            exit(1)
+        }
+        guard proc.terminationStatus == 0 else {
+            fputs("eclia-input screenshot: screencapture exited with \(proc.terminationStatus)\n", stderr)
+            exit(1)
+        }
+        defer { try? FileManager.default.removeItem(atPath: tmpPath) }
+
+        guard let dataProvider = CGDataProvider(filename: tmpPath),
+              let fullImage = CGImage(
+                  pngDataProviderSource: dataProvider,
+                  decode: nil,
+                  shouldInterpolate: true,
+                  intent: .defaultIntent
+              ) else {
+            fputs("eclia-input screenshot: failed to read captured PNG\n", stderr)
+            exit(1)
+        }
+
+        // Resize to logical resolution (screencapture gives physical/Retina pixels).
+        let mainId = CGMainDisplayID()
+        let logW = CGDisplayPixelsWide(mainId)
+        let logH = CGDisplayPixelsHigh(mainId)
+
+        if fullImage.width == logW && fullImage.height == logH {
+            outputScreenshot(fullImage)
+        } else {
+            guard let ctx = CGContext(
+                data: nil,
+                width: logW,
+                height: logH,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else {
+                fputs("eclia-input screenshot: resize context failed\n", stderr)
+                exit(1)
+            }
+            ctx.interpolationQuality = .high
+            ctx.draw(fullImage, in: CGRect(x: 0, y: 0, width: logW, height: logH))
+            guard let resized = ctx.makeImage() else {
+                fputs("eclia-input screenshot: resize failed\n", stderr)
+                exit(1)
+            }
+            outputScreenshot(resized)
+        }
+    }
+
+case "screensize":
+    // Print the main display's logical resolution as "width height\n".
+    let mainId = CGMainDisplayID()
+    let sw = CGDisplayPixelsWide(mainId)
+    let sh = CGDisplayPixelsHigh(mainId)
+    print("\(sw) \(sh)")
 
 default:
     fputs("eclia-input: unknown command '\(command)'\n", stderr)

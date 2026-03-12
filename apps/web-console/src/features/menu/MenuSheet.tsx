@@ -381,6 +381,16 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
               </>
             ) : null}
 
+            {view === "main" ? (
+              <button
+                className="btn subtle"
+                onClick={() => setView("all-sessions")}
+                aria-label="All sessions"
+              >
+                All sessions
+              </button>
+            ) : null}
+
             <button
               className="btn icon"
               onClick={() => { navigate("/settings"); onClose(); }}
@@ -416,13 +426,6 @@ export function MenuSheet({ open, onClose }: { open: boolean; onClose: () => voi
             >
               {renderSessions(preview)}
 
-              {state.sessions.length > 5 ? (
-                <div className="menu-section-foot">
-                  <button className="btn subtle" onClick={() => setView("all-sessions")}>
-                    All sessions
-                  </button>
-                </div>
-              ) : null}
             </div>
 
             {/* ALL SESSIONS */}

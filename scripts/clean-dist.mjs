@@ -13,5 +13,9 @@ try {
   }
 } catch {}
 
-// Park current dist out of the way
-if (existsSync("dist")) renameSync("dist", `dist._old_${Date.now()}`);
+// Park current dist out of the way (try-catch to handle TOCTOU race with parallel launches)
+try {
+  if (existsSync("dist")) renameSync("dist", `dist._old_${Date.now()}`);
+} catch (e) {
+  if (e.code !== "ENOENT") throw e;
+}

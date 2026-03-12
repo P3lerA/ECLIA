@@ -36,10 +36,6 @@ export type ComputerUseLoopArgs = {
   /** The user's task description. */
   userText: string;
 
-  /** Logical display dimensions declared to the model. */
-  displayWidth: number;
-  displayHeight: number;
-
   /** Max iterations before forced stop (safety limit). */
   maxIterations: number;
   /** Post-action delay in ms. */
@@ -77,7 +73,6 @@ export type ComputerUseLoopResult = {
 export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<ComputerUseLoopResult> {
   const {
     url, headers, model, instructions, userText,
-    displayWidth, displayHeight,
     maxIterations, actionDelayMs,
     signal, emit, isCancelled, debug, sessionDir,
     store, sessionId
@@ -98,9 +93,14 @@ export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<Com
   let assistantText = "";
   let previousResponseId: string | undefined;
 
+  const t0 = Date.now();
+  const log = (msg: string) => console.log(`[computerUse] +${((Date.now() - t0) / 1000).toFixed(1)}s ${msg}`);
+
   // ── 1. Initial screenshot ──────────────────────────────────────
-  emit("phase", { phase: "screenshot" });
-  const initialScreenshot = await captureScreen(displayWidth, displayHeight);
+  log("capturing initial screenshot");
+  emit("phase", { phase: "screenshot", ts: Date.now() });
+  const initialScreenshot = await captureScreen();
+  log(`screenshot ${initialScreenshot.width}×${initialScreenshot.height}`);
 
   // First turn: full input with user message + screenshot.
   let input: any[] = [
@@ -110,7 +110,7 @@ export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<Com
         { type: "input_text", text: userText },
         {
           type: "input_image",
-          image_url: `data:image/png;base64,${initialScreenshot.base64}`
+          image_url: `data:image/jpeg;base64,${initialScreenshot.base64}`
         }
       ]
     }
@@ -126,7 +126,8 @@ export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<Com
   let debugSeq = 0;
 
   while (iterations < maxIterations && !isCancelled()) {
-    emit("phase", { phase: "generating" });
+    log(`iteration ${iterations + 1}/${maxIterations} — generating`);
+    emit("phase", { phase: "generating", ts: Date.now() });
 
     const turn = await streamOpenAIResponsesTurn({
       url,
@@ -148,6 +149,7 @@ export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<Com
 
     // ── 2a. No computer_call → model is done ───────────────────
     if (!turn.computerCall) {
+      log(`completed after ${iterations} iteration(s) — model returned text`);
       // Persist final assistant text.
       if (transcript) await transcript({ role: "assistant", content: assistantText });
 
@@ -176,16 +178,20 @@ export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<Com
       });
     }
 
+    const actionSummary = actions.map((a) => a.type).join(", ");
+    log(`executing ${actions.length} action(s): ${actionSummary}`);
     emit("computer_action", { callId: cc.callId, actions });
 
-    emit("phase", { phase: "executing" });
+    emit("phase", { phase: "executing", ts: Date.now() });
 
     await executeActions(actions, actionDelayMs);
 
     // ── 2c. Capture new screenshot ─────────────────────────────
-    emit("phase", { phase: "screenshot" });
-    const screenshot = await captureScreen(displayWidth, displayHeight);
+    log("capturing screenshot");
+    emit("phase", { phase: "screenshot", ts: Date.now() });
+    const screenshot = await captureScreen();
 
+    log(`screenshot ${screenshot.width}×${screenshot.height}`);
     emit("screenshot", { width: screenshot.width, height: screenshot.height });
 
     // Save this turn's screenshot.
@@ -213,7 +219,7 @@ export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<Com
       call_id: cc.callId,
       output: {
         type: "computer_screenshot",
-        image_url: `data:image/png;base64,${screenshot.base64}`
+        image_url: `data:image/jpeg;base64,${screenshot.base64}`
       }
     };
 
@@ -234,6 +240,7 @@ export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<Com
   }
 
   const stopReason = isCancelled() ? "cancelled" : "max_iterations";
+  log(`loop ended: ${stopReason} after ${iterations} iteration(s)`);
   return { assistantText, iterations, stopReason };
 }
 
@@ -247,7 +254,7 @@ async function persistScreenshot(
   try {
     const dir = path.join(sessionDir, "screenshots");
     await fs.promises.mkdir(dir, { recursive: true });
-    const file = path.join(dir, `${String(turnSeq).padStart(4, "0")}.png`);
+    const file = path.join(dir, `${String(turnSeq).padStart(4, "0")}.jpg`);
     await fs.promises.writeFile(file, Buffer.from(screenshot.base64, "base64"));
   } catch (e) {
     // Best-effort — don't let screenshot persistence break the loop.

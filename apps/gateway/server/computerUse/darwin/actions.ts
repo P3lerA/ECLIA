@@ -26,7 +26,7 @@ const DEFAULT_POST_ACTION_DELAY_MS = 300;
 const MODIFIER_KEYS = new Set(["cmd", "ctrl", "alt", "shift"]);
 
 export type ComputerAction =
-  | { type: "click"; x: number; y: number; button?: string }
+  | { type: "click"; x: number; y: number; button?: "left" | "right" | "wheel" | "back" | "forward" }
   | { type: "double_click"; x: number; y: number }
   | { type: "type"; text: string }
   | { type: "keypress"; keys: string[] }
@@ -57,6 +57,10 @@ function mapKey(key: string): string {
     command: "cmd",
     control: "ctrl",
     option: "alt",
+    arrowup: "up",
+    arrowdown: "down",
+    arrowleft: "left",
+    arrowright: "right",
   };
   return map[k] ?? k;
 }
@@ -75,7 +79,11 @@ export async function executeAction(
         String(Math.round(action.x)),
         String(Math.round(action.y))
       ];
+      // "wheel" = middle click; "back"/"forward" = mouse button 4/5.
       if (action.button === "right") args.push("right");
+      else if (action.button === "wheel") args.push("middle");
+      else if (action.button === "back") args.push("back");
+      else if (action.button === "forward") args.push("forward");
       await input(...args);
       break;
     }
@@ -90,7 +98,17 @@ export async function executeAction(
     }
 
     case "type": {
-      await input("type", action.text ?? "");
+      const text = action.text ?? "";
+      // Long text or text with newlines → pipe via stdin to avoid arg-length
+      // limits and to preserve newlines (args.joined(separator:" ") loses them).
+      // Timeout scales with text length (~8ms per char in Swift + overhead).
+      const timeoutMs = Math.max(10_000, text.length * 12 + 5_000);
+      await new Promise<void>((resolve, reject) => {
+        const proc = execFile(ECLIA_INPUT, ["type", "-"], { timeout: timeoutMs }, (err) => {
+          if (err) reject(err); else resolve();
+        });
+        proc.stdin!.end(text);
+      });
       break;
     }
 
@@ -130,15 +148,12 @@ export async function executeAction(
     case "drag": {
       const pts = action.path ?? [];
       if (pts.length < 2) break;
-      const start = pts[0];
-      const end = pts[pts.length - 1];
-      await input(
-        "drag",
-        String(Math.round(start.x)),
-        String(Math.round(start.y)),
-        String(Math.round(end.x)),
-        String(Math.round(end.y))
-      );
+      // Pass all waypoints to eclia-input as x1 y1 x2 y2 [x3 y3 ...].
+      const coordArgs = pts.flatMap(p => [
+        String(Math.round(p.x)),
+        String(Math.round(p.y))
+      ]);
+      await input("drag", ...coordArgs);
       break;
     }
 

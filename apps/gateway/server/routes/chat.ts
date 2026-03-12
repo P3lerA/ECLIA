@@ -675,8 +675,6 @@ export async function handleChat(
           model: backend.upstreamModel,
           instructions: systemInstruction,
           userText,
-          displayWidth: clampOptionalInt(body.displayWidth, 320, 7680) ?? 1280,
-          displayHeight: clampOptionalInt(body.displayHeight, 240, 4320) ?? 800,
           maxIterations: clampOptionalInt(body.computerUseMaxIterations, 1, 200) ?? 30,
           actionDelayMs: clampOptionalInt(body.computerUseActionDelayMs, 0, 10_000) ?? 500,
           signal: upstreamAbort.signal,

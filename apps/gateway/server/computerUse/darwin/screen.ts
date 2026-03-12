@@ -1,61 +1,77 @@
 /**
  * Screen capture for macOS.
  *
- * Uses the native `screencapture` CLI (ships with macOS, zero dependencies).
- * Returns a PNG screenshot as a base64 string.
- *
- * Retina handling:
- * - `screencapture` captures at physical pixel resolution (e.g. 2880×1800 on a Retina MBP).
- * - We use `sips` to resize to the logical resolution declared to the model so that
- *   coordinates returned by the model map 1:1 to screenshot pixels.
+ * Delegates entirely to `eclia-input screenshot`, which uses
+ * CGWindowListCreateImage at nominal (logical) resolution, JPEG-compresses
+ * in memory, and outputs base64 to stdout. Zero disk IO.
  */
 
 import { execFile } from "node:child_process";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+/** Path to the eclia-input binary. */
+const ECLIA_INPUT = path.join(import.meta.dirname, "native", "eclia-input");
+
 export type ScreenshotResult = {
-  /** PNG image encoded as base64. */
+  /** JPEG image encoded as base64. */
   base64: string;
-  /** Width in pixels (matches the logical resolution after resize). */
+  /** Width in logical pixels (matches CGEvent coordinate space). */
   width: number;
-  /** Height in pixels (matches the logical resolution after resize). */
+  /** Height in logical pixels (matches CGEvent coordinate space). */
   height: number;
 };
 
+/** Cached logical screen dimensions (populated on first screenshot). */
+let cachedScreenSize: { width: number; height: number } | null = null;
+
 /**
- * Capture the primary display and return a base64-encoded PNG.
- *
- * @param logicalWidth  - The logical width declared to the model (e.g. 1440).
- * @param logicalHeight - The logical height declared to the model (e.g. 900).
+ * Query the main display's logical resolution via `eclia-input screensize`.
+ * The result is cached for the process lifetime.
  */
-export async function captureScreen(logicalWidth: number, logicalHeight: number): Promise<ScreenshotResult> {
-  const tmpDir = os.tmpdir();
-  const tmpFile = path.join(tmpDir, `eclia_screenshot_${Date.now()}.png`);
-
+export async function getScreenLogicalSize(): Promise<{ width: number; height: number }> {
+  if (cachedScreenSize) return cachedScreenSize;
   try {
-    // -x: no sound, -t png: format, -C: no cursor
-    await execFileAsync("screencapture", ["-x", "-t", "png", "-C", tmpFile], {
-      timeout: 10_000
-    });
-
-    // Resize to logical resolution so model coordinates map 1:1 to pixels.
-    await execFileAsync("sips", [
-      "--resampleWidth", String(logicalWidth),
-      "--resampleHeight", String(logicalHeight),
-      tmpFile
-    ], { timeout: 10_000 });
-
-    const buf = await fs.promises.readFile(tmpFile);
-    const base64 = buf.toString("base64");
-
-    return { base64, width: logicalWidth, height: logicalHeight };
-  } finally {
-    // Clean up temp file.
-    fs.promises.unlink(tmpFile).catch(() => {});
+    const { stdout } = await execFileAsync(ECLIA_INPUT, ["screensize"], { timeout: 5_000 });
+    const [w, h] = stdout.trim().split(/\s+/).map(Number);
+    if (w > 0 && h > 0 && Number.isFinite(w) && Number.isFinite(h)) {
+      cachedScreenSize = { width: w, height: h };
+      return cachedScreenSize;
+    }
+  } catch (e) {
+    console.warn(`[computerUse] Failed to query screen size: ${e}`);
   }
+  // Fallback — common MacBook logical resolution.
+  return { width: 1440, height: 900 };
+}
+
+/**
+ * Capture the primary display and return a base64-encoded JPEG.
+ *
+ * The image is at logical resolution so model-returned coordinates
+ * map 1:1 to the CGEvent coordinate space.
+ */
+export async function captureScreen(): Promise<ScreenshotResult> {
+  const { stdout } = await execFileAsync(ECLIA_INPUT, ["screenshot"], {
+    timeout: 10_000,
+    maxBuffer: 10 * 1024 * 1024 // 10 MB — base64 JPEG can be large on high-res displays
+  });
+
+  const newlineIdx = stdout.indexOf("\n");
+  if (newlineIdx === -1) throw new Error("Invalid screenshot output from eclia-input");
+
+  const header = stdout.slice(0, newlineIdx).trim();
+  const [w, h] = header.split(/\s+/).map(Number);
+  const base64 = stdout.slice(newlineIdx + 1).trim();
+
+  if (!(w > 0) || !(h > 0) || !base64) {
+    throw new Error("Invalid screenshot output from eclia-input");
+  }
+
+  // Keep screen size cache in sync.
+  cachedScreenSize = { width: w, height: h };
+
+  return { base64, width: w, height: h };
 }
