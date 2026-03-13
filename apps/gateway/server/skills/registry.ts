@@ -227,20 +227,3 @@ export function validateEnabledSkills(enabledRaw: unknown, available: SkillInfo[
   return { ok: true, enabled: out };
 }
 
-/**
- * Optional system-wide blurb injected into the system instruction.
- *
- * If present, create this file and keep it SHORT:
- *   <repo>/skills/_system.md
- */
-export function readSkillsSystemBlurb(rootDir: string): string {
-  const p = path.join(rootDir, "skills", "_system.md");
-  const txt = readUtf8IfExists(p);
-  if (!txt) return "";
-
-  // Keep it brief by default (avoid accidental huge injections).
-  const MAX = 2_000;
-  const trimmed = txt.trim();
-  if (trimmed.length <= MAX) return trimmed;
-  return trimmed.slice(0, MAX - 1).trimEnd() + "…";
-}

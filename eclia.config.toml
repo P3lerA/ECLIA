@@ -10,44 +10,20 @@ port = 5173
 port = 8787
 
 [memory]
-# Memory service (dev).
-# When enabled, the gateway will call:
-#   - POST /recall (before prompt assembly)
+# Memory service.
+# When enabled, the gateway fetches the user profile from the memory service
+# and appends it to the system prompt.
 enabled = false
 host = "127.0.0.1"
 port = 8788
 
-# How many recent user-turns to include in each /recall request as fallback transcript.
-# Range: 0–64
-recent_turns = 8
+# Gateway HTTP timeout for profile fetch (milliseconds).
+timeout_ms = 3000
 
-# Max memories requested per /recall call.
-# Range: 0–200
-recall_limit = 20
-
-# Gateway HTTP timeout for /recall requests (milliseconds).
-# Range: 50–60000
-timeout_ms = 1200
-
-[memory.embeddings]
-# Embeddings sidecar (local).
-# Model id resolved by sentence-transformers.
-model = "all-MiniLM-L6-v2"
-
-[memory.genesis]
-# Memory genesis .
-# How many user-turns to include per model request during Stage 1/2 extraction.
-# Range: 1–64
-turns_per_call = 20
-
-[memory.extract]
-# Memory extraction pipeline.
-# Tool messages are often extremely noisy; default is to drop them entirely.
-tool_messages = "drop"  # "drop" | "truncate"
-
-# If tool_messages = "truncate", keep tool messages but clip aggressively.
-tool_max_chars_per_msg = 1200   # Range: 0–50000
-tool_max_total_chars = 5000     # Range: 0–200000
+[tools]
+# Tools exposed to the model during chat.
+# Only tools listed here are sent to the upstream provider.
+enabled = ["bash", "send", "web", "memory"]
 
 [skills]
 # Skills are optional capability packs stored under: skills/<name>/skill.md

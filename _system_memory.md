@@ -1,3 +1,3 @@
-Here is some background information about me (the user). Please keep it in mind when responding.
+## About the user
 
-{{RETRIEVED_CONTEXT}}
+{{MEMORY_PROFILE}}

@@ -15,21 +15,7 @@ export type ConfigApiRequestBody = {
     enabled?: boolean;
     host?: string;
     port?: number;
-    recent_turns?: number;
-    recall_limit?: number;
-    recall_min_score?: number;
     timeout_ms?: number;
-    embeddings?: {
-      model?: string;
-    };
-    genesis?: {
-      turns_per_call?: number;
-    };
-    extract?: {
-      tool_messages?: "drop" | "truncate";
-      tool_max_chars_per_msg?: number;
-      tool_max_total_chars?: number;
-    };
   };
   persona?: {
     user_preferred_name?: string;
@@ -92,7 +78,13 @@ export type ConfigApiRequestBody = {
       group_whitelist?: string[];
     };
   };
+  symphony?: {
+    enabled?: boolean;
+    host?: string;
+    port?: number;
+  };
   tools?: {
+    enabled?: string[];
     web?: {
       active_profile?: string;
       profiles?: Array<{
@@ -119,21 +111,7 @@ export type ConfigApiConfig = {
     enabled?: boolean;
     host?: string;
     port?: number;
-    recent_turns?: number;
-    recall_limit?: number;
-    recall_min_score?: number;
     timeout_ms?: number;
-    embeddings?: {
-      model?: string;
-    };
-    genesis?: {
-      turns_per_call?: number;
-    };
-    extract?: {
-      tool_messages?: "drop" | "truncate";
-      tool_max_chars_per_msg?: number;
-      tool_max_total_chars?: number;
-    };
   };
   persona?: {
     user_preferred_name?: string;
@@ -199,7 +177,13 @@ export type ConfigApiConfig = {
       bot_token_configured?: boolean;
     };
   };
+  symphony?: {
+    enabled?: boolean;
+    host?: string;
+    port?: number;
+  };
   tools?: {
+    enabled?: string[];
     web?: {
       active_profile?: string;
       profiles?: Array<{

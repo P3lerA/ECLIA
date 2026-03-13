@@ -1,6 +1,5 @@
 import type { Block, Message, Session } from "../core/types";
 import type { TransportId } from "../core/transport/TransportRegistry";
-import { normalizeEnabledToolNames, type ToolName } from "../core/tools/ToolRegistry";
 import type { ThemeMode } from "../theme/theme";
 import { makeId } from "../core/ids";
 
@@ -53,12 +52,6 @@ export type AppSettings = {
    * - safe: only auto-run allowlisted commands, otherwise require approval.
    */
   toolAccessMode: "full" | "safe";
-
-  /**
-   * Enabled tools exposed to the model.
-   * Stored as an ordered list of known tool names.
-   */
-  enabledTools: ToolName[];
 
   /**
    * Whether the UI should keep sessions/messages in sync with the local gateway.
@@ -441,14 +434,9 @@ const settingsSanitizers: Partial<Record<keyof AppSettings, (v: any) => any>> = 
   topK: (v) => clampIntOrNull(v, 1, 1000),
   maxOutputTokens: (v) => clampIntOrNull(v, 1, 200_000),
   webResultTruncateChars: (v) => clampInt(v, 200, 200_000),
-  enabledTools: (v) => normalizeEnabledToolNames(v),
 };
 
-function settingsEqual(key: keyof AppSettings, a: unknown, b: unknown): boolean {
-  if (key === "enabledTools") {
-    const aa = a as ToolName[], bb = b as ToolName[];
-    return aa.length === bb.length && aa.every((v, i) => v === bb[i]);
-  }
+function settingsEqual(_key: keyof AppSettings, a: unknown, b: unknown): boolean {
   return a === b;
 }
 

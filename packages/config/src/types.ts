@@ -50,93 +50,11 @@ export type EcliaConfig = {
     port: number;
 
     /**
-     * How many recent user-turns to attach in the /recall request body as a fallback transcript.
-     *
-     * Range: 0–64
-     */
-    recent_turns: number;
-
-    /**
-     * Max memories requested per /recall call.
-     *
-     * Range: 0–200
-     */
-    recall_limit: number;
-
-    /**
-     * Minimum cosine-similarity score for a recalled memory to be injected.
-     *
-     * Range: 0–1.  Memories below this threshold are discarded.
-     */
-    recall_min_score: number;
-
-    /**
-     * Gateway HTTP timeout for /recall requests (milliseconds).
+     * Gateway HTTP timeout for memory service requests (milliseconds).
      *
      * Range: 50–60000
      */
     timeout_ms: number;
-
-    /**
-     * Embeddings sidecar (local) used by the memory service.
-     *
-     * NOTE: The gateway does not depend on these settings directly; they are
-     * included here so the Console can configure the sidecar via TOML.
-     */
-    embeddings: {
-      /**
-       * Sentence-Transformers model name or Hugging Face model id.
-       * Example: "all-MiniLM-L6-v2"
-       */
-      model: string;
-    };
-
-    /**
-     * Memory genesis (bootstrapping) pipeline.
-     *
-     * This stage runs once after enough transcript turns exist to initialize
-     * the memory graph and embeddings cache.
-     */
-    genesis: {
-      /**
-       * How many user-turns to include per model request during Stage 1/2 extraction.
-       *
-       * Range: 1–64
-       */
-      turns_per_call: number;
-    };
-
-    /**
-     * Memory extraction pipeline (LLM-based).
-     *
-     * These settings control how much tool output noise is allowed into the
-     * role-structured transcript context when the memory service asks the model
-     * to extract memories.
-     */
-    extract: {
-      /**
-       * Strategy for handling role=tool messages when building extraction context.
-       *
-       * - "drop": remove tool messages entirely (recommended; least noisy)
-       * - "truncate": keep tool messages, but aggressively clip them
-       */
-      tool_messages: "drop" | "truncate";
-
-      /**
-       * Max characters per tool message when tool_messages="truncate".
-       *
-       * Range: 0–50000
-       */
-      tool_max_chars_per_msg: number;
-
-      /**
-       * Max total characters contributed by tool messages (tail-kept) when
-       * tool_messages="truncate".
-       *
-       * Range: 0–200000
-       */
-      tool_max_total_chars: number;
-    };
   };
 
   /**
@@ -237,6 +155,26 @@ export type EcliaConfig = {
       /** Allowed Telegram group/supergroup chat ids (bot replies only when chat.id is in this list). */
       group_whitelist?: string[];
     };
+  };
+
+  /**
+   * Tools exposed to the model.
+   *
+   * `enabled` controls which tools are included in model requests.
+   * Tools not in this list are never sent to the upstream provider.
+   */
+  tools: {
+    enabled: string[];
+  };
+
+  /**
+   * Symphony flow engine (optional).
+   * When enabled, dev:all launches the Symphony server.
+   */
+  symphony: {
+    enabled: boolean;
+    host: string;
+    port: number;
   };
 
 };
@@ -360,6 +298,7 @@ export type EcliaConfigPatch = Partial<{
   memory: Partial<EcliaConfig["memory"]>;
   debug: Partial<EcliaConfig["debug"]>;
   skills: Partial<EcliaConfig["skills"]>;
+  tools: Partial<EcliaConfig["tools"]>;
   persona: Partial<EcliaConfig["persona"]>;
   inference: Partial<{
     system_instruction: string;
@@ -387,6 +326,7 @@ export type EcliaConfigPatch = Partial<{
     discord: Partial<EcliaConfig["adapters"]["discord"]>;
     telegram: Partial<EcliaConfig["adapters"]["telegram"]>;
   }>;
+  symphony: Partial<EcliaConfig["symphony"]>;
 }>;
 
 export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
@@ -396,19 +336,7 @@ export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
     enabled: false,
     host: "127.0.0.1",
     port: 8788,
-    recent_turns: 8,
-    recall_limit: 20,
-    recall_min_score: 0.6,
-    timeout_ms: 1200,
-    embeddings: { model: "all-MiniLM-L6-v2" },
-    genesis: {
-      turns_per_call: 20
-    },
-    extract: {
-      tool_messages: "drop",
-      tool_max_chars_per_msg: 1200,
-      tool_max_total_chars: 5000
-    }
+    timeout_ms: 1200
   },
   debug: {
     capture_upstream_requests: false,
@@ -416,6 +344,9 @@ export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
   },
   skills: {
     enabled: []
+  },
+  tools: {
+    enabled: ["bash", "send", "web", "memory"]
   },
   persona: {},
   inference: {
@@ -467,5 +398,10 @@ export const DEFAULT_ECLIA_CONFIG: EcliaConfig = {
       user_whitelist: [],
       group_whitelist: []
     }
+  },
+  symphony: {
+    enabled: false,
+    host: "127.0.0.1",
+    port: 8800
   }
 };

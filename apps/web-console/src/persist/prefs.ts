@@ -12,8 +12,6 @@
  * - localStorage can throw (privacy mode / disabled storage) → guarded.
  */
 
-import { normalizeEnabledToolNames } from "../core/tools/ToolRegistry";
-
 export type StoredPrefsV1 = {
   v: 1;
 
@@ -67,12 +65,6 @@ export type StoredPrefsV1 = {
    * - safe: auto-run allowlisted commands, otherwise require user approval.
    */
   toolAccessMode?: "full" | "safe";
-
-  /**
-   * Enabled tools exposed to the model.
-   * Stored as an ordered list of tool names.
-   */
-  enabledTools?: string[];
 
   /**
    * Whether the UI should keep sessions/messages in sync with the local gateway.
@@ -160,10 +152,6 @@ export function readStoredPrefs(): StoredPrefsV1 {
 
     if ((parsed as any).toolAccessMode === "safe" || (parsed as any).toolAccessMode === "full") {
       out.toolAccessMode = (parsed as any).toolAccessMode;
-    }
-
-    if (Array.isArray((parsed as any).enabledTools)) {
-      out.enabledTools = normalizeEnabledToolNames((parsed as any).enabledTools);
     }
 
     // Backward compat: older builds persisted this under a different key.

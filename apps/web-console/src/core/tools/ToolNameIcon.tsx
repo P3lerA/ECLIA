@@ -2,11 +2,13 @@ import type { CSSProperties } from "react";
 import bashIconSvg from "../../assets/tool/bash.svg?raw";
 import sendIconSvg from "../../assets/tool/send.svg?raw";
 import webIconSvg from "../../assets/tool/web.svg?raw";
+import memoryIconSvg from "../../assets/tool/memory.svg?raw";
 
 const TOOL_ICON_SVGS: Record<string, string> = {
   bash: bashIconSvg,
   send: sendIconSvg,
-  web: webIconSvg
+  web: webIconSvg,
+  memory: memoryIconSvg
 };
 
 export type ToolNameIconProps = {

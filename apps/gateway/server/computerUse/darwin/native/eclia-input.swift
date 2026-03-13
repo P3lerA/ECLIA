@@ -344,9 +344,13 @@ case "scroll":
     scroll(x: x, y: y, dy: dy, dx: dx)
 
 case "screenshot":
-    // Capture main display, encode as JPEG, output "width height\nbase64..." to stdout.
+    // Capture main display, encode as JPEG, output header + base64 to stdout.
+    // Header format: "outW outH logicalW logicalH\n" (4 values when downscaled, 2 when not).
+    // Optional arg: maxLongEdge — cap the long edge of the output image.
     // Primary: CGWindowListCreateImage (zero disk IO, needs screen-recording permission).
     // Fallback: screencapture CLI (system-privileged, always works, uses temp file).
+
+    let maxLongEdge: Int = args.count >= 3 ? (Int(args[2]) ?? 0) : 0
 
     func encodeJPEG(_ image: CGImage) -> Data? {
         let data = NSMutableData()
@@ -363,13 +367,52 @@ case "screenshot":
         return data as Data
     }
 
-    func outputScreenshot(_ image: CGImage) {
+    func resizeImage(_ image: CGImage, toWidth w: Int, height h: Int) -> CGImage? {
+        guard let ctx = CGContext(
+            data: nil,
+            width: w,
+            height: h,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        ctx.interpolationQuality = .high
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return ctx.makeImage()
+    }
+
+    /// Downscale image if its long edge exceeds maxLongEdge.
+    /// Returns (finalImage, logicalW, logicalH) where logical = pre-downscale dimensions.
+    func downscaleIfNeeded(_ image: CGImage) -> (CGImage, Int, Int) {
+        let logW = image.width
+        let logH = image.height
+        guard maxLongEdge > 0 && max(logW, logH) > maxLongEdge else {
+            return (image, logW, logH)
+        }
+        let scale = Double(maxLongEdge) / Double(max(logW, logH))
+        let outW = Int((Double(logW) * scale).rounded())
+        let outH = Int((Double(logH) * scale).rounded())
+        if let resized = resizeImage(image, toWidth: outW, height: outH) {
+            return (resized, logW, logH)
+        }
+        fputs("eclia-input screenshot: downscale failed, using original\n", stderr)
+        return (image, logW, logH)
+    }
+
+    func outputScreenshot(_ image: CGImage, logicalW: Int, logicalH: Int) {
         guard let jpeg = encodeJPEG(image) else {
             fputs("eclia-input screenshot: JPEG encode failed\n", stderr)
             exit(1)
         }
         let base64 = jpeg.base64EncodedString()
-        FileHandle.standardOutput.write(Data("\(image.width) \(image.height)\n".utf8))
+        let header: String
+        if image.width == logicalW && image.height == logicalH {
+            header = "\(image.width) \(image.height)"
+        } else {
+            header = "\(image.width) \(image.height) \(logicalW) \(logicalH)"
+        }
+        FileHandle.standardOutput.write(Data("\(header)\n".utf8))
         FileHandle.standardOutput.write(Data(base64.utf8))
         FileHandle.standardOutput.write(Data("\n".utf8))
     }
@@ -381,7 +424,8 @@ case "screenshot":
         kCGNullWindowID,
         [.nominalResolution]
     ) {
-        outputScreenshot(image)
+        let (final, logW, logH) = downscaleIfNeeded(image)
+        outputScreenshot(final, logicalW: logW, logicalH: logH)
     } else {
         // Fallback: screencapture CLI → temp file → CGImage → JPEG → base64.
         fputs("eclia-input screenshot: CGWindowList unavailable, falling back to screencapture\n", stderr)
@@ -413,34 +457,25 @@ case "screenshot":
             exit(1)
         }
 
-        // Resize to logical resolution (screencapture gives physical/Retina pixels).
+        // Resize to logical resolution first (screencapture gives physical/Retina pixels).
         let mainId = CGMainDisplayID()
         let logW = CGDisplayPixelsWide(mainId)
         let logH = CGDisplayPixelsHigh(mainId)
 
+        let logicalImage: CGImage
         if fullImage.width == logW && fullImage.height == logH {
-            outputScreenshot(fullImage)
+            logicalImage = fullImage
         } else {
-            guard let ctx = CGContext(
-                data: nil,
-                width: logW,
-                height: logH,
-                bitsPerComponent: 8,
-                bytesPerRow: 0,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else {
-                fputs("eclia-input screenshot: resize context failed\n", stderr)
+            guard let resized = resizeImage(fullImage, toWidth: logW, height: logH) else {
+                fputs("eclia-input screenshot: resize to logical failed\n", stderr)
                 exit(1)
             }
-            ctx.interpolationQuality = .high
-            ctx.draw(fullImage, in: CGRect(x: 0, y: 0, width: logW, height: logH))
-            guard let resized = ctx.makeImage() else {
-                fputs("eclia-input screenshot: resize failed\n", stderr)
-                exit(1)
-            }
-            outputScreenshot(resized)
+            logicalImage = resized
         }
+
+        // Then downscale if maxLongEdge is set.
+        let (final, finalLogW, finalLogH) = downscaleIfNeeded(logicalImage)
+        outputScreenshot(final, logicalW: finalLogW, logicalH: finalLogH)
     }
 
 case "screensize":

@@ -168,7 +168,6 @@ export function useSendMessage() {
             model: state.model,
             userText: trimmed,
             toolAccessMode: state.settings.toolAccessMode,
-            enabledTools: state.settings.enabledTools,
             contextTokenLimit: effectiveContextBudget,
             temperature: state.settings.temperature ?? undefined,
             topP: state.settings.topP ?? undefined,

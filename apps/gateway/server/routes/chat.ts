@@ -6,8 +6,8 @@ import {
   canonicalizeRouteKeyForConfig,
   joinUrl,
   loadEcliaConfig,
-  readSystemMemoryTemplate,
   renderSystemInstructionTemplate,
+  readSystemMemoryTemplate,
   renderSystemMemoryTemplate
 } from "@eclia/config";
 
@@ -27,7 +27,7 @@ import { composeSystemInstruction } from "../instructions/systemInstruction.js";
 import { buildSkillsInstructionPart } from "../instructions/skillsInstruction.js";
 import { readGitInfo } from "../gitInfo.js";
 
-import { recallMemories, type RecallTranscriptMessage, type RetrievedMemory } from "../memoryClient.js";
+import { fetchMemoryProfile } from "../memoryClient.js";
 import { setActiveRequest, clearActiveRequest } from "../activeRequests.js";
 
 import {
@@ -219,59 +219,6 @@ function coerceExplicitContextMessages(raw: any): OpenAICompatMessage[] | null {
   return out.length ? out : [];
 }
 
-/**
- * Take the last N user-turns from an OpenAI-compat transcript.
- * A "turn" starts at a user message and includes all subsequent assistant/tool messages
- * until the next user message.
- */
-function takeLastNTurnsForRecall(messages: OpenAICompatMessage[], nTurns: number): OpenAICompatMessage[] {
-  const n = Math.max(0, Math.min(64, Math.trunc(nTurns)));
-  if (n <= 0) return [];
-
-  const nonSystem = (Array.isArray(messages) ? messages : []).filter((m) => m && m.role !== "system");
-  const groups: OpenAICompatMessage[][] = [];
-
-  let cur: OpenAICompatMessage[] = [];
-  const flush = () => {
-    if (!cur.length) return;
-    groups.push(cur);
-    cur = [];
-  };
-
-  for (const m of nonSystem) {
-    if (!m) continue;
-    if (m.role === "user") flush();
-    cur.push(m);
-  }
-  flush();
-
-  return groups.slice(-n).flat();
-}
-
-function toRecallTranscriptMessage(msg: OpenAICompatMessage): RecallTranscriptMessage | null {
-  const role = (msg as any)?.role;
-  if (role !== "system" && role !== "user" && role !== "assistant" && role !== "tool") return null;
-
-  const content = contentToString((msg as any)?.content);
-  if (role === "tool") {
-    const tool_call_id = typeof (msg as any)?.tool_call_id === "string" ? String((msg as any).tool_call_id) : "";
-    return { role, content, ...(tool_call_id ? { tool_call_id } : {}) } as any;
-  }
-
-  const name = typeof (msg as any)?.name === "string" ? String((msg as any).name) : "";
-  return { role, content, ...(name ? { name } : {}) } as any;
-}
-
-function buildRetrievedContextText(memories: RetrievedMemory[]): string {
-  const rows = Array.isArray(memories) ? memories : [];
-  const parts: string[] = [];
-  for (const m of rows) {
-    const raw = typeof m?.raw === "string" ? m.raw.trim() : "";
-    if (!raw) continue;
-    parts.push(raw);
-  }
-  return parts.join("\n");
-}
 
 
 async function persistAssistantError(args: {
@@ -327,43 +274,35 @@ export async function handleChat(
   const includeHistory = body.includeHistory !== false;
   const requestedOrigin = extractRequestedOrigin(body);
 
-  const enabledToolsRaw = Array.isArray(body.enabledTools) ? body.enabledTools : null;
-  const enabledTools = enabledToolsRaw
-    ? enabledToolsRaw
-        .map((x) => (typeof x === "string" ? x.trim() : ""))
-        .filter((x) => x && x.trim())
+  // Per-request override (used by Symphony nodes, memory extraction, etc.).
+  // Falls back to config.tools.enabled when omitted.
+  const enabledToolsOverride = Array.isArray(body.enabledTools)
+    ? body.enabledTools.map((x: any) => (typeof x === "string" ? x.trim() : "")).filter(Boolean)
     : null;
-  const enabledToolSet = enabledTools ? new Set(enabledTools) : null;
-
-  // Internal-by-default tools: only expose them when explicitly enabled by the caller.
-  const internalOnlyTools = new Set<string>([MEMORY_TOOL_NAME]);
-
-  const toolsForModelEffective = enabledToolSet
-    ? (toolsForModel as any[]).filter((t) => {
-        const n =
-          typeof (t as any)?.function?.name === "string"
-            ? String((t as any).function.name)
-            : typeof (t as any)?.name === "string"
-              ? String((t as any).name)
-              : "";
-        return n && enabledToolSet.has(n);
-      })
-    : (toolsForModel as any[]).filter((t) => {
-        const n =
-          typeof (t as any)?.function?.name === "string"
-            ? String((t as any).function.name)
-            : typeof (t as any)?.name === "string"
-              ? String((t as any).name)
-              : "";
-        if (!n) return false;
-        return !internalOnlyTools.has(n);
-      });
 
   return await withSessionLock(sessionId, async () => {
     // If the client disconnected while waiting in the per-session queue, don't do work.
     if ((req as any).aborted || (req.socket as any)?.destroyed || res.writableEnded) return;
 
     const { config, raw, rootDir } = loadEcliaConfig(process.cwd());
+
+    // Per-request override takes precedence; otherwise use TOML config default.
+    const enabledToolSet = new Set<string>(
+      enabledToolsOverride ?? (Array.isArray((config as any).tools?.enabled) ? (config as any).tools.enabled : [])
+    );
+    const memoryEnabled = Boolean((config as any)?.memory?.enabled);
+
+    const toolsForModelEffective = (toolsForModel as any[]).filter((t) => {
+      const n =
+        typeof (t as any)?.function?.name === "string"
+          ? String((t as any).function.name)
+          : typeof (t as any)?.name === "string"
+            ? String((t as any).name)
+            : "";
+      if (!n) return false;
+      if (n === MEMORY_TOOL_NAME && !memoryEnabled) return false;
+      return enabledToolSet.has(n);
+    });
     const canonicalRouteModel = canonicalizeRouteKeyForConfig(routeModel, config);
 
     // Best-effort provenance snapshot (commit/branch/dirty).
@@ -467,12 +406,8 @@ export async function handleChat(
       maxOutputTokens: maxOutputTokens ?? null
     };
 
-    // Populated only if this turn actually injects recalled memories into the upstream prompt.
-    let injectedMemoryForTurn: Array<{ id: string; raw: string; score: number | null }> = [];
-
-    const buildTurnMeta = (args: { usedTokens: number; upstreamModel?: string; upstreamBaseUrl?: string; providerKind?: string; memory?: Array<{ id: string; raw: string; score: number | null }> }) => {
+    const buildTurnMeta = (args: { usedTokens: number; upstreamModel?: string; upstreamBaseUrl?: string; providerKind?: string }) => {
       const baseUrl = String(args.upstreamBaseUrl ?? "");
-      const memory = Array.isArray(args.memory) ? args.memory : injectedMemoryForTurn;
       return {
         turnId,
         tokenLimit,
@@ -486,7 +421,6 @@ export async function handleChat(
         git,
         runtime: runtimeForTurn,
         toolAccessMode,
-        ...(memory.length ? { memory } : {})
       };
     };
 
@@ -554,79 +488,40 @@ export async function handleChat(
     // Start SSE early so we can emit phase events during recall.
     const { stopKeepAlive } = beginSse(res);
 
-    // Phase: recalling
-    if (!skipMemoryRecall && streamMode === "full") {
-      send(res, "phase", { phase: "recalling" });
-      setActiveRequest(sessionId, "recalling");
-    }
-
-    // Optional: memory recall (best-effort).
-    // Request includes the last N user-turns transcript so the memory service can fallback to
-    // keyword search when this session has no stored memories yet.
-    let recalledMemories: RetrievedMemory[] = [];
+    // Optional: fetch memory profile and append to system instruction (best-effort).
+    let memoryProfileText = "";
     if (!skipMemoryRecall) {
       try {
-        const recentTurnsRaw = (config as any)?.memory?.recent_turns;
-        const recentTurnsNum =
-          typeof recentTurnsRaw === "number" ? recentTurnsRaw : typeof recentTurnsRaw === "string" ? Number(recentTurnsRaw) : NaN;
-        const recentTurns = Number.isFinite(recentTurnsNum)
-          ? Math.max(0, Math.min(64, Math.trunc(recentTurnsNum)))
-          : 8;
-        const recallSource = explicitNonSystem ?? priorMessages;
-        const recentMsgs = takeLastNTurnsForRecall(recallSource, recentTurns);
-        const recentTranscript = recentMsgs
-          .map(toRecallTranscriptMessage)
-          .filter(Boolean) as RecallTranscriptMessage[];
-
-        const recalled = await recallMemories({
-          config,
-          sessionId,
-          userText,
-          recentTranscript,
-        });
-
-        if (Array.isArray(recalled)) recalledMemories = recalled;
+        const profile = await fetchMemoryProfile({ config });
+        if (profile) memoryProfileText = profile;
       } catch {
-        // best-effort: recall failures should never block chat
+        // best-effort: profile fetch failures should never block chat
+      }
+    }
+
+    // Compose full system instruction: base + memory profile (via template).
+    let fullSystemInstruction = systemInstruction;
+    if (memoryProfileText) {
+      const { text: memTpl } = readSystemMemoryTemplate(rootDir);
+      if (memTpl.trim()) {
+        const rendered = renderSystemMemoryTemplate(memTpl, {
+          memoryProfile: memoryProfileText,
+          userPreferredName: (config as any)?.persona?.user_preferred_name,
+          assistantName: (config as any)?.persona?.assistant_name
+        });
+        fullSystemInstruction = `${systemInstruction}\n\n${rendered}`;
       }
     }
 
     // Inject system instruction as the only system message (when configured).
-    const historyForContext = systemInstruction.trim().length
+    const historyForContext = fullSystemInstruction.trim().length
       ? [
           ...historyBase,
-          ({ role: "system", content: systemInstruction } as any)
+          ({ role: "system", content: fullSystemInstruction } as any)
         ]
       : historyBase;
 
     const { messages: contextMessages, usedTokens, dropped } = backend.provider.buildContext(historyForContext, tokenLimit);
-
-    // Inject recalled memories AFTER truncation so they are not dropped by context trimming.
-    // This is a dedicated role=user message inserted right after the system message.
-    let memoryInjectionUserMsg: OpenAICompatMessage | null = null;
-    try {
-      const retrievedContext = buildRetrievedContextText(recalledMemories);
-      if (retrievedContext.trim().length) {
-        const { text: tpl } = readSystemMemoryTemplate(rootDir);
-        const rendered = renderSystemMemoryTemplate(tpl, {
-          retrievedContext,
-          userPreferredName: (config as any)?.persona?.user_preferred_name,
-          assistantName: (config as any)?.persona?.assistant_name
-        });
-
-        const memText = String(rendered ?? "").trim();
-        if (memText.length) {
-          memoryInjectionUserMsg = { role: "user", content: memText } as any;
-
-          injectedMemoryForTurn = recalledMemories
-            .map((m) => ({ id: m.id, raw: m.raw, score: m.score }))
-            .filter((m) => m.id && m.raw && m.raw.trim());
-        }
-      }
-    } catch {
-      // best-effort: injection failures should never block chat
-    }
-
 
     // NOTE: keep meta minimal; turn-level stats are persisted in transcript.ndjson.
     send(res, "meta", { sessionId, model: routeModel, usedTokens });
@@ -653,13 +548,6 @@ export async function handleChat(
 
     // We build the upstream transcript progressively so tool results are fed back correctly.
     const upstreamMessages: any[] = [...contextMessages];
-    if (memoryInjectionUserMsg) {
-      if (upstreamMessages.length && (upstreamMessages[0] as any)?.role === "system") {
-        upstreamMessages.splice(1, 0, memoryInjectionUserMsg as any);
-      } else {
-        upstreamMessages.unshift(memoryInjectionUserMsg as any);
-      }
-    }
 
 
     try {

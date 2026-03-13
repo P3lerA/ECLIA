@@ -1,6 +1,6 @@
 import http from "node:http";
 
-import { findProjectRoot } from "@eclia/config";
+import { findProjectRoot, loadEcliaConfig } from "@eclia/config";
 import { guessGatewayUrl } from "@eclia/gateway-client";
 
 import { Registry } from "./registry.js";
@@ -61,11 +61,13 @@ async function main() {
 
   // ── HTTP server ──────────────────────────────────────────
   const handler = handleSymphonyApi(conductor);
-  const port = Number(process.env.SYMPHONY_PORT) || DEFAULT_PORT;
+  const { config } = loadEcliaConfig(rootDir);
+  const host = String(config.symphony.host ?? "127.0.0.1").trim() || "127.0.0.1";
+  const port = Number(process.env.SYMPHONY_PORT) || config.symphony.port || DEFAULT_PORT;
 
   const server = http.createServer(handler);
-  server.listen(port, "127.0.0.1", () => {
-    log.info(`listening on http://127.0.0.1:${port}`);
+  server.listen(port, host, () => {
+    log.info(`listening on http://${host}:${port}`);
   });
 
   // Graceful shutdown.

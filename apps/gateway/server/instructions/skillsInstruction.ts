@@ -1,6 +1,7 @@
 import type { SystemInstructionPart } from "./systemInstruction.js";
 
-import { discoverSkills, ensureSkillUserDoc, readSkillsSystemBlurb } from "../skills/registry.js";
+import { readSystemSkillsTemplate } from "@eclia/config";
+import { discoverSkills, ensureSkillUserDoc } from "../skills/registry.js";
 
 const PLACEHOLDER_ENABLED_SKILLS = "{{ENABLED_SKILLS}}";
 const PLACEHOLDER_ACTIVATED_SKILLS = "{{ACTIVATED_SKILLS}}";
@@ -14,20 +15,9 @@ export function buildSkillsInstructionPart(rootDir: string, enabledSkillNames: s
     ensureSkillUserDoc(rootDir, name);
   }
 
-  // NOTE: We avoid hardcoding any *boilerplate* (headings, labels) in code.
-  // The only dynamic injection we do is rendering enabled skill summaries into a user-provided
-  // template under skills/_system.md.
-  //
-  // Supported placeholders:
-  // - {{ACTIVATED_SKILLS}}
-  // - {{ENABLED_SKILLS}}
-  //
-  // If neither placeholder is present, we do NOT inject anything.
-
-  // Optional: user-provided skills system blurb (lives under skills/_system.md).
-  const blurb = readSkillsSystemBlurb(rootDir).trim();
-
-  let content = blurb;
+  // Read skills template from _system_skills.local.md → _system_skills.md fallback.
+  const { text: blurb } = readSystemSkillsTemplate(rootDir);
+  let content = blurb.trim();
 
   const hasPlaceholder =
     content.includes(PLACEHOLDER_ACTIVATED_SKILLS) || content.includes(PLACEHOLDER_ENABLED_SKILLS);

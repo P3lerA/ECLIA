@@ -126,10 +126,9 @@ export function coerceConfig(raw: Record<string, any>): EcliaConfig {
   const consoleRaw = isRecord(raw.console) ? raw.console : {};
   const apiRaw = isRecord(raw.api) ? raw.api : {};
   const memoryRaw = isRecord((raw as any).memory) ? ((raw as any).memory as any) : {};
-  const memoryGenesisRaw = isRecord((memoryRaw as any).genesis) ? (((memoryRaw as any).genesis as any) ?? {}) : {};
-  const memoryExtractRaw = isRecord((memoryRaw as any).extract) ? (((memoryRaw as any).extract as any) ?? {}) : {};
   const debugRaw = isRecord((raw as any).debug) ? ((raw as any).debug as any) : {};
   const skillsRaw = isRecord((raw as any).skills) ? ((raw as any).skills as any) : {};
+  const toolsRaw = isRecord((raw as any).tools) ? ((raw as any).tools as any) : {};
   const personaRaw = isRecord((raw as any).persona) ? ((raw as any).persona as any) : {};
   const infRaw = isRecord(raw.inference) ? raw.inference : {};
 
@@ -139,6 +138,7 @@ export function coerceConfig(raw: Record<string, any>): EcliaConfig {
 
   const codexRaw = isRecord((infRaw as any).codex_oauth) ? (infRaw as any).codex_oauth : {};
 
+  const symphonyRaw = isRecord((raw as any).symphony) ? ((raw as any).symphony as any) : {};
   const adaptersRaw = isRecord(raw.adapters) ? raw.adapters : {};
   const discordRaw = isRecord((adaptersRaw as any).discord) ? (adaptersRaw as any).discord : {};
   const telegramRaw = isRecord((adaptersRaw as any).telegram) ? (adaptersRaw as any).telegram : {};
@@ -287,35 +287,7 @@ export function coerceConfig(raw: Record<string, any>): EcliaConfig {
       enabled: coerceBool((memoryRaw as any).enabled, base.memory.enabled),
       host: coerceHost((memoryRaw as any).host, base.memory.host),
       port: clampPort((memoryRaw as any).port, base.memory.port),
-      recent_turns: clampInt((memoryRaw as any).recent_turns, 0, 64, base.memory.recent_turns),
-      recall_limit: clampInt((memoryRaw as any).recall_limit, 0, 200, base.memory.recall_limit),
-      recall_min_score: clampFloat((memoryRaw as any).recall_min_score, 0, 1, base.memory.recall_min_score),
-      timeout_ms: clampInt((memoryRaw as any).timeout_ms, 50, 60_000, base.memory.timeout_ms),
-      embeddings: {
-        model: coerceString(((memoryRaw as any) as any)?.embeddings?.model, base.memory.embeddings.model)
-      },
-      genesis: {
-        turns_per_call: clampInt((memoryGenesisRaw as any).turns_per_call, 1, 64, base.memory.genesis.turns_per_call)
-      },
-      extract: {
-        tool_messages: ((): any => {
-          const v =
-            typeof (memoryExtractRaw as any).tool_messages === "string" ? String((memoryExtractRaw as any).tool_messages).trim() : "";
-          return v === "truncate" || v === "drop" ? v : base.memory.extract.tool_messages;
-        })(),
-        tool_max_chars_per_msg: clampInt(
-          (memoryExtractRaw as any).tool_max_chars_per_msg,
-          0,
-          50_000,
-          base.memory.extract.tool_max_chars_per_msg
-        ),
-        tool_max_total_chars: clampInt(
-          (memoryExtractRaw as any).tool_max_total_chars,
-          0,
-          200_000,
-          base.memory.extract.tool_max_total_chars
-        )
-      }
+      timeout_ms: clampInt((memoryRaw as any).timeout_ms, 50, 60_000, base.memory.timeout_ms)
     },
     debug: {
       capture_upstream_requests: coerceBool((debugRaw as any).capture_upstream_requests, base.debug.capture_upstream_requests),
@@ -323,6 +295,9 @@ export function coerceConfig(raw: Record<string, any>): EcliaConfig {
     },
     skills: {
       enabled: coerceStringArray((skillsRaw as any).enabled, base.skills.enabled ?? [])
+    },
+    tools: {
+      enabled: coerceStringArray((toolsRaw as any).enabled, base.tools.enabled)
     },
     persona: {
       ...(user_preferred_name ? { user_preferred_name } : {}),
@@ -367,6 +342,11 @@ export function coerceConfig(raw: Record<string, any>): EcliaConfig {
         user_whitelist: coerceStringArray((telegramRaw as any).user_whitelist, (base.adapters.telegram as any).user_whitelist ?? []),
         group_whitelist: coerceStringArray((telegramRaw as any).group_whitelist, (base.adapters.telegram as any).group_whitelist ?? [])
       }
+    },
+    symphony: {
+      enabled: coerceBool(symphonyRaw.enabled, base.symphony.enabled),
+      host: coerceHost(symphonyRaw.host, base.symphony.host),
+      port: clampPort(symphonyRaw.port, base.symphony.port)
     }
   };
 }

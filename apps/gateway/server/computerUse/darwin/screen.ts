@@ -18,10 +18,14 @@ const ECLIA_INPUT = path.join(import.meta.dirname, "native", "eclia-input");
 export type ScreenshotResult = {
   /** JPEG image encoded as base64. */
   base64: string;
-  /** Width in logical pixels (matches CGEvent coordinate space). */
+  /** Width of the image sent to model (possibly downscaled). */
   width: number;
-  /** Height in logical pixels (matches CGEvent coordinate space). */
+  /** Height of the image sent to model (possibly downscaled). */
   height: number;
+  /** Logical screen width (for coordinate mapping). */
+  logicalWidth: number;
+  /** Logical screen height (for coordinate mapping). */
+  logicalHeight: number;
 };
 
 /** Cached logical screen dimensions (populated on first screenshot). */
@@ -47,14 +51,17 @@ export async function getScreenLogicalSize(): Promise<{ width: number; height: n
   return { width: 1440, height: 900 };
 }
 
+/** Max long edge for screenshots sent to model. 0 = no cap. */
+const MAX_SCREENSHOT_LONG_EDGE = 1600;
+
 /**
  * Capture the primary display and return a base64-encoded JPEG.
- *
- * The image is at logical resolution so model-returned coordinates
- * map 1:1 to the CGEvent coordinate space.
  */
 export async function captureScreen(): Promise<ScreenshotResult> {
-  const { stdout } = await execFileAsync(ECLIA_INPUT, ["screenshot"], {
+  const args = ["screenshot"];
+  if (MAX_SCREENSHOT_LONG_EDGE > 0) args.push(String(MAX_SCREENSHOT_LONG_EDGE));
+
+  const { stdout } = await execFileAsync(ECLIA_INPUT, args, {
     timeout: 10_000,
     maxBuffer: 10 * 1024 * 1024 // 10 MB — base64 JPEG can be large on high-res displays
   });
@@ -63,15 +70,20 @@ export async function captureScreen(): Promise<ScreenshotResult> {
   if (newlineIdx === -1) throw new Error("Invalid screenshot output from eclia-input");
 
   const header = stdout.slice(0, newlineIdx).trim();
-  const [w, h] = header.split(/\s+/).map(Number);
+  const parts = header.split(/\s+/).map(Number);
   const base64 = stdout.slice(newlineIdx + 1).trim();
+
+  // New format: "outW outH logicalW logicalH", fallback to old "w h"
+  const w = parts[0], h = parts[1];
+  const logicalW = parts.length >= 4 ? parts[2] : w;
+  const logicalH = parts.length >= 4 ? parts[3] : h;
 
   if (!(w > 0) || !(h > 0) || !base64) {
     throw new Error("Invalid screenshot output from eclia-input");
   }
 
   // Keep screen size cache in sync.
-  cachedScreenSize = { width: w, height: h };
+  cachedScreenSize = { width: logicalW, height: logicalH };
 
-  return { base64, width: w, height: h };
+  return { base64, width: w, height: h, logicalWidth: logicalW, logicalHeight: logicalH };
 }

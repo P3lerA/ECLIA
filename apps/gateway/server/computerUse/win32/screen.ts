@@ -51,7 +51,7 @@ export async function getScreenLogicalSize(): Promise<{ width: number; height: n
 }
 
 /** Max long edge for screenshots sent to model. 0 = no cap. */
-const MAX_SCREENSHOT_LONG_EDGE = 1280;
+const MAX_SCREENSHOT_LONG_EDGE = 1600;
 
 /**
  * Capture the primary display and return a base64-encoded JPEG.

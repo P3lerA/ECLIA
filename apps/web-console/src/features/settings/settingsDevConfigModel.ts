@@ -198,6 +198,10 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
 
   const codexProfiles: CodexOAuthProfile[] = [codexProfile];
 
+  const toolsEnabled = Array.isArray((config as any)?.tools?.enabled)
+    ? ((config as any).tools.enabled as any[]).map((x: any) => String(x).trim()).filter(Boolean)
+    : ["bash", "send", "web", "memory"];
+
   const skillsEnabled = Array.isArray((config as any)?.skills?.enabled)
     ? ((config as any).skills.enabled as any[]).map((x: any) => String(x).trim()).filter(Boolean)
     : [];
@@ -244,8 +248,27 @@ export function devConfigToCfgBase(config: DevConfig): CfgBase {
     webActiveProfileId,
     webProfiles,
 
+    toolsEnabled,
     skillsEnabled,
-    skillsAvailable
+    skillsAvailable,
+
+    symphonyEnabled: Boolean((config as any)?.symphony?.enabled ?? false),
+    symphonyHost: String((config as any)?.symphony?.host ?? "127.0.0.1").trim() || "127.0.0.1",
+    symphonyPort: (() => {
+      const r = Number((config as any)?.symphony?.port);
+      return Number.isInteger(r) && r > 0 && r <= 65535 ? r : 8800;
+    })(),
+
+    memoryEnabled: Boolean((config as any)?.memory?.enabled ?? false),
+    memoryHost: String((config as any)?.memory?.host ?? "127.0.0.1").trim() || "127.0.0.1",
+    memoryPort: (() => {
+      const r = Number((config as any)?.memory?.port);
+      return Number.isInteger(r) && r > 0 && r <= 65535 ? r : 8788;
+    })(),
+    memoryTimeoutMs: (() => {
+      const r = Number((config as any)?.memory?.timeout_ms);
+      return Number.isFinite(r) ? Math.trunc(r) : 3000;
+    })(),
   };
 }
 
@@ -268,7 +291,12 @@ export type BuildDevConfigPatchArgs = {
 
   dirtyDevWeb: boolean;
   webValid: boolean;
+  dirtyDevTools: boolean;
   dirtyDevSkills: boolean;
+  dirtyDevSymphony: boolean;
+  symphonyValid: boolean;
+  dirtyDevMemory: boolean;
+  memoryValid: boolean;
 };
 
 /**
@@ -292,7 +320,12 @@ export function buildDevConfigPatch(args: BuildDevConfigPatchArgs): any {
     telegramValid,
     dirtyDevWeb,
     webValid,
-    dirtyDevSkills
+    dirtyDevTools,
+    dirtyDevSkills,
+    dirtyDevSymphony,
+    symphonyValid,
+    dirtyDevMemory,
+    memoryValid
   } = args;
 
   const body: any = {};
@@ -422,9 +455,39 @@ export function buildDevConfigPatch(args: BuildDevConfigPatchArgs): any {
     };
   }
 
+  if (dirtyDevTools) {
+    body.tools = {
+      ...body.tools,
+      enabled: Array.isArray(draft.enabledTools) ? draft.enabledTools : []
+    };
+  }
+
   if (dirtyDevSkills) {
     body.skills = {
       enabled: Array.isArray(draft.skillsEnabled) ? draft.skillsEnabled : []
+    };
+  }
+
+  if (dirtyDevSymphony) {
+    if (!symphonyValid) throw new Error("Invalid symphony settings.");
+    const port = Number(draft.symphonyPort);
+    body.symphony = {
+      enabled: draft.symphonyEnabled,
+      host: draft.symphonyHost.trim(),
+      port: Number.isFinite(port) ? Math.trunc(port) : cfgBase.symphonyPort
+    };
+  }
+
+  if (dirtyDevMemory) {
+    if (!memoryValid) throw new Error("Invalid memory settings.");
+    const port = Number(draft.memoryPort);
+    const timeoutMs = Number(draft.memoryTimeoutMs);
+
+    body.memory = {
+      enabled: draft.memoryEnabled,
+      host: draft.memoryHost.trim(),
+      port: Number.isFinite(port) ? Math.trunc(port) : cfgBase.memoryPort,
+      timeout_ms: Number.isFinite(timeoutMs) ? Math.trunc(timeoutMs) : cfgBase.memoryTimeoutMs
     };
   }
 
@@ -548,10 +611,22 @@ export function applyDevConfigPatchToCfgBase(cfgBase: CfgBase, body: any): CfgBa
     webActiveProfileId: nextWebActiveProfileId,
     webProfiles: nextWebProfiles,
 
+    toolsEnabled: Array.isArray((body as any).tools?.enabled)
+      ? ((body as any).tools.enabled as string[])
+      : cfgBase.toolsEnabled,
     skillsEnabled: Array.isArray((body as any).skills?.enabled)
       ? ([...((body as any).skills.enabled as string[])].sort((a, b) => a.localeCompare(b)) as string[])
       : cfgBase.skillsEnabled,
-    skillsAvailable: cfgBase.skillsAvailable
+    skillsAvailable: cfgBase.skillsAvailable,
+
+    symphonyEnabled: typeof body.symphony?.enabled === "boolean" ? body.symphony.enabled : cfgBase.symphonyEnabled,
+    symphonyHost: typeof body.symphony?.host === "string" ? String(body.symphony.host).trim() : cfgBase.symphonyHost,
+    symphonyPort: typeof body.symphony?.port === "number" ? body.symphony.port : cfgBase.symphonyPort,
+
+    memoryEnabled: typeof body.memory?.enabled === "boolean" ? body.memory.enabled : cfgBase.memoryEnabled,
+    memoryHost: typeof body.memory?.host === "string" ? String(body.memory.host).trim() : cfgBase.memoryHost,
+    memoryPort: typeof body.memory?.port === "number" ? body.memory.port : cfgBase.memoryPort,
+    memoryTimeoutMs: typeof body.memory?.timeout_ms === "number" ? body.memory.timeout_ms : cfgBase.memoryTimeoutMs,
   };
 }
 
@@ -594,6 +669,16 @@ export function draftAfterDevSave(d: SettingsDraft, nextBase: CfgBase, dirtyDevI
 
     debugCaptureUpstreamRequests: nextBase.debugCaptureUpstreamRequests,
 
-    skillsEnabled: [...nextBase.skillsEnabled]
+    enabledTools: [...nextBase.toolsEnabled] as SettingsDraft["enabledTools"],
+    skillsEnabled: [...nextBase.skillsEnabled],
+
+    symphonyEnabled: nextBase.symphonyEnabled,
+    symphonyHost: nextBase.symphonyHost,
+    symphonyPort: String(nextBase.symphonyPort),
+
+    memoryEnabled: nextBase.memoryEnabled,
+    memoryHost: nextBase.memoryHost,
+    memoryPort: String(nextBase.memoryPort),
+    memoryTimeoutMs: String(nextBase.memoryTimeoutMs)
   };
 }

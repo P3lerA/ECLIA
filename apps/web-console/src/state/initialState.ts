@@ -1,7 +1,6 @@
 import type { AppState } from "./reducer";
 import { readStoredThemeMode } from "../theme/theme";
 import { readStoredPrefs } from "../persist/prefs";
-import { defaultEnabledToolNames, normalizeEnabledToolNames } from "../core/tools/ToolRegistry";
 import { makeId } from "../core/ids";
 
 export function makeInitialState(): AppState {
@@ -49,8 +48,6 @@ export function makeInitialState(): AppState {
             : Math.max(1, Math.min(200_000, Math.trunc(prefs.maxOutputTokens)))
           : null,
       toolAccessMode: prefs.toolAccessMode === "safe" ? "safe" : "full",
-      enabledTools:
-        prefs.enabledTools === undefined ? defaultEnabledToolNames() : normalizeEnabledToolNames(prefs.enabledTools),
       displayPlainOutput: Boolean(prefs.displayPlainOutput ?? false),
       displayWorkProcess: Boolean(prefs.displayWorkProcess ?? false),
 

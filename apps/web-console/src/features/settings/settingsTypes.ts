@@ -117,6 +117,17 @@ export type SettingsDraft = {
 
   // Skills (dev-only; stored in eclia.config.local.toml)
   skillsEnabled: string[];
+
+  // Symphony (dev-only; written to eclia.config.local.toml).
+  symphonyEnabled: boolean;
+  symphonyHost: string;
+  symphonyPort: string; // keep as string for input UX
+
+  // Memory (dev-only; written to eclia.config.local.toml).
+  memoryEnabled: boolean;
+  memoryHost: string;
+  memoryPort: string; // keep as string for input UX
+  memoryTimeoutMs: string;
 };
 
 export type OpenAICompatProfileBase = {
@@ -175,8 +186,20 @@ export type CfgBase = {
     apiKeyConfigured: boolean;
   }>;
 
+  toolsEnabled: string[];
   skillsEnabled: string[];
   skillsAvailable: Array<{ name: string; summary: string }>;
+
+  // Symphony
+  symphonyEnabled: boolean;
+  symphonyHost: string;
+  symphonyPort: number;
+
+  // Memory
+  memoryEnabled: boolean;
+  memoryHost: string;
+  memoryPort: number;
+  memoryTimeoutMs: number;
 };
 
 export type DevConfig = ConfigApiConfig;

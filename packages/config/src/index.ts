@@ -58,16 +58,10 @@ export {
 } from "./system-memory.js";
 
 export {
-  ensureSystemMemoryExtractTemplateFiles,
-  readSystemMemoryExtractTemplate,
-  renderSystemMemoryExtractTemplate
-} from "./system-memory-extract.js";
-
-export {
-  ensureSystemMemoryConsolidateTemplateFiles,
-  readSystemMemoryConsolidateTemplate,
-  renderSystemMemoryConsolidateTemplate
-} from "./system-memory-consolidate.js";
+  ensureSystemSkillsTemplateFiles,
+  readSystemSkillsTemplate,
+  renderSystemSkillsTemplate
+} from "./system-skills.js";
 
 export {
   ensureLocalConfig,

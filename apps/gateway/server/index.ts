@@ -21,6 +21,7 @@ import { handleCodexOAuth, handleCodexOAuthClear, handleCodexOAuthStatus } from 
 import { handlePickFolder } from "./routes/nativeDialog.js";
 import { handleSessions } from "./routes/sessions.js";
 import { handleToolApprovals } from "./routes/toolApprovals.js";
+import { handleTools } from "./routes/tools.js";
 
 const ARTIFACT_SESSION_COOKIE = "ECLIA_ARTIFACT_SESSION";
 // Local-only hardening: artifact session cookie is a browser convenience to
@@ -165,10 +166,9 @@ async function main() {
       function: {
         name: MEMORY_TOOL_NAME,
         description:
-          "Manage long-term memory. " +
-          "action=extract (default): store a memory fact. Requires 'text' and 'timestamps'. " +
-          "action=delete: remove facts by id. Requires 'ids'. " +
-          "action=merge: combine multiple facts into one new fact. Requires 'ids' and 'content'.",
+          "Long-term memory. " +
+          "action=memorize (default): store a fact about the user. Requires 'text'. " +
+          "action=delete: remove a fact by its ID (shown as [id] prefix in the user profile). Requires 'id'.",
         parameters: MEMORY_TOOL_SCHEMA
       }
     }
@@ -281,6 +281,8 @@ async function main() {
     if (pathname.startsWith("/api/sessions")) return await handleSessions(req, res, store);
 
     if (pathname === "/api/tool-approvals") return await handleToolApprovals(req, res, approvals);
+
+    if (pathname === "/api/tools") return handleTools(req, res);
 
     if (pathname === "/api/chat" && req.method === "POST") return await handleChat(req, res, store, approvals, toolhost);
 

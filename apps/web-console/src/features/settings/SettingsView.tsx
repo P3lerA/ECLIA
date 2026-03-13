@@ -40,6 +40,7 @@ import { InferenceSection } from "./sections/inference/InferenceSection";
 import { useInferenceController } from "./sections/inference/useInferenceController";
 import { SkillsSection } from "./sections/skills/SkillsSection";
 import { ToolsSection } from "./sections/tools/ToolsSection";
+import { SymphonySection } from "./sections/symphony/SymphonySection";
 import { MemorySection } from "./sections/memory/MemorySection";
 
 const ALLOWED_CONSOLE_HOSTS = new Set(["127.0.0.1", "0.0.0.0"]);
@@ -99,7 +100,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         textureDisabled: state.settings.textureDisabled,
         sessionSyncEnabled: state.settings.sessionSyncEnabled,
         displayPlainOutput: Boolean(state.settings.displayPlainOutput ?? false),
-        enabledTools: [...state.settings.enabledTools],
+        enabledTools: (cfgBase ? [...cfgBase.toolsEnabled] : prev?.enabledTools ?? ["bash", "send", "web", "memory"]) as SettingsDraft["enabledTools"],
         debugCaptureUpstreamRequests: cfgBase ? cfgBase.debugCaptureUpstreamRequests : prev?.debugCaptureUpstreamRequests ?? false,
         debugParseAssistantOutput: cfgBase ? cfgBase.debugParseAssistantOutput : prev?.debugParseAssistantOutput ?? false,
         transport: state.transport,
@@ -158,14 +159,22 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         adapterTelegramUserWhitelist: cfgBase ? cfgBase.telegramUserWhitelist.join("\n") : prev?.adapterTelegramUserWhitelist ?? "",
         adapterTelegramGroupWhitelist: cfgBase ? cfgBase.telegramGroupWhitelist.join("\n") : prev?.adapterTelegramGroupWhitelist ?? "",
 
-        skillsEnabled: cfgBase ? [...cfgBase.skillsEnabled] : prev?.skillsEnabled ?? []
+        skillsEnabled: cfgBase ? [...cfgBase.skillsEnabled] : prev?.skillsEnabled ?? [],
+
+        symphonyEnabled: cfgBase?.symphonyEnabled ?? prev?.symphonyEnabled ?? false,
+        symphonyHost: cfgBase?.symphonyHost ?? prev?.symphonyHost ?? "127.0.0.1",
+        symphonyPort: cfgBase ? String(cfgBase.symphonyPort) : prev?.symphonyPort ?? "8800",
+
+        memoryEnabled: cfgBase?.memoryEnabled ?? prev?.memoryEnabled ?? false,
+        memoryHost: cfgBase?.memoryHost ?? prev?.memoryHost ?? "127.0.0.1",
+        memoryPort: cfgBase ? String(cfgBase.memoryPort) : prev?.memoryPort ?? "8788",
+        memoryTimeoutMs: cfgBase ? String(cfgBase.memoryTimeoutMs) : prev?.memoryTimeoutMs ?? "3000"
       };
     },
     [
       state.settings.textureDisabled,
       state.settings.sessionSyncEnabled,
       state.settings.displayPlainOutput,
-      state.settings.enabledTools,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
       state.settings.temperature,
@@ -187,7 +196,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         d.textureDisabled !== state.settings.textureDisabled ||
         d.sessionSyncEnabled !== state.settings.sessionSyncEnabled ||
         d.displayPlainOutput !== Boolean(state.settings.displayPlainOutput ?? false) ||
-        !sameStringArray(d.enabledTools, state.settings.enabledTools) ||
         d.transport !== state.transport ||
         d.model !== effectiveStateModel ||
         d.contextLimitEnabled !== state.settings.contextLimitEnabled ||
@@ -249,6 +257,20 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           d.webProfiles.some((p) => p.apiKey.trim().length > 0)
         : false;
 
+      const dirtyDevSymphony = cfgBase
+        ? d.symphonyEnabled !== cfgBase.symphonyEnabled ||
+          d.symphonyHost.trim() !== cfgBase.symphonyHost ||
+          portNumber(d.symphonyPort) !== cfgBase.symphonyPort
+        : false;
+
+      const dirtyDevMemory = cfgBase
+        ? d.memoryEnabled !== cfgBase.memoryEnabled ||
+          d.memoryHost.trim() !== cfgBase.memoryHost ||
+          portNumber(d.memoryPort) !== cfgBase.memoryPort
+        : false;
+
+      const dirtyDevTools = cfgBase ? !sameStringArray(d.enabledTools, cfgBase.toolsEnabled) : false;
+
       return (
         dirtyUi ||
         dirtyDevHostPort ||
@@ -259,14 +281,16 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         dirtyDevDiscord ||
         dirtyDevTelegram ||
         dirtyDevWeb ||
-        dirtyDevSkills
+        dirtyDevTools ||
+        dirtyDevSkills ||
+        dirtyDevSymphony ||
+        dirtyDevMemory
       );
     },
     [
       state.settings.textureDisabled,
       state.settings.sessionSyncEnabled,
       state.settings.displayPlainOutput,
-      state.settings.enabledTools,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
       state.settings.temperature,
@@ -287,7 +311,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       state.settings.textureDisabled,
       state.settings.sessionSyncEnabled,
       state.settings.displayPlainOutput,
-      state.settings.enabledTools,
       state.settings.contextLimitEnabled,
       state.settings.contextTokenLimit,
       state.settings.temperature,
@@ -300,6 +323,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       cfgBase
     ]
   });
+
+  const dirtyDevTools = cfgBase ? !sameStringArray(draft.enabledTools, cfgBase.toolsEnabled) : false;
 
   const dirtyDevHostPort = cfgBase
     ? draft.consoleHost.trim() !== cfgBase.host || portNumber(draft.consolePort) !== cfgBase.port
@@ -352,6 +377,17 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
   const dirtyDevSkills = cfgBase ? !sameStringArray(draft.skillsEnabled, cfgBase.skillsEnabled) : false;
 
+  const dirtyDevSymphony = cfgBase
+    ? draft.symphonyEnabled !== cfgBase.symphonyEnabled ||
+      portNumber(draft.symphonyPort) !== cfgBase.symphonyPort
+    : false;
+
+  const dirtyDevMemory = cfgBase
+    ? draft.memoryEnabled !== cfgBase.memoryEnabled ||
+      draft.memoryHost.trim() !== cfgBase.memoryHost ||
+      portNumber(draft.memoryPort) !== cfgBase.memoryPort
+    : false;
+
   const dirtyDev =
     dirtyDevHostPort ||
     dirtyDevPersona ||
@@ -361,7 +397,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     dirtyDevDiscord ||
     dirtyDevTelegram ||
     dirtyDevWeb ||
-    dirtyDevSkills;
+    dirtyDevTools ||
+    dirtyDevSkills ||
+    dirtyDevSymphony ||
+    dirtyDevMemory;
 
   const [saving, setSaving] = React.useState(false);
 
@@ -401,6 +440,13 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     draft.webProfiles.every((p) => p.id.trim().length > 0 && p.name.trim().length > 0 && webProviders.has(p.provider)) &&
     draft.webProfiles.some((p) => p.id === draft.webActiveProfileId);
 
+  const symphonyValid = !draft.symphonyEnabled || (draft.symphonyHost.trim().length > 0 && isValidPort(draft.symphonyPort));
+
+  const memoryValid = !draft.memoryEnabled || (
+    draft.memoryHost.trim().length > 0 &&
+    isValidPort(draft.memoryPort)
+  );
+
   const canSave =
     dirty &&
     !saving &&
@@ -412,7 +458,9 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         (!dirtyDevCodexHome || codexHomeValid) &&
         (!dirtyDevDiscord || discordValid) &&
         (!dirtyDevTelegram || telegramValid) &&
-        (!dirtyDevWeb || webValid)));
+        (!dirtyDevWeb || webValid) &&
+        (!dirtyDevSymphony || symphonyValid) &&
+        (!dirtyDevMemory || memoryValid)));
 
   const discard = () => {
     discardDraft();
@@ -448,7 +496,12 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
           telegramValid,
           dirtyDevWeb,
           webValid,
-          dirtyDevSkills
+          dirtyDevTools,
+          dirtyDevSkills,
+          dirtyDevSymphony,
+          symphonyValid,
+          dirtyDevMemory,
+          memoryValid
         });
 
         setCfgLoading(true);
@@ -483,9 +536,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         dispatch({ type: "settings/set", key: "displayPlainOutput", value: draft.displayPlainOutput });
       }
 
-      if (!sameStringArray(draft.enabledTools, state.settings.enabledTools)) {
-        dispatch({ type: "settings/set", key: "enabledTools", value: draft.enabledTools });
-      }
       if (draft.transport !== state.transport) {
         dispatch({ type: "transport/set", transport: draft.transport });
       }
@@ -548,7 +598,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const webgl2Text =
     state.gpu.available === null ? "WebGL2: checking…" : state.gpu.available ? "WebGL2: available" : "WebGL2: unavailable";
 
-  type SettingsSectionId = "general" | "appearance" | "tools" | "inference" | "adapters" | "skills" | "memory";
+  type SettingsSectionId = "general" | "appearance" | "tools" | "inference" | "adapters" | "skills" | "symphony" | "memory";
 
   const sections: Array<{ id: SettingsSectionId; label: string }> = [
     { id: "general", label: "General" },
@@ -557,6 +607,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     { id: "inference", label: "Inference" },
     { id: "adapters", label: "Adapters" },
     { id: "skills", label: "Skills" },
+    { id: "symphony", label: "Symphony" },
     { id: "memory", label: "Memory" }
   ];
 
@@ -682,8 +733,27 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
               />
             ) : null}
 
+            {activeSection === "symphony" ? (
+              <SymphonySection
+                draft={draft}
+                setDraft={setDraft}
+                cfgLoading={cfgLoading}
+                cfgBaseAvailable={!!cfgBase}
+                dirtyDevSymphony={dirtyDevSymphony}
+                symphonyValid={symphonyValid}
+              />
+            ) : null}
+
             {activeSection === "memory" ? (
-              <MemorySection active={activeSection === "memory"} />
+              <MemorySection
+                draft={draft}
+                setDraft={setDraft}
+                cfgLoading={cfgLoading}
+                cfgBaseAvailable={!!cfgBase}
+                cfgError={cfgError}
+                dirtyDevMemory={dirtyDevMemory}
+                memoryValid={memoryValid}
+              />
             ) : null}
           </div>
         </div>

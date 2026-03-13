@@ -8,8 +8,7 @@ import { coerceConfig, coerceOptionalString, coerceProfileId, deepMerge, isRecor
 import { findProjectRoot } from "./root.js";
 import { ensureSystemInstructionFiles, readSystemInstruction, writeSystemInstructionLocal } from "./system-instruction.js";
 import { ensureSystemMemoryTemplateFiles } from "./system-memory.js";
-import { ensureSystemMemoryExtractTemplateFiles } from "./system-memory-extract.js";
-import { ensureSystemMemoryConsolidateTemplateFiles } from "./system-memory-consolidate.js";
+import { ensureSystemSkillsTemplateFiles } from "./system-skills.js";
 import { DEFAULT_PROFILE_ID } from "./provider-defaults.js";
 import type { EcliaConfig, EcliaConfigPatch } from "./types.js";
 
@@ -60,8 +59,7 @@ export function loadEcliaConfig(startDir: string = process.cwd()): {
   ensureLocalConfig(rootDir);
   ensureSystemInstructionFiles(rootDir);
   ensureSystemMemoryTemplateFiles(rootDir);
-  ensureSystemMemoryExtractTemplateFiles(rootDir);
-  ensureSystemMemoryConsolidateTemplateFiles(rootDir);
+  ensureSystemSkillsTemplateFiles(rootDir);
   const base = tryReadToml(configPath);
   const local = tryReadToml(localPath);
 
@@ -90,8 +88,7 @@ export function writeLocalEcliaConfig(
   ensureLocalConfig(rootDir);
   ensureSystemInstructionFiles(rootDir);
   ensureSystemMemoryTemplateFiles(rootDir);
-  ensureSystemMemoryExtractTemplateFiles(rootDir);
-  ensureSystemMemoryConsolidateTemplateFiles(rootDir);
+  ensureSystemSkillsTemplateFiles(rootDir);
   let patchSystemInstruction: string | undefined;
   if (patch.inference && Object.prototype.hasOwnProperty.call(patch.inference, "system_instruction")) {
     const raw = (patch.inference as any).system_instruction;

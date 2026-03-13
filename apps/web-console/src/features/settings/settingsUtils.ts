@@ -35,6 +35,14 @@ export function parseWebResultTruncateChars(s: string): number {
   return Math.max(200, Math.min(200_000, Math.trunc(n)));
 }
 
+export function intOrNull(s: string, min: number, max: number): number | null {
+  const n = Number(s);
+  if (!Number.isFinite(n)) return null;
+  const i = Math.trunc(n);
+  if (i < min || i > max) return null;
+  return i;
+}
+
 function clampFloat(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }

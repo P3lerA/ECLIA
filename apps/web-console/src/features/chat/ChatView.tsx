@@ -57,7 +57,12 @@ function collapseMessagesToFinalPerTurn(messages: Message[]): Message[] {
         continue;
       }
       if (x.role === "user") break;
-      if (x.role === "tool") lastToolIdx = j;
+      if (x.role === "tool") {
+        // Always keep send tool results (they contain user-visible artifacts).
+        const toolName = x.blocks?.[0]?.type === "tool" ? (x.blocks[0] as any).name : "";
+        if (toolName === "send") { out.push(x); }
+        lastToolIdx = j;
+      }
       if (x.role === "assistant") {
         assistantIdxs.push(j);
       }

@@ -287,7 +287,6 @@ export function usePersistPrefs(): void {
       topK: settings.topK ?? undefined,
       maxOutputTokens: settings.maxOutputTokens ?? undefined,
       toolAccessMode: settings.toolAccessMode,
-      enabledTools: settings.enabledTools,
       operationMode: settings.operationMode
     });
   }, [settings, transport, model]);

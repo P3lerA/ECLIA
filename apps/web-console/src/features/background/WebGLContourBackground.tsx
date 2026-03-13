@@ -273,6 +273,13 @@ export function WebGLContourBackground({ onStatus }: Props) {
         return false;
       }
 
+      // Context may be temporarily lost (e.g. tab was backgrounded and browser
+      // reclaimed GPU resources).  Don't treat this as a permanent failure —
+      // the visibilitychange handler will retry when the tab returns.
+      if (gl.isContextLost()) {
+        return false;
+      }
+
       glRef.current = gl;
 
       const prog = createProgram(gl, VERT, FRAG);
@@ -466,12 +473,31 @@ export function WebGLContourBackground({ onStatus }: Props) {
       onStatus?.(false);
     }
 
+    // Fallback recovery when webglcontextrestored never fires (some browsers,
+    // especially Safari, may not fire it).  When the tab becomes visible again
+    // and the context is still lost, attempt re-init.
+    const onVisChange = () => {
+      if (document.hidden || !lostRef.current) return;
+      cleanupGL();
+      try {
+        const ok = init();
+        if (ok) {
+          scheduleFailsafe();
+          renderLoop(performance.now());
+        }
+      } catch {
+        // Still lost — will retry on next visibility change.
+      }
+    };
+
     window.addEventListener("resize", onWinResize);
+    document.addEventListener("visibilitychange", onVisChange);
     canvas.addEventListener("webglcontextlost", onLost as any, { passive: false });
     canvas.addEventListener("webglcontextrestored", onRestored as any);
 
     return () => {
       window.removeEventListener("resize", onWinResize);
+      document.removeEventListener("visibilitychange", onVisChange);
       canvas.removeEventListener("webglcontextlost", onLost as any);
       canvas.removeEventListener("webglcontextrestored", onRestored as any);
       cleanupGL();

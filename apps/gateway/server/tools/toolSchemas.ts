@@ -15,6 +15,5 @@ export const SEND_TOOL_NAME = "send";
 // Gateway-native tool: web search / extract (provider-backed, e.g. Tavily).
 export const WEB_TOOL_NAME = "web";
 
-// Gateway-native tool: forward structured memory emission calls to the memory service.
-// NOTE: Internal by default; only exposed when explicitly enabled by the caller.
+// Gateway-native tool: long-term memory (memorize / delete). Enabled when memory service is active.
 export const MEMORY_TOOL_NAME = "memory";
