@@ -78,7 +78,7 @@ export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<Com
     store, sessionId
   } = args;
 
-  if (platform() !== "darwin") {
+  if (platform() !== "darwin" && platform() !== "win32") {
     throw new Error(`Computer use is not supported on ${platform()}`);
   }
 
