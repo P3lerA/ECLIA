@@ -82,10 +82,9 @@ export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<Com
     throw new Error(`Computer use is not supported on ${platform()}`);
   }
 
-  // Transcript persistence helper (best-effort, never breaks the loop).
-  const transcript = store && sessionId
-    ? async (msg: Record<string, any>) => {
-        try { await store.appendTranscript(sessionId, msg as any, Date.now()); } catch { /* best-effort */ }
+  const persist = store && sessionId
+    ? async (step: Parameters<SessionStore["appendComputerUseStep"]>[1]) => {
+        try { await store.appendComputerUseStep(sessionId, step); } catch { /* best-effort */ }
       }
     : null;
 
@@ -150,8 +149,13 @@ export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<Com
     // ── 2a. No computer_call → model is done ───────────────────
     if (!turn.computerCall) {
       log(`completed after ${iterations} iteration(s) — model returned text`);
-      // Persist final assistant text.
-      if (transcript) await transcript({ role: "assistant", content: assistantText });
+
+      if (persist) await persist({
+        kind: "done",
+        assistantText,
+        stopReason: "completed",
+        totalIterations: iterations
+      });
 
       emit("assistant_end", {});
 
@@ -161,22 +165,6 @@ export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<Com
     // ── 2b. Execute computer actions ───────────────────────────
     const cc = turn.computerCall;
     const actions = cc.actions as ComputerAction[];
-
-    // Persist assistant message with computer_call as a tool_call.
-    if (transcript) {
-      await transcript({
-        role: "assistant",
-        content: assistantText,
-        tool_calls: [{
-          id: cc.callId,
-          type: "function",
-          function: {
-            name: "computer",
-            arguments: JSON.stringify({ actions })
-          }
-        }]
-      });
-    }
 
     const actionSummary = actions.map((a) => a.type).join(", ");
     log(`executing ${actions.length} action(s): ${actionSummary}`);
@@ -197,19 +185,15 @@ export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<Com
     // Save this turn's screenshot.
     if (sessionDir) await persistScreenshot(sessionDir, iterations, screenshot);
 
-    // Persist tool result.
-    if (transcript) {
-      await transcript({
-        role: "tool",
-        tool_call_id: cc.callId,
-        content: JSON.stringify({
-          ok: true,
-          iteration: iterations,
-          actionsExecuted: actions.length,
-          screenshotSaved: Boolean(sessionDir)
-        })
-      });
-    }
+    // Persist this iteration immediately (survives crashes).
+    if (persist) await persist({
+      kind: "iteration",
+      callId: cc.callId,
+      actions: actions as any[],
+      assistantText,
+      result: { ok: true, actionsExecuted: actions.length },
+      ...(cc.pendingSafetyChecks?.length ? { pendingSafetyChecks: cc.pendingSafetyChecks } : {})
+    });
 
     // ── 2d. Build next input ────────────────────────────────────
     // With previous_response_id the API already has prior context.
@@ -235,12 +219,16 @@ export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<Com
   }
 
   // ── 3. Loop exhausted or cancelled ─────────────────────────────
-  if (transcript && assistantText) {
-    await transcript({ role: "assistant", content: assistantText });
-  }
-
   const stopReason = isCancelled() ? "cancelled" : "max_iterations";
   log(`loop ended: ${stopReason} after ${iterations} iteration(s)`);
+
+  if (persist) await persist({
+    kind: "done",
+    assistantText,
+    stopReason,
+    totalIterations: iterations
+  });
+
   return { assistantText, iterations, stopReason };
 }
 

@@ -1,7 +1,7 @@
 import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { CodeBlock, TextBlock, ToolBlock, ThoughtBlock } from "../types";
+import type { CodeBlock, TextBlock, ToolBlock, ThoughtBlock, ComputerUseIterationBlock, ComputerUseDoneBlock } from "../types";
 import type { BlockRendererRegistry } from "./BlockRendererRegistry";
 import { apiApproveTool, type ToolApprovalDecision } from "../api/tools";
 import { apiArtifactUrl } from "../api/artifacts";
@@ -27,6 +27,9 @@ export function registerDefaultBlockRenderers(registry: BlockRendererRegistry) {
 
   // Thought blocks are hidden/collapsed by default (dev-friendly).
   registry.register("thought", (b: ThoughtBlock) => <ThoughtBlockView block={b} />);
+
+  registry.register("computer_use_iteration", (b: ComputerUseIterationBlock) => <ComputerUseIterationView block={b} />);
+  registry.register("computer_use_done", (b: ComputerUseDoneBlock) => <ComputerUseDoneView block={b} />);
 }
 
 function isSafeHref(href: string): boolean {
@@ -535,5 +538,95 @@ function ThoughtBlockView({ block }: { block: ThoughtBlock }) {
       <summary className="muted">Thought</summary>
       <pre className="code-lite">{block.text}</pre>
     </details>
+  );
+}
+
+// ── Computer use ────────────────────────────────────────────────
+
+import cuClickSvg from "../../assets/tool/cu-click.svg?raw";
+import cuTypeSvg from "../../assets/tool/cu-type.svg?raw";
+import cuScreenshotSvg from "../../assets/tool/cu-screenshot.svg?raw";
+import cuWaitSvg from "../../assets/tool/cu-wait.svg?raw";
+import cuScrollSvg from "../../assets/tool/cu-scroll.svg?raw";
+
+const CU_ACTION_ICONS: Record<string, string> = {
+  click: cuClickSvg,
+  double_click: cuClickSvg,
+  move: cuClickSvg,
+  drag: cuClickSvg,
+  type: cuTypeSvg,
+  keypress: cuTypeSvg,
+  screenshot: cuScreenshotSvg,
+  scroll: cuScrollSvg,
+  wait: cuWaitSvg
+};
+
+function ActionIcon({ action }: { action: string }) {
+  const svg = CU_ACTION_ICONS[action];
+  if (!svg) return null;
+  return (
+    <span
+      className="toolNameIcon"
+      style={{ width: 12, height: 12 }}
+      aria-hidden="true"
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
+}
+
+function formatAction(a: Record<string, any>): { icon: string; name: string; detail: string } {
+  const t = String(a?.type ?? "");
+  switch (t) {
+    case "click": {
+      const btn = a.button && a.button !== "left" ? ` (${a.button})` : "";
+      return { icon: t, name: `click${btn}`, detail: `${a.x},${a.y}` };
+    }
+    case "double_click":
+      return { icon: t, name: "double_click", detail: `${a.x},${a.y}` };
+    case "type": {
+      const text = String(a.text ?? "");
+      return { icon: t, name: "type", detail: `"${text.slice(0, 60)}${text.length > 60 ? "…" : ""}"` };
+    }
+    case "keypress":
+      return { icon: t, name: "key", detail: Array.isArray(a.keys) ? a.keys.join("+") : String(a.keys ?? "") };
+    case "scroll":
+      return { icon: t, name: "scroll", detail: `${a.x},${a.y} dy=${a.scroll_y ?? 0}` };
+    case "move":
+      return { icon: t, name: "move", detail: `${a.x},${a.y}` };
+    case "drag":
+      return { icon: t, name: "drag", detail: Array.isArray(a.path) ? `${a.path.length} pts` : "" };
+    case "wait":
+      return { icon: t, name: "wait", detail: "" };
+    case "screenshot":
+      return { icon: t, name: "screenshot", detail: "" };
+    default:
+      return { icon: "", name: t || "unknown", detail: "" };
+  }
+}
+
+function ComputerUseIterationView({ block }: { block: ComputerUseIterationBlock }) {
+  const actions = Array.isArray(block.actions) ? block.actions : [];
+  const formatted = actions.map(formatAction);
+
+  return (
+    <div className="block-cu-iter">
+      {formatted.map((f, i) => (
+        <div key={i} className="block-cu-action">
+          <ActionIcon action={f.icon} />
+          <span className="block-cu-action-name">{f.name}</span>
+          {f.detail && <span className="block-cu-action-detail">{f.detail}</span>}
+        </div>
+      ))}
+      {!block.result.ok && <div className="block-cu-action block-cu-iter-err">failed</div>}
+    </div>
+  );
+}
+
+function ComputerUseDoneView({ block }: { block: ComputerUseDoneBlock }) {
+  const reason = block.stopReason === "completed" ? "" : ` · ${block.stopReason}`;
+  return (
+    <div className="block-cu-done">
+      Computer Use · {block.totalIterations} Iteration{block.totalIterations !== 1 ? "s" : ""}{reason}
+    </div>
   );
 }

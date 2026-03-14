@@ -44,7 +44,27 @@ export type ThoughtBlock = {
   origin?: BlockOrigin;
 };
 
-export type Block = TextBlock | CodeBlock | ToolBlock | ThoughtBlock;
+/**
+ * A single computer use iteration (click/type/scroll actions + result).
+ */
+export type ComputerUseIterationBlock = {
+  type: "computer_use_iteration";
+  callId: string;
+  actions: Array<Record<string, any>>;
+  assistantText: string;
+  result: { ok: boolean; actionsExecuted: number };
+};
+
+/**
+ * Terminal marker for a computer use session — carries the final text + stop reason.
+ */
+export type ComputerUseDoneBlock = {
+  type: "computer_use_done";
+  stopReason: string;
+  totalIterations: number;
+};
+
+export type Block = TextBlock | CodeBlock | ToolBlock | ThoughtBlock | ComputerUseIterationBlock | ComputerUseDoneBlock;
 
 export type Message = {
   id: string;

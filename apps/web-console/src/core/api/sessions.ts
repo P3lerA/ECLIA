@@ -73,6 +73,72 @@ function transcriptToMessages(records: TranscriptRecordV1[]): Message[] {
       continue;
     }
 
+    // ── Computer use: aggregate consecutive records into one assistant message ──
+    if ((r as any).type === "computer_use") {
+      const step = (r as any).step;
+      if (!step) continue;
+      const ts = typeof (r as any).ts === "number" ? (r as any).ts : Date.now();
+
+      if (step.kind === "iteration") {
+        // Start or extend a computer use message.
+        const last = out[out.length - 1];
+        if (last && (last as any).__computerUse) {
+          // Append iteration to existing computer use message.
+          last.blocks.push({
+            type: "computer_use_iteration",
+            callId: step.callId ?? "",
+            actions: Array.isArray(step.actions) ? step.actions : [],
+            assistantText: step.assistantText ?? "",
+            result: step.result ?? { ok: true, actionsExecuted: 0 }
+          } as any);
+        } else {
+          // Start a new computer use message.
+          const msg: Message & { __computerUse?: boolean } = {
+            id: (r as any).id ?? cryptoId(),
+            role: "assistant",
+            createdAt: ts,
+            blocks: [{
+              type: "computer_use_iteration",
+              callId: step.callId ?? "",
+              actions: Array.isArray(step.actions) ? step.actions : [],
+              assistantText: step.assistantText ?? "",
+              result: step.result ?? { ok: true, actionsExecuted: 0 }
+            } as any],
+            raw: ""
+          };
+          msg.__computerUse = true;
+          out.push(msg);
+        }
+      } else if (step.kind === "done") {
+        // Finalize: append done block + final text to the computer use message.
+        const last = out[out.length - 1];
+        if (last && (last as any).__computerUse) {
+          last.blocks.push({
+            type: "computer_use_done",
+            stopReason: step.stopReason ?? "completed",
+            totalIterations: step.totalIterations ?? 0
+          } as any);
+          const finalText = typeof step.assistantText === "string" ? step.assistantText : "";
+          if (finalText) {
+            last.blocks.push({ type: "text", text: finalText });
+          }
+          last.raw = finalText;
+          delete (last as any).__computerUse;
+        } else {
+          // Orphan done without iterations — just emit as a plain assistant message.
+          const finalText = typeof step.assistantText === "string" ? step.assistantText : "";
+          out.push({
+            id: (r as any).id ?? cryptoId(),
+            role: "assistant",
+            createdAt: ts,
+            blocks: finalText ? [{ type: "text", text: finalText }] : [],
+            raw: finalText
+          });
+        }
+      }
+      continue;
+    }
+
     if ((r as any).type !== "msg" || !(r as any).msg) continue;
     const m = (r as any).msg as OpenAICompatMessage;
     const ts = typeof (r as any).ts === "number" ? (r as any).ts : Date.now();

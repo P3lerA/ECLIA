@@ -92,6 +92,9 @@ export type TranscriptTurnV1 = {
   /** Redundant tool access mode snapshot (useful for debugging). */
   toolAccessMode?: "full" | "safe";
 
+  /** Operation mode for this turn. */
+  operationMode?: "chat" | "computer_use";
+
   /**
    * Memories injected for this turn (debugging/provenance only).
    *
@@ -99,6 +102,33 @@ export type TranscriptTurnV1 = {
    */
   memory?: Array<{ id: string; raw: string; score: number | null }>;
 };
+
+/**
+ * A single computer use record — either an iteration (computer_call + execution)
+ * or the final text when the model stops calling computer.
+ *
+ * Written one-per-turn so that partial progress survives crashes.
+ * The frontend aggregates consecutive computer_use records into one bubble.
+ */
+export type ComputerUseStep =
+  | {
+      /** One computer_call → execute → screenshot cycle. */
+      kind: "iteration";
+      callId: string;
+      actions: Array<Record<string, any>>;
+      /** Assistant text emitted during this iteration (may be empty). */
+      assistantText: string;
+      result: { ok: boolean; actionsExecuted: number };
+      pendingSafetyChecks?: Array<{ id: string; code: string; message: string }>;
+    }
+  | {
+      /** Final model response — no more computer_call. */
+      kind: "done";
+      assistantText: string;
+      stopReason: "completed" | "max_iterations" | "cancelled" | "error";
+      /** Total iterations executed. */
+      totalIterations: number;
+    };
 
 export type TranscriptRecordV1 =
   | {
@@ -120,4 +150,11 @@ export type TranscriptRecordV1 =
       ts: number;
       type: "turn";
       turn: TranscriptTurnV1;
+    }
+  | {
+      v: 1;
+      id: string;
+      ts: number;
+      type: "computer_use";
+      step: ComputerUseStep;
     };

@@ -31,7 +31,8 @@ import {
   sameOpenAICompatProfiles,
   sameAnthropicProfiles,
   sameWebProfiles,
-  sameStringArray
+  sameStringArray,
+  buildModelRouteOptions
 } from "./settingsUtils";
 import { AdaptersSection } from "./sections/adapters/AdaptersSection";
 import { AppearanceSection } from "./sections/appearance/AppearanceSection";
@@ -42,6 +43,7 @@ import { SkillsSection } from "./sections/skills/SkillsSection";
 import { ToolsSection } from "./sections/tools/ToolsSection";
 import { SymphonySection } from "./sections/symphony/SymphonySection";
 import { MemorySection } from "./sections/memory/MemorySection";
+import { PlaygroundSection } from "./sections/playground/PlaygroundSection";
 
 const ALLOWED_CONSOLE_HOSTS = new Set(["127.0.0.1", "0.0.0.0"]);
 const DEFAULT_CODEX_MODEL = CODEX_OAUTH_DEFAULT_MODEL;
@@ -598,7 +600,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const webgl2Text =
     state.gpu.available === null ? "WebGL2: checking…" : state.gpu.available ? "WebGL2: available" : "WebGL2: unavailable";
 
-  type SettingsSectionId = "general" | "appearance" | "tools" | "inference" | "adapters" | "skills" | "symphony" | "memory";
+  type SettingsSectionId = "general" | "appearance" | "tools" | "inference" | "adapters" | "skills" | "symphony" | "memory" | "playground";
 
   const sections: Array<{ id: SettingsSectionId; label: string }> = [
     { id: "general", label: "General" },
@@ -608,10 +610,16 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     { id: "adapters", label: "Adapters" },
     { id: "skills", label: "Skills" },
     { id: "symphony", label: "Symphony" },
-    { id: "memory", label: "Memory" }
+    { id: "memory", label: "Memory" },
+    { id: "playground", label: "Playground" }
   ];
 
   const [activeSection, setActiveSection] = React.useState<SettingsSectionId>("general");
+
+  const playgroundModelOptions = React.useMemo(
+    () => buildModelRouteOptions(draft.inferenceProfiles, draft.anthropicProfiles, draft.codexOAuthProfiles),
+    [draft.inferenceProfiles, draft.anthropicProfiles, draft.codexOAuthProfiles]
+  );
 
   const inferenceController = useInferenceController({
     active: activeSection === "inference",
@@ -754,6 +762,10 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                 dirtyDevMemory={dirtyDevMemory}
                 memoryValid={memoryValid}
               />
+            ) : null}
+
+            {activeSection === "playground" ? (
+              <PlaygroundSection modelRouteOptions={playgroundModelOptions} />
             ) : null}
           </div>
         </div>

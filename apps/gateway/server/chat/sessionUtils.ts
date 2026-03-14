@@ -25,6 +25,11 @@ export function transcriptRecordsToMessages(records: TranscriptRecordV1[]): Open
     if ((r as any).type === "msg" && (r as any).msg && typeof (r as any).msg.role === "string") {
       out.push((r as any).msg as OpenAICompatMessage);
     }
+    // computer_use "done" step → synthesize an assistant message for context continuity.
+    if ((r as any).type === "computer_use" && (r as any).step?.kind === "done") {
+      const text = typeof (r as any).step.assistantText === "string" ? (r as any).step.assistantText : "";
+      if (text) out.push({ role: "assistant", content: text });
+    }
   }
   return out;
 }

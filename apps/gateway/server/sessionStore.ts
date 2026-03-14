@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import readline from "node:readline";
 import type { SessionMetaV1 } from "./sessionTypes.js";
 import type { SessionsIndexEventV1 } from "./sessionsIndexTypes.js";
-import type { OpenAICompatMessage, TranscriptRecordV1, TranscriptTurnV1 } from "./transcriptTypes.js";
+import type { ComputerUseStep, OpenAICompatMessage, TranscriptRecordV1, TranscriptTurnV1 } from "./transcriptTypes.js";
 
 const SAFE_ID = /^[a-zA-Z0-9_-]{1,120}$/;
 
@@ -357,6 +357,19 @@ export class SessionStore {
     await fsp.appendFile(this.transcriptPath(sessionId), JSON.stringify(rec) + "\n", "utf-8");
   }
 
+  async appendComputerUseStep(sessionId: string, step: ComputerUseStep, ts?: number): Promise<void> {
+    await this.ensureSession(sessionId);
+
+    const rec: TranscriptRecordV1 = {
+      v: 1,
+      id: crypto.randomUUID(),
+      ts: typeof ts === "number" && Number.isFinite(ts) ? ts : Date.now(),
+      type: "computer_use",
+      step
+    };
+    await fsp.appendFile(this.transcriptPath(sessionId), JSON.stringify(rec) + "\n", "utf-8");
+  }
+
   private async appendSessionsIndex(ev: SessionsIndexEventV1): Promise<void> {
     try {
       await this.init();
@@ -412,7 +425,7 @@ export class SessionStore {
           const parsed = JSON.parse(s) as TranscriptRecordV1;
           if (!parsed || (parsed as any).v !== 1) continue;
           const t = (parsed as any).type;
-          if (t !== "msg" && t !== "reset" && t !== "turn") continue;
+          if (t !== "msg" && t !== "reset" && t !== "turn" && t !== "computer_use") continue;
           out.push(parsed);
         } catch {
           // If a line is truncated/corrupted (crash while writing), ignore it.

@@ -133,7 +133,8 @@ export async function* iterSse(resp: Response): AsyncGenerator<SseEvent> {
 export async function runGatewayChat(args: {
   gatewayUrl: string;
   sessionId: string;
-  userText: string;
+  /** User message text. Required unless `rawMode` is true. */
+  userText: string | "";
   model?: string;
   toolAccessMode?: "safe" | "full";
   streamMode?: "full" | "final";
@@ -158,6 +159,8 @@ export async function runGatewayChat(args: {
   topK?: number;
   /** Operation mode: "chat" (default) or "computer_use". */
   operationMode?: "chat" | "computer_use";
+  /** When true (and `messages` is provided), gateway uses the messages array as-is — no system prompt injection, no memory recall, no userMsg append. */
+  rawMode?: boolean;
   onRecord?: (record: TranscriptRecord) => Promise<void>;
 }): Promise<{ text: string; meta?: any }> {
   let resp: Response;
@@ -181,6 +184,7 @@ export async function runGatewayChat(args: {
         ...(typeof args.topP === "number" ? { topP: args.topP } : {}),
         ...(typeof args.topK === "number" ? { topK: args.topK } : {}),
         ...(args.operationMode ? { operationMode: args.operationMode } : {}),
+        ...(args.rawMode ? { rawMode: true } : {}),
         origin: args.origin
       })
     });

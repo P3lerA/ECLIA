@@ -138,6 +138,9 @@ type ChatReqBody = {
    */
   operationMode?: "chat" | "computer_use";
 
+  /** When true (and `messages` is provided), use the messages array as-is — no system prompt, no memory, no userMsg append. */
+  rawMode?: boolean;
+
   /** Computer use: logical display width declared to the model (default 1280). */
   displayWidth?: number;
   /** Computer use: logical display height declared to the model (default 800). */
@@ -264,7 +267,9 @@ export async function handleChat(
   if (!store.isValidSessionId(sessionId)) {
     return json(res, 400, { ok: false, error: "invalid_session_id" });
   }
-  if (!userText.trim()) {
+  const rawMode = Boolean(body.rawMode) && Array.isArray(body.messages);
+
+  if (!rawMode && !userText.trim()) {
     return json(res, 400, { ok: false, error: "empty_message" });
   }
 
@@ -389,7 +394,9 @@ export async function handleChat(
     // Persist the user message first (so the session survives even if upstream fails).
     const userTs = Date.now();
     const userMsg: OpenAICompatMessage = { role: "user", content: userText } as any;
-    await store.appendTranscript(sessionId, userMsg as any, userTs);
+    if (!rawMode) {
+      await store.appendTranscript(sessionId, userMsg as any, userTs);
+    }
 
     const tokenLimit = safeInt(body.contextTokenLimit, 20000);
 
@@ -421,6 +428,7 @@ export async function handleChat(
         git,
         runtime: runtimeForTurn,
         toolAccessMode,
+        operationMode,
       };
     };
 
@@ -474,52 +482,60 @@ export async function handleChat(
     }
 
     const explicitContextMessages = coerceExplicitContextMessages((body as any).messages);
-    const explicitNonSystem = explicitContextMessages ? explicitContextMessages.filter((m) => m && m.role !== "system") : null;
-
-    const historyBase = (explicitNonSystem
-      ? [...explicitNonSystem, userMsg]
-      : includeHistory
-        ? [...priorMessages, userMsg]
-        : [userMsg]
-    ).filter((m) => m && m.role !== "system");
-
-    const skipMemoryRecall = Boolean((body as any).skipMemoryRecall);
 
     // Start SSE early so we can emit phase events during recall.
     const { stopKeepAlive } = beginSse(res);
 
-    // Optional: fetch memory profile and append to system instruction (best-effort).
-    let memoryProfileText = "";
-    if (!skipMemoryRecall) {
-      try {
-        const profile = await fetchMemoryProfile({ config });
-        if (profile) memoryProfileText = profile;
-      } catch {
-        // best-effort: profile fetch failures should never block chat
-      }
-    }
+    // --- Raw mode: user-supplied messages are used as-is (no system prompt, no memory, no userMsg append) ---
+    let historyForContext: OpenAICompatMessage[];
 
-    // Compose full system instruction: base + memory profile (via template).
-    let fullSystemInstruction = systemInstruction;
-    if (memoryProfileText) {
-      const { text: memTpl } = readSystemMemoryTemplate(rootDir);
-      if (memTpl.trim()) {
-        const rendered = renderSystemMemoryTemplate(memTpl, {
-          memoryProfile: memoryProfileText,
-          userPreferredName: (config as any)?.persona?.user_preferred_name,
-          assistantName: (config as any)?.persona?.assistant_name
-        });
-        fullSystemInstruction = `${systemInstruction}\n\n${rendered}`;
-      }
-    }
+    if (rawMode && explicitContextMessages) {
+      historyForContext = explicitContextMessages;
+    } else {
+      const explicitNonSystem = explicitContextMessages ? explicitContextMessages.filter((m) => m && m.role !== "system") : null;
 
-    // Inject system instruction as the only system message (when configured).
-    const historyForContext = fullSystemInstruction.trim().length
-      ? [
-          ...historyBase,
-          ({ role: "system", content: fullSystemInstruction } as any)
-        ]
-      : historyBase;
+      const historyBase = (explicitNonSystem
+        ? [...explicitNonSystem, userMsg]
+        : includeHistory
+          ? [...priorMessages, userMsg]
+          : [userMsg]
+      ).filter((m) => m && m.role !== "system");
+
+      const skipMemoryRecall = Boolean((body as any).skipMemoryRecall);
+
+      // Optional: fetch memory profile and append to system instruction (best-effort).
+      let memoryProfileText = "";
+      if (!skipMemoryRecall) {
+        try {
+          const profile = await fetchMemoryProfile({ config });
+          if (profile) memoryProfileText = profile;
+        } catch {
+          // best-effort: profile fetch failures should never block chat
+        }
+      }
+
+      // Compose full system instruction: base + memory profile (via template).
+      let fullSystemInstruction = systemInstruction;
+      if (memoryProfileText) {
+        const { text: memTpl } = readSystemMemoryTemplate(rootDir);
+        if (memTpl.trim()) {
+          const rendered = renderSystemMemoryTemplate(memTpl, {
+            memoryProfile: memoryProfileText,
+            userPreferredName: (config as any)?.persona?.user_preferred_name,
+            assistantName: (config as any)?.persona?.assistant_name
+          });
+          fullSystemInstruction = `${systemInstruction}\n\n${rendered}`;
+        }
+      }
+
+      // Inject system instruction as the only system message (when configured).
+      historyForContext = fullSystemInstruction.trim().length
+        ? [
+            ...historyBase,
+            ({ role: "system", content: fullSystemInstruction } as any)
+          ]
+        : historyBase;
+    }
 
     const { messages: contextMessages, usedTokens, dropped } = backend.provider.buildContext(historyForContext, tokenLimit);
 

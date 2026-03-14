@@ -45,6 +45,8 @@ export const MessageBubble = React.memo(function MessageBubble({
         ] as Block[])
       : msg.blocks;
 
+  const isComputerUse = blocks.some((b) => b.type === "computer_use_iteration" || b.type === "computer_use_done");
+
   return (
     <div className={"msg motion-msg " + msg.role} data-msg-id={msg.id}>
       <div className="bubble">
@@ -54,19 +56,27 @@ export const MessageBubble = React.memo(function MessageBubble({
           {msg.streaming ? <span className="muted">· {phaseLabel(phase)}</span> : null}
         </div>
 
-        {blocks.map((b, i) => {
-          // Markdown parsing is intentionally deferred until the message is complete.
-          // While streaming, render text blocks as plain text for stability and performance.
-          if (!plainOutput && msg.streaming && b.type === "text") {
-            return (
-              <p key={i} className="block-text">
-                {b.text}
-              </p>
-            );
-          }
-
-          return <React.Fragment key={i}>{runtime.blocks.render(b)}</React.Fragment>;
-        })}
+        {isComputerUse ? (<>
+          <div className="block-cu-scroll">
+            {blocks.filter((b) => b.type === "computer_use_iteration").map((b, i) => (
+              <React.Fragment key={i}>{runtime.blocks.render(b)}</React.Fragment>
+            ))}
+          </div>
+          {blocks.filter((b) => b.type !== "computer_use_iteration").map((b, i) => (
+            <React.Fragment key={i}>{runtime.blocks.render(b)}</React.Fragment>
+          ))}
+        </>) : (
+          blocks.map((b, i) => {
+            if (!plainOutput && msg.streaming && b.type === "text") {
+              return (
+                <p key={i} className="block-text">
+                  {b.text}
+                </p>
+              );
+            }
+            return <React.Fragment key={i}>{runtime.blocks.render(b)}</React.Fragment>;
+          })
+        )}
       </div>
     </div>
   );
