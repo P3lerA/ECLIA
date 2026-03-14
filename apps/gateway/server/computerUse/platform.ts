@@ -100,8 +100,7 @@ function scaleAction(action: ComputerAction): ComputerAction {
     a.y = scaled.y;
     console.log(`[computerUse] scale ${a.type}: (${origX},${origY}) → (${a.x},${a.y})`);
   }
-  if ("scroll_x" in a && typeof a.scroll_x === "number") a.scroll_x = Math.round(a.scroll_x * _coordScaleX);
-  if ("scroll_y" in a && typeof a.scroll_y === "number") a.scroll_y = Math.round(a.scroll_y * _coordScaleY);
+  // scroll_x / scroll_y are notch counts, not pixel coordinates — do not scale
   if ("path" in a && Array.isArray(a.path)) {
     a.path = a.path.map((p: any) => clampCoords(
       Math.round(p.x * _coordScaleX),

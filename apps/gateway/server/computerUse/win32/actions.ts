@@ -111,8 +111,11 @@ export async function executeAction(
     }
 
     case "scroll": {
+      // OpenAI convention: positive scroll_y = down, positive scroll_x = right.
+      // Win32: WHEEL positive = up, HWHEEL positive = right.
+      // Negate scroll_y (opposite), keep scroll_x (same direction).
       const dy = -Math.round(action.scroll_y ?? 0);
-      const dx = -Math.round(action.scroll_x ?? 0);
+      const dx = Math.round(action.scroll_x ?? 0);
       await input(
         "scroll",
         String(Math.round(action.x)),

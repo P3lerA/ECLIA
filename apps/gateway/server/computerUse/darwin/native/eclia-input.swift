@@ -458,9 +458,11 @@ case "screenshot":
         }
 
         // Resize to logical resolution first (screencapture gives physical/Retina pixels).
+        // CGDisplayBounds returns points (logical), not physical pixels.
         let mainId = CGMainDisplayID()
-        let logW = CGDisplayPixelsWide(mainId)
-        let logH = CGDisplayPixelsHigh(mainId)
+        let bounds = CGDisplayBounds(mainId)
+        let logW = Int(bounds.width)
+        let logH = Int(bounds.height)
 
         let logicalImage: CGImage
         if fullImage.width == logW && fullImage.height == logH {
@@ -479,11 +481,11 @@ case "screenshot":
     }
 
 case "screensize":
-    // Print the main display's logical resolution as "width height\n".
+    // Print the main display's logical resolution (points) as "width height\n".
+    // CGDisplayBounds returns points, not physical pixels.
     let mainId = CGMainDisplayID()
-    let sw = CGDisplayPixelsWide(mainId)
-    let sh = CGDisplayPixelsHigh(mainId)
-    print("\(sw) \(sh)")
+    let bounds = CGDisplayBounds(mainId)
+    print("\(Int(bounds.width)) \(Int(bounds.height))")
 
 default:
     fputs("eclia-input: unknown command '\(command)'\n", stderr)

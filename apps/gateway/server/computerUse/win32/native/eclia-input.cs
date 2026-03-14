@@ -331,7 +331,7 @@ static class Mouse
                 {
                     type = Win32.INPUT_MOUSE,
                     u = new Win32.InputUnion { mi = new Win32.MOUSEINPUT {
-                        mouseData = -dy * 120, // negate: OpenAI positive = down, Win32 positive = up
+                        mouseData = dy * 120, // already negated by caller (OpenAI positive=down → Win32 positive=up)
                         dwFlags = Win32.MOUSEEVENTF_WHEEL
                     }}
                 }
