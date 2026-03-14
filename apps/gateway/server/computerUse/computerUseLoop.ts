@@ -82,9 +82,11 @@ export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<Com
     throw new Error(`Computer use is not supported on ${platform()}`);
   }
 
+  // Best-effort persistence: fire-and-forget, but chained to preserve record ordering.
+  let lastPersist = Promise.resolve();
   const persist = store && sessionId
-    ? async (step: Parameters<SessionStore["appendComputerUseStep"]>[1]) => {
-        try { await store.appendComputerUseStep(sessionId, step); } catch { /* best-effort */ }
+    ? (step: Parameters<SessionStore["appendComputerUseStep"]>[1]) => {
+        lastPersist = lastPersist.then(() => store.appendComputerUseStep(sessionId, step)).catch(() => { /* best-effort */ });
       }
     : null;
 
@@ -124,6 +126,7 @@ export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<Com
   // ── 2. Agent loop ──────────────────────────────────────────────
   let debugSeq = 0;
 
+  try {
   while (iterations < maxIterations && !isCancelled()) {
     log(`iteration ${iterations + 1}/${maxIterations} — generating`);
     emit("phase", { phase: "generating", ts: Date.now() });
@@ -150,7 +153,7 @@ export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<Com
     if (!turn.computerCall) {
       log(`completed after ${iterations} iteration(s) — model returned text`);
 
-      if (persist) await persist({
+      if (persist) persist({
         kind: "done",
         assistantText,
         stopReason: "completed",
@@ -186,13 +189,13 @@ export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<Com
     if (sessionDir) await persistScreenshot(sessionDir, iterations, screenshot);
 
     // Persist this iteration immediately (survives crashes).
-    if (persist) await persist({
+    if (persist) persist({
       kind: "iteration",
       callId: cc.callId,
-      actions: actions as any[],
+      actions: actions as Array<Record<string, any>>,
       assistantText,
       result: { ok: true, actionsExecuted: actions.length },
-      ...(cc.pendingSafetyChecks?.length ? { pendingSafetyChecks: cc.pendingSafetyChecks } : {})
+      pendingSafetyChecks: cc.pendingSafetyChecks?.length ? cc.pendingSafetyChecks : undefined
     });
 
     // ── 2d. Build next input ────────────────────────────────────
@@ -222,7 +225,7 @@ export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<Com
   const stopReason = isCancelled() ? "cancelled" : "max_iterations";
   log(`loop ended: ${stopReason} after ${iterations} iteration(s)`);
 
-  if (persist) await persist({
+  if (persist) persist({
     kind: "done",
     assistantText,
     stopReason,
@@ -230,6 +233,12 @@ export async function runComputerUseLoop(args: ComputerUseLoopArgs): Promise<Com
   });
 
   return { assistantText, iterations, stopReason };
+
+  } finally {
+    // Drain all in-flight persistence before returning or throwing,
+    // so chat.ts error/turn records never land before iteration records.
+    await lastPersist;
+  }
 }
 
 // ── Screenshot persistence ──────────────────────────────────────────

@@ -1,7 +1,5 @@
 import crypto from "node:crypto";
-import path from "node:path";
 
-import { isEcliaRef, uriFromRef, tryParseArtifactUriToRepoRelPath } from "@eclia/tool-protocol";
 import type { ChatInputCommandInteraction, Message } from "discord.js";
 
 import type { TranscriptRecord } from "@eclia/gateway-client";
@@ -203,32 +201,10 @@ export function createMessageSendFn(message: Message): DiscordSendFn {
 }
 
 // ---------------------------------------------------------------------------
-// Artifact ref resolution
+// Artifact ref resolution (re-export from shared package)
 // ---------------------------------------------------------------------------
 
-export function extractRefToRepoRelPath(pointer: string): { relPath: string; name: string } | null {
-  const p = String(pointer ?? "").trim();
-  if (!p) return null;
-
-  if (isEcliaRef(p)) {
-    const uri = uriFromRef(p);
-    const rel = tryParseArtifactUriToRepoRelPath(uri);
-    if (!rel) return null;
-    return { relPath: rel, name: path.basename(rel) || "artifact" };
-  }
-
-  if (p.startsWith("eclia://")) {
-    const rel = tryParseArtifactUriToRepoRelPath(p);
-    if (!rel) return null;
-    return { relPath: rel, name: path.basename(rel) || "artifact" };
-  }
-
-  if (p.startsWith(".eclia/artifacts/")) {
-    return { relPath: p, name: path.basename(p) || "artifact" };
-  }
-
-  return null;
-}
+export { extractRefToRepoRelPath } from "@eclia/gateway-client";
 
 // ---------------------------------------------------------------------------
 // Shared onRecord handler (deduplicates interaction & message callbacks)

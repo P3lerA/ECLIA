@@ -17,17 +17,17 @@ export function transcriptRecordsToMessages(records: TranscriptRecordV1[]): Open
   const out: OpenAICompatMessage[] = [];
   const rows = Array.isArray(records) ? records : [];
   for (const r of rows) {
-    if (!r || (r as any).v !== 1) continue;
-    if ((r as any).type === "reset") {
+    if (!r || r.v !== 1) continue;
+    if (r.type === "reset") {
       out.length = 0;
       continue;
     }
-    if ((r as any).type === "msg" && (r as any).msg && typeof (r as any).msg.role === "string") {
-      out.push((r as any).msg as OpenAICompatMessage);
+    if (r.type === "msg" && r.msg && typeof r.msg.role === "string") {
+      out.push(r.msg);
     }
     // computer_use "done" step → synthesize an assistant message for context continuity.
-    if ((r as any).type === "computer_use" && (r as any).step?.kind === "done") {
-      const text = typeof (r as any).step.assistantText === "string" ? (r as any).step.assistantText : "";
+    if (r.type === "computer_use" && r.step.kind === "done") {
+      const text = r.step.assistantText;
       if (text) out.push({ role: "assistant", content: text });
     }
   }

@@ -134,7 +134,7 @@ export async function runGatewayChat(args: {
   gatewayUrl: string;
   sessionId: string;
   /** User message text. Required unless `rawMode` is true. */
-  userText: string | "";
+  userText: string;
   model?: string;
   toolAccessMode?: "safe" | "full";
   streamMode?: "full" | "final";

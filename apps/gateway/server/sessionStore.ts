@@ -252,33 +252,39 @@ export class SessionStore {
     await fsp.rm(absTarget, { recursive: true, force: true });
   }
 
-  async appendTranscript(sessionId: string, msg: OpenAICompatMessage, ts?: number): Promise<void> {
-    await this.ensureSession(sessionId);
+  private coerceTs(ts?: number): number {
+    return typeof ts === "number" && Number.isFinite(ts) ? ts : Date.now();
+  }
 
-    const rec: TranscriptRecordV1 = {
-      v: 1,
-      id: crypto.randomUUID(),
-      ts: typeof ts === "number" && Number.isFinite(ts) ? ts : Date.now(),
-      type: "msg",
-      msg
-    };
+  private async writeRecord(sessionId: string, rec: TranscriptRecordV1): Promise<void> {
+    await this.ensureSession(sessionId);
     await fsp.appendFile(this.transcriptPath(sessionId), JSON.stringify(rec) + "\n", "utf-8");
+  }
+
+  private buildEnvelope(ts?: number): { v: 1; id: string; ts: number } {
+    return { v: 1, id: crypto.randomUUID(), ts: this.coerceTs(ts) };
+  }
+
+  async appendTranscript(sessionId: string, msg: OpenAICompatMessage, ts?: number): Promise<void> {
+    await this.writeRecord(sessionId, { ...this.buildEnvelope(ts), type: "msg", msg });
   }
 
   async appendTurn(sessionId: string, turn: TranscriptTurnV1, ts?: number): Promise<void> {
     await this.ensureSession(sessionId);
 
-    const id = crypto.randomUUID();
-    const now = typeof ts === "number" && Number.isFinite(ts) ? ts : Date.now();
+    const envelope = this.buildEnvelope(ts);
 
     const tokenLimit = typeof (turn as any)?.tokenLimit === "number" ? (turn as any).tokenLimit : 0;
     const usedTokens = typeof (turn as any)?.usedTokens === "number" ? (turn as any).usedTokens : 0;
 
     const turnIdRaw = (turn as any)?.turnId;
-    const turnId = typeof turnIdRaw === "string" && turnIdRaw.trim() ? turnIdRaw.trim() : id;
+    const turnId = typeof turnIdRaw === "string" && turnIdRaw.trim() ? turnIdRaw.trim() : envelope.id;
 
     const toolAccessModeRaw = (turn as any)?.toolAccessMode;
     const toolAccessMode: "full" | "safe" | undefined = toolAccessModeRaw === "safe" ? "safe" : toolAccessModeRaw === "full" ? "full" : undefined;
+
+    const operationModeRaw = (turn as any)?.operationMode;
+    const operationMode: "chat" | "computer_use" | undefined = operationModeRaw === "computer_use" ? "computer_use" : operationModeRaw === "chat" ? "chat" : undefined;
 
     let upstream: TranscriptTurnV1["upstream"] | undefined;
     const upstreamIn = (turn as any)?.upstream;
@@ -338,10 +344,8 @@ export class SessionStore {
       if (out.length) memory = out;
     }
 
-    const rec: TranscriptRecordV1 = {
-      v: 1,
-      id,
-      ts: now,
+    await this.writeRecord(sessionId, {
+      ...envelope,
       type: "turn",
       turn: {
         turnId,
@@ -351,23 +355,14 @@ export class SessionStore {
         ...(git ? { git } : {}),
         ...(runtime ? { runtime } : {}),
         ...(memory ? { memory } : {}),
-        ...(toolAccessMode ? { toolAccessMode } : {})
+        ...(toolAccessMode ? { toolAccessMode } : {}),
+        ...(operationMode ? { operationMode } : {})
       }
-    };
-    await fsp.appendFile(this.transcriptPath(sessionId), JSON.stringify(rec) + "\n", "utf-8");
+    });
   }
 
   async appendComputerUseStep(sessionId: string, step: ComputerUseStep, ts?: number): Promise<void> {
-    await this.ensureSession(sessionId);
-
-    const rec: TranscriptRecordV1 = {
-      v: 1,
-      id: crypto.randomUUID(),
-      ts: typeof ts === "number" && Number.isFinite(ts) ? ts : Date.now(),
-      type: "computer_use",
-      step
-    };
-    await fsp.appendFile(this.transcriptPath(sessionId), JSON.stringify(rec) + "\n", "utf-8");
+    await this.writeRecord(sessionId, { ...this.buildEnvelope(ts), type: "computer_use", step });
   }
 
   private async appendSessionsIndex(ev: SessionsIndexEventV1): Promise<void> {

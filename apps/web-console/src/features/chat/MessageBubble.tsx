@@ -45,7 +45,23 @@ export const MessageBubble = React.memo(function MessageBubble({
         ] as Block[])
       : msg.blocks;
 
-  const isComputerUse = blocks.some((b) => b.type === "computer_use_iteration" || b.type === "computer_use_done");
+  // Single-pass partition: separate iteration blocks from the rest for computer_use layout.
+  const { iterBlocks, otherBlocks, isComputerUse } = React.useMemo(() => {
+    let hasComputerUse = false;
+    const iters: Block[] = [];
+    const rest: Block[] = [];
+    for (const b of blocks) {
+      if (b.type === "computer_use_iteration" || b.type === "computer_use_done") {
+        hasComputerUse = true;
+      }
+      if (b.type === "computer_use_iteration") {
+        iters.push(b);
+      } else {
+        rest.push(b);
+      }
+    }
+    return { iterBlocks: iters, otherBlocks: rest, isComputerUse: hasComputerUse };
+  }, [blocks]);
 
   return (
     <div className={"msg motion-msg " + msg.role} data-msg-id={msg.id}>
@@ -58,11 +74,11 @@ export const MessageBubble = React.memo(function MessageBubble({
 
         {isComputerUse ? (<>
           <div className="block-cu-scroll">
-            {blocks.filter((b) => b.type === "computer_use_iteration").map((b, i) => (
+            {iterBlocks.map((b, i) => (
               <React.Fragment key={i}>{runtime.blocks.render(b)}</React.Fragment>
             ))}
           </div>
-          {blocks.filter((b) => b.type !== "computer_use_iteration").map((b, i) => (
+          {otherBlocks.map((b, i) => (
             <React.Fragment key={i}>{runtime.blocks.render(b)}</React.Fragment>
           ))}
         </>) : (

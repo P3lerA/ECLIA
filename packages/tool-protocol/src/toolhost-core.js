@@ -1,0 +1,745 @@
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import crypto from "node:crypto";
+import { parseBashArgs, artifactRefFromRepoRelPath } from "@eclia/tool-protocol";
+
+
+/**
+ * Shared MCP stdio server core for the `bash` toolhost.
+ *
+ * Platform-specific wrappers call `startToolhostServer(platform)` with a
+ * config object that supplies shell selection, process-tree killing,
+ * PATH fixes, spawn options, tool definition strings, and server info.
+ *
+ * Transport requirements (stdio):
+ * - Read newline-delimited JSON-RPC messages from stdin
+ * - Write ONLY newline-delimited JSON-RPC messages to stdout
+ * - Write logs to stderr
+ */
+
+const PROTOCOL_VERSION = "2025-06-18";
+
+// --- Shared inputSchema (identical across platforms) -------------------------
+
+const BASH_INPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    command: {
+      type: "string",
+      // Overridden per-platform via toolDef.commandDescription
+      description: ""
+    },
+    cwd: {
+      type: "string",
+      description: "Working directory, relative to the project root. Default: '.'"
+    },
+    timeoutMs: {
+      type: "number",
+      description: "Execution timeout in milliseconds. Default: 60000"
+    },
+    maxStdoutBytes: {
+      type: "number",
+      description: "Max stdout bytes to capture before truncating. Default: 200000"
+    },
+    maxStderrBytes: {
+      type: "number",
+      description: "Max stderr bytes to capture before truncating. Default: 200000"
+    },
+    env: {
+      type: "object",
+      additionalProperties: { type: "string" },
+      description: "Extra environment variables to set for the command."
+    }
+  },
+  required: ["command"],
+  additionalProperties: false
+};
+
+// --- JSON-RPC helpers -------------------------------------------------------
+
+function isRecord(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** @param {any} obj */
+function writeMessage(obj) {
+  // MUST NOT contain embedded newlines as per MCP stdio transport.
+  process.stdout.write(JSON.stringify(obj) + "\n");
+}
+
+/**
+ * Serialize writes to stdout so concurrent tool calls can't interleave and
+ * corrupt the JSON-RPC stream.
+ */
+let writeChain = Promise.resolve();
+function writeMessageSerial(obj) {
+  writeChain = writeChain.then(
+    () =>
+      new Promise((resolve) => {
+        writeMessage(obj);
+        resolve();
+      })
+  );
+  return writeChain;
+}
+
+function jsonRpcError(id, code, message, data) {
+  const err = { code, message };
+  if (data !== undefined) err.data = data;
+  return { jsonrpc: "2.0", id, error: err };
+}
+
+function nowMs() {
+  return Date.now();
+}
+
+function expandEcliaSkillsDirPlaceholders(s, skillsDirAbs) {
+  if (typeof s !== "string" || !skillsDirAbs) return s;
+
+  return s
+    .replace(/\$\{ECLIA_SKILLS_DIR\}/g, skillsDirAbs)
+    .replace(/\$ECLIA_SKILLS_DIR(?![A-Za-z0-9_])/g, skillsDirAbs)
+    .replace(/%ECLIA_SKILLS_DIR%/g, skillsDirAbs)
+    .replace(/\$env:ECLIA_SKILLS_DIR\b/g, skillsDirAbs);
+}
+
+function expandBashArgsSkillsDir(args, skillsDirAbs) {
+  if (!args || typeof args !== "object" || !skillsDirAbs) return args;
+
+  if (typeof args.cwd === "string") args.cwd = expandEcliaSkillsDirPlaceholders(args.cwd, skillsDirAbs);
+  if (typeof args.command === "string") args.command = expandEcliaSkillsDirPlaceholders(args.command, skillsDirAbs);
+
+  return args;
+}
+
+// --- Bash implementation ----------------------------------------------------
+
+function resolveCwd(projectRoot, cwdArg) {
+  const root = path.resolve(projectRoot);
+  const cwdRaw = String(cwdArg ?? "").trim();
+  if (!cwdRaw || cwdRaw === ".") return { ok: true, cwd: root };
+
+  // Absolute path escape hatch.
+  if (path.isAbsolute(cwdRaw)) return { ok: true, cwd: path.resolve(cwdRaw) };
+
+  const next = path.resolve(root, cwdRaw);
+  // Prevent "../../" escaping by accident.
+  const rel = path.relative(root, next);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    return { ok: false, error: `cwd escapes projectRoot: ${cwdRaw}` };
+  }
+  return { ok: true, cwd: next };
+}
+
+function sanitizeNpmEnvForNvm(inheritedEnv, userEnv) {
+  // nvm prints a warning (and can behave strangely) when npm overrides the install prefix.
+  // npm/pnpm often inject these into the environment when running scripts.
+  //
+  // We drop them from the inherited environment by default, but allow callers
+  // to explicitly set them via args.env if they really want them.
+  const cleaned = { ...inheritedEnv };
+  const allow = userEnv && typeof userEnv === "object" ? userEnv : {};
+
+  const maybeDelete = (k) => {
+    if (Object.prototype.hasOwnProperty.call(allow, k)) return;
+    try {
+      delete cleaned[k];
+    } catch {
+      // ignore
+    }
+  };
+
+  maybeDelete("npm_config_prefix");
+  maybeDelete("NPM_CONFIG_PREFIX");
+  maybeDelete("PREFIX");
+  maybeDelete("prefix");
+
+  return cleaned;
+}
+
+function normalizeRelPath(p) {
+  return p.split(path.sep).join("/");
+}
+
+function safePathSegment(s) {
+  const cleaned = String(s ?? "").replace(/[^a-zA-Z0-9._-]+/g, "_");
+  return cleaned.length > 80 ? cleaned.slice(0, 80) : cleaned;
+}
+
+function guessMimeFromPath(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  switch (ext) {
+    case ".png":
+      return "image/png";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".gif":
+      return "image/gif";
+    case ".webp":
+      return "image/webp";
+    case ".svg":
+      return "image/svg+xml";
+    case ".json":
+      return "application/json";
+    case ".txt":
+    case ".log":
+    case ".md":
+      return "text/plain";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+function kindFromMime(mime, filePath) {
+  if (typeof mime === "string" && mime.startsWith("image/")) return "image";
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".json") return "json";
+  if (typeof mime === "string" && mime.startsWith("text/")) return "text";
+  return "file";
+}
+
+function sha256FileMaybe(absPath, maxBytes) {
+  try {
+    const st = fs.statSync(absPath);
+    if (!st.isFile()) return undefined;
+    if (typeof maxBytes === "number" && st.size > maxBytes) return undefined;
+    const buf = fs.readFileSync(absPath);
+    const h = crypto.createHash("sha256");
+    h.update(buf);
+    return h.digest("hex");
+  } catch {
+    return undefined;
+  }
+}
+
+function collectArtifacts(artifactDirAbs, projectRootAbs) {
+  const artifacts = [];
+  const maxFiles = 32;
+
+  const queue = [artifactDirAbs];
+  while (queue.length && artifacts.length < maxFiles) {
+    const dir = queue.shift();
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const ent of entries) {
+      if (artifacts.length >= maxFiles) break;
+      const abs = path.join(dir, ent.name);
+
+      if (ent.isDirectory()) {
+        queue.push(abs);
+        continue;
+      }
+
+      if (!ent.isFile()) continue;
+
+      try {
+        const st = fs.statSync(abs);
+        const mime = guessMimeFromPath(abs);
+        const rel = normalizeRelPath(path.relative(projectRootAbs, abs));
+        const { uri, ref } = artifactRefFromRepoRelPath(rel);
+        artifacts.push({
+          kind: kindFromMime(mime, abs),
+          path: rel,
+          uri,
+          ref,
+          role: "artifact",
+          bytes: st.size,
+          mime,
+          sha256: sha256FileMaybe(abs, 5_000_000)
+        });
+      } catch {
+        // ignore this entry
+      }
+    }
+  }
+
+  return artifacts;
+}
+
+function resourceLinksFromArtifacts(artifacts) {
+  if (!Array.isArray(artifacts) || !artifacts.length) return [];
+  const out = [];
+  for (const a of artifacts) {
+    const uri = typeof a?.uri === "string" ? a.uri : "";
+    if (!uri) continue;
+
+    const p = typeof a?.path === "string" ? a.path : "";
+    const name = typeof a?.name === "string" && a.name.trim() ? a.name.trim() : p ? path.basename(p) : "artifact";
+    const mimeType = typeof a?.mime === "string" ? a.mime : undefined;
+    const description = typeof a?.ref === "string" && a.ref ? a.ref : p ? p : undefined;
+
+    out.push({ type: "resource_link", uri, name, mimeType, description });
+  }
+  return out;
+}
+
+function readEcliaMeta(rawArgs) {
+  if (!rawArgs || typeof rawArgs !== "object") return { sessionId: "", callId: "" };
+  const m = rawArgs.__eclia;
+  if (!m || typeof m !== "object") return { sessionId: "", callId: "" };
+  const sessionId = typeof m.sessionId === "string" ? m.sessionId : "";
+  const callId = typeof m.callId === "string" ? m.callId : "";
+  return { sessionId, callId };
+}
+
+// --- Main entry point -------------------------------------------------------
+
+/**
+ * Start the MCP stdio toolhost server.
+ *
+ * @param {object} platform
+ * @param {string} platform.platformName - "posix" or "win32"
+ * @param {() => { file: string, argsPrefix: string[] }} platform.defaultShell
+ * @param {(child: import("node:child_process").ChildProcess) => void} platform.killTree
+ * @param {(env: Record<string, string>) => Record<string, string>} platform.applyPlatformPathFixes
+ * @param {(effectiveFile: string, effectiveArgs: string[], baseOpts: object) => object} platform.getSpawnOptions
+ * @param {{ name: string, title: string, description: string, commandDescription: string }} platform.toolDef
+ * @param {{ name: string, title: string, version: string }} platform.serverInfo
+ */
+export function startToolhostServer(platform) {
+  // --- Build the full tool definition from platform-supplied strings ----------
+
+  const BASH_TOOL_DEF = {
+    name: platform.toolDef.name,
+    title: platform.toolDef.title,
+    description: platform.toolDef.description,
+    inputSchema: {
+      ...BASH_INPUT_SCHEMA,
+      properties: {
+        ...BASH_INPUT_SCHEMA.properties,
+        command: {
+          ...BASH_INPUT_SCHEMA.properties.command,
+          description: platform.toolDef.commandDescription
+        }
+      }
+    }
+  };
+
+  // --- Log helper (uses platform name) ---------------------------------------
+
+  function log(...args) {
+    process.stderr.write(`[toolhost-bash-${platform.platformName}] ${args.join(" ")}\n`);
+  }
+
+  // --- runBashTool (delegates to platform for shell / kill / path / spawn) ----
+
+  async function runBashTool(rawArgs, signal) {
+    const t0 = nowMs();
+    const meta = readEcliaMeta(rawArgs);
+    const args = parseBashArgs(rawArgs);
+    const projectRoot = process.cwd();
+    const skillsDirAbs = path.join(projectRoot, "skills");
+    expandBashArgsSkillsDir(args, skillsDirAbs);
+
+    const artifactsRoot = path.join(projectRoot, ".eclia", "artifacts");
+    const artifactDirAbs =
+      meta.sessionId && meta.callId
+        ? path.join(artifactsRoot, safePathSegment(meta.sessionId), safePathSegment(meta.callId))
+        : null;
+
+    if (artifactDirAbs) {
+      try {
+        fs.mkdirSync(artifactDirAbs, { recursive: true });
+      } catch {
+        // ignore
+      }
+    }
+
+    const cwdRes = resolveCwd(projectRoot, args.cwd);
+    if (!cwdRes.ok) {
+      return {
+        type: "bash_result",
+        ok: false,
+        error: { code: "bad_cwd", message: cwdRes.error },
+        cwd: projectRoot,
+        stdout: "",
+        stderr: "",
+        exitCode: null,
+        signal: undefined,
+        truncated: { stdout: false, stderr: false },
+        durationMs: nowMs() - t0,
+        timedOut: false,
+        aborted: false
+      };
+    }
+
+    const cwd = cwdRes.cwd;
+
+    const timeoutMs = args.timeoutMs ?? 60_000;
+    const maxOut = args.maxStdoutBytes ?? 200_000;
+    const maxErr = args.maxStderrBytes ?? 200_000;
+
+    // Keep the original request for transparency/debugging.
+    const requested = { command: args.command };
+
+    // Bash tool accepts a single entry point: a shell command string.
+    const commandStr = args.command;
+    if (!commandStr) {
+      return {
+        type: "bash_result",
+        ok: false,
+        error: { code: "missing_command", message: "Provide 'command' (shell command string)." },
+        cwd,
+        stdout: "",
+        stderr: "",
+        exitCode: null,
+        signal: undefined,
+        truncated: { stdout: false, stderr: false },
+        durationMs: nowMs() - t0,
+        timedOut: false,
+        aborted: false
+      };
+    }
+
+    const sh = platform.defaultShell();
+    const usedShell = true;
+    const effectiveFile = sh.file;
+    const effectiveArgs = [...sh.argsPrefix, commandStr];
+
+    // Note: npm/pnpm inject a bunch of npm_config_* variables when running scripts.
+    // If the user has nvm in their shell rc, npm_config_prefix can cause a noisy warning
+    // (and occasionally weird node/npm resolution). We strip those inherited env vars,
+    // but still allow callers to re-introduce them explicitly via args.env.
+    const inheritedEnv = sanitizeNpmEnvForNvm({ ...process.env }, args.env);
+    const baseEnv0 = platform.applyPlatformPathFixes({ ...inheritedEnv, ...args.env });
+    const baseEnv = { ...baseEnv0, ECLIA_SKILLS_DIR: skillsDirAbs };
+    const env =
+      artifactDirAbs
+        ? {
+            ...baseEnv,
+            ECLIA_ARTIFACT_DIR: artifactDirAbs,
+            ECLIA_SESSION_ID: meta.sessionId,
+            ECLIA_TOOL_CALL_ID: meta.callId
+          }
+        : baseEnv;
+
+    const baseSpawnOpts = {
+      cwd,
+      shell: false,
+      env,
+      stdio: ["ignore", "pipe", "pipe"]
+    };
+
+    let child;
+    try {
+      const spawnOpts = platform.getSpawnOptions(effectiveFile, effectiveArgs, baseSpawnOpts);
+      child = spawn(effectiveFile, effectiveArgs, spawnOpts);
+    } catch (e) {
+      return {
+        type: "bash_result",
+        ok: false,
+        error: { code: "spawn_failed", message: String(e?.message ?? e) },
+        cwd,
+        stdout: "",
+        stderr: "",
+        exitCode: null,
+        signal: undefined,
+        truncated: { stdout: false, stderr: false },
+        durationMs: nowMs() - t0,
+        timedOut: false,
+        aborted: false
+      };
+    }
+
+    let stdout = "";
+    let stderr = "";
+    let outTrunc = false;
+    let errTrunc = false;
+    let outBytes = 0;
+    let errBytes = 0;
+
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+
+    const maybeKillOnDualTrunc = () => {
+      if (outTrunc && errTrunc) platform.killTree(child);
+    };
+
+    child.stdout?.on("data", (chunk) => {
+      if (outTrunc) return;
+      const chunkBytes = Buffer.byteLength(chunk, "utf8");
+      if (outBytes + chunkBytes > maxOut) {
+        // Truncate to maxOut bytes.
+        const buf = Buffer.from(stdout + chunk, "utf8");
+        stdout = buf.subarray(0, maxOut).toString("utf8");
+        outBytes = maxOut;
+        outTrunc = true;
+        maybeKillOnDualTrunc();
+      } else {
+        stdout += chunk;
+        outBytes += chunkBytes;
+      }
+    });
+
+    child.stderr?.on("data", (chunk) => {
+      if (errTrunc) return;
+      const chunkBytes = Buffer.byteLength(chunk, "utf8");
+      if (errBytes + chunkBytes > maxErr) {
+        const buf = Buffer.from(stderr + chunk, "utf8");
+        stderr = buf.subarray(0, maxErr).toString("utf8");
+        errBytes = maxErr;
+        errTrunc = true;
+        maybeKillOnDualTrunc();
+      } else {
+        stderr += chunk;
+        errBytes += chunkBytes;
+      }
+    });
+
+    let timedOut = false;
+    let aborted = false;
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      platform.killTree(child);
+    }, timeoutMs);
+
+    const onAbort = () => {
+      aborted = true;
+      platform.killTree(child);
+    };
+
+    if (signal) {
+      if (signal.aborted) onAbort();
+      else signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    const exit = await new Promise((resolve) => {
+      let settled = false;
+      const done = (v) => {
+        if (settled) return;
+        settled = true;
+        resolve(v);
+      };
+
+      child.once("error", (e) => done({ exitCode: null, sig: null, spawnError: e }));
+      child.once("close", (exitCode, sig) => done({ exitCode, sig, spawnError: null }));
+    });
+
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener("abort", onAbort);
+
+    const durationMs = nowMs() - t0;
+    const exitCode = typeof exit.exitCode === "number" ? exit.exitCode : null;
+    const sig = exit.sig || undefined;
+
+    let error = undefined;
+    if (exit.spawnError) {
+      error = {
+        code: String(exit.spawnError?.code ?? "spawn_error"),
+        message: String(exit.spawnError?.message ?? exit.spawnError)
+      };
+    } else if (aborted) {
+      error = { code: "aborted", message: "Execution aborted" };
+    } else if (timedOut) {
+      error = { code: "timeout", message: `Execution timed out after ${timeoutMs}ms` };
+    } else if (exitCode !== 0) {
+      error = { code: "nonzero_exit", message: `Process exited with code ${exitCode}` };
+    }
+
+    const ok = !error;
+
+    let artifacts = [];
+    let artifactDir = undefined;
+
+    if (artifactDirAbs) {
+      artifacts = collectArtifacts(artifactDirAbs, projectRoot);
+
+      if (artifacts.length) {
+        artifactDir = normalizeRelPath(path.relative(projectRoot, artifactDirAbs));
+      } else {
+        // Avoid leaving lots of empty folders behind.
+        try {
+          fs.rmSync(artifactDirAbs, { recursive: true, force: true });
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    return {
+      type: "bash_result",
+      ok,
+      cwd,
+      exitCode,
+      signal: sig,
+      stdout,
+      stderr,
+      truncated: { stdout: outTrunc, stderr: errTrunc },
+      durationMs,
+      timedOut,
+      aborted,
+      shell: usedShell,
+      requested,
+      executed: { cmd: effectiveFile, args: effectiveArgs, command: commandStr || undefined },
+      artifactDir,
+      artifacts: artifacts.length ? artifacts : undefined,
+      error
+    };
+  }
+
+  // --- MCP request/notification handlers ------------------------------------
+
+  let initialized = false;
+  let shuttingDown = false;
+
+  async function handleRequest(msg) {
+    const id = msg.id;
+    const method = msg.method;
+    const params = isRecord(msg.params) ? msg.params : {};
+
+    if (method === "initialize") {
+      const clientPV = String(params.protocolVersion ?? "").trim() || PROTOCOL_VERSION;
+      // We currently support a single protocol revision.
+      // If the client requests a different version, respond with the server-supported version.
+      const pv = clientPV === PROTOCOL_VERSION ? clientPV : PROTOCOL_VERSION;
+
+      return {
+        jsonrpc: "2.0",
+        id,
+        result: {
+          protocolVersion: pv,
+          capabilities: { tools: { listChanged: false } },
+          serverInfo: platform.serverInfo
+        }
+      };
+    }
+
+    if (!initialized) {
+      // Server should not accept tool requests before initialized.
+      return jsonRpcError(id, -32002, "Server not initialized");
+    }
+
+    if (method === "ping") {
+      return { jsonrpc: "2.0", id, result: {} };
+    }
+
+    if (method === "tools/list") {
+      return { jsonrpc: "2.0", id, result: { tools: [BASH_TOOL_DEF] } };
+    }
+
+    if (method === "tools/call") {
+      const toolName = String(params.name ?? "").trim();
+      const toolArgs = isRecord(params.arguments) ? params.arguments : {};
+
+      if (toolName !== "bash") {
+        return jsonRpcError(id, -32602, `Unknown tool: ${toolName}`);
+      }
+
+      const r = await runBashTool(toolArgs, undefined);
+
+      // MCP-native output:
+      // - structuredContent is the canonical machine-readable payload
+      // - content includes a JSON text fallback + resource_link blocks for artifacts
+      const artifacts = Array.isArray(r?.artifacts) ? r.artifacts : [];
+      const content = [{ type: "text", text: JSON.stringify(r) }, ...resourceLinksFromArtifacts(artifacts)];
+
+      return {
+        jsonrpc: "2.0",
+        id,
+        result: {
+          structuredContent: r,
+          content,
+          isError: !r.ok
+        }
+      };
+    }
+
+    return jsonRpcError(id, -32601, `Method not found: ${method}`);
+  }
+
+  function handleNotification(msg) {
+    const method = msg.method;
+    if (method === "notifications/initialized") {
+      initialized = true;
+      return;
+    }
+    if (method === "notifications/cancelled") {
+      // Minimal server: we don't implement per-request cancellation yet.
+      return;
+    }
+  }
+
+  function shutdown() {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    try {
+      process.stdin.destroy();
+    } catch {
+      // ignore
+    }
+    try {
+      process.stdout.end();
+    } catch {
+      // ignore
+    }
+    process.exit(0);
+  }
+
+  // --- Wire up stdin MCP server loop ----------------------------------------
+
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+
+  // Line-buffered stdin.
+  process.stdin.setEncoding("utf8");
+  let buf = "";
+
+  process.stdin.on("data", async (chunk) => {
+    buf += chunk;
+
+    // MCP stdio requires newline-delimited JSON-RPC.
+    while (true) {
+      const idx = buf.indexOf("\n");
+      if (idx < 0) break;
+
+      const line = buf.slice(0, idx);
+      buf = buf.slice(idx + 1);
+
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      let msg;
+      try {
+        msg = JSON.parse(trimmed);
+      } catch (e) {
+        // Can't respond reliably without an id; log and continue.
+        log("bad json:", String(e?.message ?? e));
+        continue;
+      }
+
+      if (!isRecord(msg) || msg.jsonrpc !== "2.0" || typeof msg.method !== "string") {
+        // Unknown/invalid message.
+        continue;
+      }
+
+      // Notifications have no id.
+      if (msg.id === undefined || msg.id === null) {
+        handleNotification(msg);
+        continue;
+      }
+
+      // Requests
+      try {
+        const resp = await handleRequest(msg);
+        if (resp) await writeMessageSerial(resp);
+      } catch (e) {
+        const id = msg.id;
+        const err = jsonRpcError(id, -32603, "Internal error", { message: String(e?.message ?? e) });
+        await writeMessageSerial(err);
+      }
+    }
+  });
+
+  process.stdin.on("end", () => shutdown());
+
+  // Emit a single line on stderr so developers can see it started.
+  log(`started (pid=${process.pid})`);
+}

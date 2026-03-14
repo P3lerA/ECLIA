@@ -1,5 +1,5 @@
-import type { Message, Session } from "../types";
-import type { TranscriptRecordV1, OpenAICompatMessage, OpenAICompatToolCall } from "@eclia/gateway-client";
+import type { Block, ComputerUseIterationBlock, Message, Session } from "../types";
+import type { ComputerUseStep, TranscriptRecordV1, OpenAICompatToolCall } from "@eclia/gateway-client";
 import { apiFetch } from "./apiFetch";
 
 export type SessionMeta = {
@@ -49,6 +49,16 @@ export async function apiGetSession(
   return { session: j.session, messages: transcriptToMessages(j.transcript), hasMore: Boolean(j.hasMore) };
 }
 
+function makeIterationBlock(step: ComputerUseStep & { kind: "iteration" }): ComputerUseIterationBlock {
+  return {
+    type: "computer_use_iteration",
+    callId: step.callId ?? "",
+    actions: Array.isArray(step.actions) ? step.actions : [],
+    assistantText: step.assistantText ?? "",
+    result: step.result ?? { ok: true, actionsExecuted: 0 }
+  };
+}
+
 function transcriptToMessages(records: TranscriptRecordV1[]): Message[] {
   const out: Message[] = [];
 
@@ -56,81 +66,63 @@ function transcriptToMessages(records: TranscriptRecordV1[]): Message[] {
   // This lets us render tool result bubbles with stable names.
   const callIdToName = new Map<string, string>();
 
+  // Track which messages are still aggregating computer_use iterations.
+  const openComputerUse = new WeakSet<Message>();
+
   const safeRecords = Array.isArray(records) ? records : [];
 
   for (const r of safeRecords) {
-    if (!r || (r as any).v !== 1) continue;
+    if (!r || r.v !== 1) continue;
 
-    if ((r as any).type === "reset") {
+    if (r.type === "reset") {
       out.length = 0;
       callIdToName.clear();
       continue;
     }
 
-    // Turn marker is a persistence-only record; UI can use it later for grouping,
-    // but for now we keep the chat timeline message-only.
-    if ((r as any).type === "turn") {
+    if (r.type === "turn") {
       continue;
     }
 
     // ── Computer use: aggregate consecutive records into one assistant message ──
-    if ((r as any).type === "computer_use") {
-      const step = (r as any).step;
-      if (!step) continue;
-      const ts = typeof (r as any).ts === "number" ? (r as any).ts : Date.now();
+    if (r.type === "computer_use") {
+      const { step } = r;
 
       if (step.kind === "iteration") {
-        // Start or extend a computer use message.
         const last = out[out.length - 1];
-        if (last && (last as any).__computerUse) {
-          // Append iteration to existing computer use message.
-          last.blocks.push({
-            type: "computer_use_iteration",
-            callId: step.callId ?? "",
-            actions: Array.isArray(step.actions) ? step.actions : [],
-            assistantText: step.assistantText ?? "",
-            result: step.result ?? { ok: true, actionsExecuted: 0 }
-          } as any);
+        if (last && openComputerUse.has(last)) {
+          last.blocks.push(makeIterationBlock(step));
         } else {
-          // Start a new computer use message.
-          const msg: Message & { __computerUse?: boolean } = {
-            id: (r as any).id ?? cryptoId(),
+          const msg: Message = {
+            id: r.id ?? cryptoId(),
             role: "assistant",
-            createdAt: ts,
-            blocks: [{
-              type: "computer_use_iteration",
-              callId: step.callId ?? "",
-              actions: Array.isArray(step.actions) ? step.actions : [],
-              assistantText: step.assistantText ?? "",
-              result: step.result ?? { ok: true, actionsExecuted: 0 }
-            } as any],
+            createdAt: r.ts,
+            blocks: [makeIterationBlock(step)],
             raw: ""
           };
-          msg.__computerUse = true;
+          openComputerUse.add(msg);
           out.push(msg);
         }
       } else if (step.kind === "done") {
-        // Finalize: append done block + final text to the computer use message.
         const last = out[out.length - 1];
-        if (last && (last as any).__computerUse) {
+        if (last && openComputerUse.has(last)) {
           last.blocks.push({
             type: "computer_use_done",
             stopReason: step.stopReason ?? "completed",
             totalIterations: step.totalIterations ?? 0
-          } as any);
-          const finalText = typeof step.assistantText === "string" ? step.assistantText : "";
+          } as Block);
+          const finalText = step.assistantText ?? "";
           if (finalText) {
             last.blocks.push({ type: "text", text: finalText });
           }
           last.raw = finalText;
-          delete (last as any).__computerUse;
+          openComputerUse.delete(last);
         } else {
-          // Orphan done without iterations — just emit as a plain assistant message.
-          const finalText = typeof step.assistantText === "string" ? step.assistantText : "";
+          const finalText = step.assistantText ?? "";
           out.push({
-            id: (r as any).id ?? cryptoId(),
+            id: r.id ?? cryptoId(),
             role: "assistant",
-            createdAt: ts,
+            createdAt: r.ts,
             blocks: finalText ? [{ type: "text", text: finalText }] : [],
             raw: finalText
           });
@@ -139,13 +131,13 @@ function transcriptToMessages(records: TranscriptRecordV1[]): Message[] {
       continue;
     }
 
-    if ((r as any).type !== "msg" || !(r as any).msg) continue;
-    const m = (r as any).msg as OpenAICompatMessage;
-    const ts = typeof (r as any).ts === "number" ? (r as any).ts : Date.now();
+    if (r.type !== "msg" || !r.msg) continue;
+    const m = r.msg;
+    const ts = r.ts;
 
     if (m.role === "user") {
       const text = typeof (m as any).content === "string" ? String((m as any).content) : safeJson((m as any).content);
-      out.push({ id: (r as any).id ?? cryptoId(), role: "user", createdAt: ts, blocks: [{ type: "text", text }], raw: text });
+      out.push({ id: r.id ?? cryptoId(), role: "user", createdAt: ts, blocks: [{ type: "text", text }], raw: text });
       continue;
     }
 
@@ -181,7 +173,7 @@ function transcriptToMessages(records: TranscriptRecordV1[]): Message[] {
         } as any);
       }
 
-      out.push({ id: (r as any).id ?? cryptoId(), role: "assistant", createdAt: ts, blocks, raw });
+      out.push({ id: r.id ?? cryptoId(), role: "assistant", createdAt: ts, blocks, raw });
       continue;
     }
 
@@ -208,7 +200,7 @@ function transcriptToMessages(records: TranscriptRecordV1[]): Message[] {
 
     if (m.role === "system") {
       const text = typeof (m as any).content === "string" ? String((m as any).content) : safeJson((m as any).content);
-      out.push({ id: (r as any).id ?? cryptoId(), role: "system", createdAt: ts, blocks: [{ type: "text", text }], raw: text });
+      out.push({ id: r.id ?? cryptoId(), role: "system", createdAt: ts, blocks: [{ type: "text", text }], raw: text });
       continue;
     }
   }

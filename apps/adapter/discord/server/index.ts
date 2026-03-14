@@ -19,7 +19,9 @@ import {
   resetGatewaySession,
   coerceStreamMode,
   runGatewayChat,
-  fetchArtifactBytes
+  fetchArtifactBytes,
+  installProcessErrorHandlers,
+  parseToolAccessMode
 } from "@eclia/gateway-client";
 import {
   type SendRequest,
@@ -175,7 +177,7 @@ async function main() {
   const slashDefaultVerbose = slashDefaultStreamMode === "full";
   const requirePrefix = requirePrefixFromEnv();
   const prefix = env("ECLIA_DISCORD_PREFIX", "!eclia");
-  const toolAccessMode = (env("ECLIA_DISCORD_TOOL_ACCESS_MODE", "full") as any) === "safe" ? "safe" : "full";
+  const toolAccessMode = parseToolAccessMode(env("ECLIA_DISCORD_TOOL_ACCESS_MODE", "full"));
 
   log.info(`gateway: ${gatewayUrl}`);
   if (!userWhitelist.length) {
@@ -447,15 +449,24 @@ async function main() {
     log.info(`outbound endpoint: http://127.0.0.1:${port}`);
   });
 
+  // Graceful shutdown: close HTTP server, destroy Discord client.
+  let shuttingDown = false;
+  const shutdown = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log.info("shutting down...");
+    server.close();
+    client.destroy();
+    // Give pending I/O a moment to flush, then exit.
+    setTimeout(() => process.exit(0), 500);
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+
   await client.login(token);
 }
 
-process.on("uncaughtException", (err) => {
-  console.error("[discord] uncaughtException:", err);
-});
-process.on("unhandledRejection", (err) => {
-  console.error("[discord] unhandledRejection:", err);
-});
+installProcessErrorHandlers("discord");
 
 main().catch((e) => {
   log.error("fatal", e);

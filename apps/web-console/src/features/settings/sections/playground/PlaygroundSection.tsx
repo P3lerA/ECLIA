@@ -1,31 +1,23 @@
 import React from "react";
 import { apiFetch } from "../../../../core/api/apiFetch";
 import { parseSSE } from "../../../../core/transport/sseParser";
-import { useAppState } from "../../../../state/AppState";
+import { useAppSelector } from "../../../../state/AppState";
 import { ModelRouteSelect } from "../../components/ModelRouteSelect";
 import type { ModelRouteOption } from "../../settingsUtils";
 
-type Role = "system" | "user" | "assistant" | "tool";
-
 type PlaygroundMessage = {
   id: string;
-  role: Role | string;
+  role: string;
   content: string;
   customRole: boolean;
 };
 
-const BUILTIN_ROLES: Role[] = ["system", "user", "assistant", "tool"];
+const BUILTIN_ROLES = ["system", "user", "assistant", "tool"] as const;
 
-let nextId = 1;
-function makeId() {
-  return `pg-${nextId++}`;
-}
-
-function defaultMessages(): PlaygroundMessage[] {
-  return [
-    { id: makeId(), role: "system", content: "", customRole: false },
-    { id: makeId(), role: "user", content: "", customRole: false }
-  ];
+let _pgId = 0;
+function pgId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return pgId();
+  return `pg-${++_pgId}-${Date.now()}`;
 }
 
 export type PlaygroundSectionProps = {
@@ -34,18 +26,43 @@ export type PlaygroundSectionProps = {
 
 export function PlaygroundSection(props: PlaygroundSectionProps) {
   const { modelRouteOptions } = props;
-  const state = useAppState();
-  const sessionId = state.activeSessionId;
+  const sessionId = useAppSelector((s) => s.activeSessionId);
+  const globalModel = useAppSelector((s) => s.model);
 
-  const [messages, setMessages] = React.useState<PlaygroundMessage[]>(defaultMessages);
-  const [model, setModel] = React.useState(state.model);
+  const [messages, setMessages] = React.useState<PlaygroundMessage[]>(() => [
+    { id: pgId(), role: "system", content: "", customRole: false },
+    { id: pgId(), role: "user", content: "", customRole: false }
+  ]);
+  const [model, setModel] = React.useState(globalModel);
   const [output, setOutput] = React.useState("");
   const [running, setRunning] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const acRef = React.useRef<AbortController | null>(null);
 
+  // Accumulate deltas into a ref; flush to state on rAF for fewer re-renders.
+  const chunksRef = React.useRef<string[]>([]);
+  const rafRef = React.useRef<number | null>(null);
+
+  const flushChunks = React.useCallback(() => {
+    rafRef.current = null;
+    const pending = chunksRef.current;
+    if (!pending.length) return;
+    const joined = pending.join("");
+    chunksRef.current = [];
+    setOutput((prev) => prev + joined);
+  }, []);
+
+  // Abort in-flight request on unmount.
+  React.useEffect(() => {
+    return () => {
+      acRef.current?.abort();
+      acRef.current = null;
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
+
   const addMessage = () => {
-    setMessages((prev) => [...prev, { id: makeId(), role: "user", content: "", customRole: false }]);
+    setMessages((prev) => [...prev, { id: pgId(), role: "user", content: "", customRole: false }]);
   };
 
   const removeMessage = (id: string) => {
@@ -119,7 +136,10 @@ export function PlaygroundSection(props: PlaygroundSectionProps) {
             try {
               const j = JSON.parse(e.data);
               if (typeof j?.text === "string") {
-                setOutput((prev) => prev + j.text);
+                chunksRef.current.push(j.text);
+                if (rafRef.current == null) {
+                  rafRef.current = requestAnimationFrame(flushChunks);
+                }
               }
             } catch { /* skip */ }
           }
@@ -138,6 +158,15 @@ export function PlaygroundSection(props: PlaygroundSectionProps) {
         setError(String(err?.message ?? err));
       }
     } finally {
+      // Flush any remaining buffered chunks.
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+      const remaining = chunksRef.current;
+      if (remaining.length) {
+        const joined = remaining.join("");
+        chunksRef.current = [];
+        setOutput((prev) => prev + joined);
+      }
       setRunning(false);
       acRef.current = null;
     }
@@ -164,7 +193,7 @@ export function PlaygroundSection(props: PlaygroundSectionProps) {
           <div key={m.id} className="pg-msg">
             <div className="pg-msg-head">
               {m.customRole ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <div className="pg-custom-role-row">
                   <input
                     className="pg-role-input"
                     value={m.role}
@@ -174,18 +203,16 @@ export function PlaygroundSection(props: PlaygroundSectionProps) {
                   />
                   <button
                     type="button"
-                    className="btn icon"
-                    style={{ width: 24, height: 24, borderRadius: 6, fontSize: 11 }}
+                    className="btn icon pg-role-reset-btn"
                     title="Switch back to preset roles"
                     onClick={() => updateRole(m.id, "user")}
                   >&times;</button>
                 </div>
               ) : (
                 <select
-                  className="select"
+                  className="select pg-role-select"
                   value={m.role}
                   onChange={(e) => updateRole(m.id, e.target.value)}
-                  style={{ padding: "4px 8px", borderRadius: 8, fontSize: "12px" }}
                 >
                   {BUILTIN_ROLES.map((r) => (
                     <option key={r} value={r}>{r}</option>
@@ -195,8 +222,7 @@ export function PlaygroundSection(props: PlaygroundSectionProps) {
               )}
               <button
                 type="button"
-                className="btn icon"
-                style={{ width: 28, height: 28, borderRadius: 8, fontSize: 14 }}
+                className="btn icon pg-remove-btn"
                 title="Remove"
                 disabled={messages.length <= 1}
                 onClick={() => removeMessage(m.id)}

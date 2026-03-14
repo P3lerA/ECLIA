@@ -24,7 +24,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@eclia/config": "workspace:*"
+    "@eclia/config": "workspace:*",
+    "@eclia/tool-protocol": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.19.31",

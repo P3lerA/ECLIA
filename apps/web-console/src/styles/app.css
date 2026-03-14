@@ -1630,6 +1630,26 @@ textarea:focus{
   font-size: 13px;
   margin-bottom: 6px;
 }
+.pg-custom-role-row{
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pg-role-reset-btn{
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: 11px;
+}
+.pg-role-select{
+  border-radius: 8px;
+}
+.pg-remove-btn{
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 14px;
+}
 
 /* Chat: top-right theme switch (3-state) */
 .chatview-actions{

@@ -17,6 +17,8 @@ import {
   fetchArtifactBytes,
   getGatewayToken,
   guessGatewayUrl,
+  installProcessErrorHandlers,
+  parseToolAccessMode,
   resetGatewaySession,
   runGatewayChat
 } from "@eclia/gateway-client";
@@ -29,11 +31,6 @@ import {
 } from "./telegram-format.js";
 
 const log = makeAdapterLogger("telegram");
-
-function parseToolAccessMode(raw: string): "safe" | "full" {
-  const s = String(raw ?? "").trim().toLowerCase();
-  return s === "safe" ? "safe" : "full";
-}
 
 function idsFromEnv(): string[] {
   const list =
@@ -203,10 +200,24 @@ async function main() {
     queueByChat.set(chatId, next);
   };
 
-  type PendingPrompt = { replyToMessageId?: number; createdAt: number };
+  type PendingPrompt = { replyToMessageId?: number; createdAt: number; timer: ReturnType<typeof setTimeout> };
   const pendingPromptByChatUser = new Map<string, PendingPrompt>();
   const pendingKey = (chatId: string, userId: string) => `${chatId}:${userId}`;
   const pendingTtlMs = 2 * 60 * 1000;
+
+  function setPendingPrompt(key: string, entry: Omit<PendingPrompt, "timer">) {
+    deletePendingPrompt(key);
+    const timer = setTimeout(() => { pendingPromptByChatUser.delete(key); }, pendingTtlMs);
+    pendingPromptByChatUser.set(key, { ...entry, timer });
+  }
+
+  function deletePendingPrompt(key: string) {
+    const prev = pendingPromptByChatUser.get(key);
+    if (prev) {
+      clearTimeout(prev.timer);
+      pendingPromptByChatUser.delete(key);
+    }
+  }
 
   bot.on("message", (msg: any) => {
     const chatType = typeof msg?.chat?.type === "string" ? msg.chat.type : "";
@@ -237,14 +248,14 @@ async function main() {
 
       try {
         if (isCommand(text, "clear", botUsername)) {
-          pendingPromptByChatUser.delete(pkey);
+          deletePendingPrompt(pkey);
           await resetGatewaySession(gatewayUrl, sessionId);
           await bot.sendMessage(chatId, isGroup ? "Cleared session for this group." : "Cleared session for this chat.", replyOpts);
           return;
         }
 
         if (isCommand(text, "start", botUsername)) {
-          pendingPromptByChatUser.delete(pkey);
+          deletePendingPrompt(pkey);
           await bot.sendMessage(
             chatId,
             "ECLIA Telegram adapter is running.\n\n- Private chat: send any message.\n- Group chat: use /eclia <prompt>.\n- Use /clear to reset this session.",
@@ -273,7 +284,7 @@ async function main() {
               )
               .catch(() => null);
 
-            pendingPromptByChatUser.set(pkey, {
+            setPendingPrompt(pkey, {
               replyToMessageId: sent && typeof (sent as any).message_id === "number" ? (sent as any).message_id : undefined,
               createdAt: Date.now()
             });
@@ -300,12 +311,12 @@ async function main() {
         if (pending) {
           const now = Date.now();
           if (now - pending.createdAt > pendingTtlMs) {
-            pendingPromptByChatUser.delete(pkey);
+            deletePendingPrompt(pkey);
           } else if (!text.startsWith("/")) {
             const replyTo = msg?.reply_to_message && typeof msg.reply_to_message.message_id === "number" ? msg.reply_to_message.message_id : undefined;
             const ok = isPrivate || (typeof replyTo === "number" && typeof pending.replyToMessageId === "number" && replyTo === pending.replyToMessageId);
             if (ok) {
-              pendingPromptByChatUser.delete(pkey);
+              deletePendingPrompt(pkey);
               await bot.sendChatAction(chatId, "typing").catch(() => null);
 
               const out = await runGatewayChat({
@@ -426,14 +437,24 @@ async function main() {
   server.listen(port, "127.0.0.1", () => {
     log.info(`outbound endpoint: http://127.0.0.1:${port}`);
   });
+
+  // Graceful shutdown: stop polling, close HTTP server, clear timers.
+  let shuttingDown = false;
+  const shutdown = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log.info("shutting down...");
+    for (const entry of pendingPromptByChatUser.values()) clearTimeout(entry.timer);
+    pendingPromptByChatUser.clear();
+    bot.stopPolling();
+    server.close();
+    setTimeout(() => process.exit(0), 500);
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 }
 
-process.on("uncaughtException", (err) => {
-  console.error("[telegram] uncaughtException:", err);
-});
-process.on("unhandledRejection", (err) => {
-  console.error("[telegram] unhandledRejection:", err);
-});
+installProcessErrorHandlers("telegram");
 
 main().catch((e) => {
   log.error("fatal", e);

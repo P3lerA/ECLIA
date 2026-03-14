@@ -347,7 +347,9 @@ export async function handleChat(
     const metaPatch: Partial<SessionMetaV1> = {};
 
     try {
-      const existing = await store.readTranscript(sessionId);
+      const existing = rawMode
+        ? null  // rawMode doesn't use session history — skip the full transcript load
+        : await store.readTranscript(sessionId);
       if (existing) {
         priorMeta = existing.meta;
         priorMessages = transcriptRecordsToMessages(existing.transcript);
@@ -393,9 +395,8 @@ export async function handleChat(
 
     // Persist the user message first (so the session survives even if upstream fails).
     const userTs = Date.now();
-    const userMsg: OpenAICompatMessage = { role: "user", content: userText } as any;
     if (!rawMode) {
-      await store.appendTranscript(sessionId, userMsg as any, userTs);
+      await store.appendTranscript(sessionId, { role: "user", content: userText } as any, userTs);
     }
 
     const tokenLimit = safeInt(body.contextTokenLimit, 20000);
@@ -492,6 +493,7 @@ export async function handleChat(
     if (rawMode && explicitContextMessages) {
       historyForContext = explicitContextMessages;
     } else {
+      const userMsg: OpenAICompatMessage = { role: "user", content: userText } as any;
       const explicitNonSystem = explicitContextMessages ? explicitContextMessages.filter((m) => m && m.role !== "system") : null;
 
       const historyBase = (explicitNonSystem
@@ -501,7 +503,7 @@ export async function handleChat(
           : [userMsg]
       ).filter((m) => m && m.role !== "system");
 
-      const skipMemoryRecall = Boolean((body as any).skipMemoryRecall);
+      const skipMemoryRecall = Boolean(body.skipMemoryRecall);
 
       // Optional: fetch memory profile and append to system instruction (best-effort).
       let memoryProfileText = "";
