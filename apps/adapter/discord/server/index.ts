@@ -382,6 +382,7 @@ async function main() {
   const port = Number(env("ECLIA_DISCORD_ADAPTER_PORT", "8790")) || 8790;
   const key = env("ECLIA_ADAPTER_KEY");
   const server = http.createServer(async (req, res) => {
+   try {
     const u = new URL(req.url ?? "/", "http://localhost");
     if (u.pathname === "/health") return json(res, 200, { ok: true });
 
@@ -424,6 +425,22 @@ async function main() {
     }
 
     return json(res, 404, { ok: false, error: "not_found" });
+   } catch (e) {
+    log.error("unhandled route error:", e);
+    if (!res.headersSent) {
+      json(res, 500, { ok: false, error: "internal_error" });
+    } else if (!res.writableEnded) {
+      try { res.end(); } catch { /* ignore */ }
+    }
+   }
+  });
+
+  server.on("error", (err) => {
+    log.error("server error:", err);
+  });
+
+  client.on("error", (err) => {
+    log.error("client error:", err);
   });
 
   server.listen(port, "127.0.0.1", () => {
@@ -432,6 +449,13 @@ async function main() {
 
   await client.login(token);
 }
+
+process.on("uncaughtException", (err) => {
+  console.error("[discord] uncaughtException:", err);
+});
+process.on("unhandledRejection", (err) => {
+  console.error("[discord] unhandledRejection:", err);
+});
 
 main().catch((e) => {
   log.error("fatal", e);

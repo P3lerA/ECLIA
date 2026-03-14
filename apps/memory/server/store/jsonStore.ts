@@ -59,21 +59,6 @@ export async function openJsonStore(rootDir: string): Promise<JsonMemoryStore> {
     data = { nextId: 1, facts: [] };
   }
 
-  // Migrate from libSQL if profile.json doesn't exist but memory.db does
-  if (data.facts.length === 0) {
-    const legacyDb = path.join(dir, "memory.db");
-    if (fs.existsSync(legacyDb)) {
-      console.log("[memory] found legacy memory.db — attempting migration to profile.json");
-      try {
-        data = await migrateFromSqlite(legacyDb);
-        console.log(`[memory] migrated ${data.facts.length} facts from memory.db`);
-      } catch (err) {
-        console.warn("[memory] migration from memory.db failed:", err);
-        data = { nextId: 1, facts: [] };
-      }
-    }
-  }
-
   let writing = false;
   async function persist() {
     if (writing) return;
@@ -139,24 +124,3 @@ export async function openJsonStore(rootDir: string): Promise<JsonMemoryStore> {
   };
 }
 
-async function migrateFromSqlite(dbPath: string): Promise<MemoryStore> {
-  // Dynamic import to avoid hard dependency — only used for one-time migration
-  const { createClient } = await import("@libsql/client");
-  const client = createClient({ url: `file:${dbPath.replace(/\\/g, "/")}` });
-
-  const res = await client.execute("SELECT node_id, raw FROM Fact WHERE raw IS NOT NULL AND raw != '' ORDER BY node_id ASC;");
-
-  const facts: MemoryFact[] = [];
-  let maxId = 0;
-  const ts = new Date().toISOString();
-  for (const row of res.rows) {
-    const id = Number(row.node_id);
-    const raw = String(row.raw ?? "").trim();
-    if (!raw || !Number.isFinite(id)) continue;
-    facts.push({ id, raw, createdAt: ts, updatedAt: ts });
-    if (id > maxId) maxId = id;
-  }
-
-  client.close();
-  return { nextId: maxId + 1, facts };
-}

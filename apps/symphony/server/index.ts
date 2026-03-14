@@ -66,6 +66,9 @@ async function main() {
   const port = Number(process.env.SYMPHONY_PORT) || config.symphony.port || DEFAULT_PORT;
 
   const server = http.createServer(handler);
+  server.on("error", (err) => {
+    log.error("server error:", err);
+  });
   server.listen(port, host, () => {
     log.info(`listening on http://${host}:${port}`);
   });
@@ -80,6 +83,13 @@ async function main() {
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 }
+
+process.on("uncaughtException", (err) => {
+  console.error("[symphony] uncaughtException:", err);
+});
+process.on("unhandledRejection", (err) => {
+  console.error("[symphony] unhandledRejection:", err);
+});
 
 main().catch((e) => {
   console.error("[symphony] fatal:", e);

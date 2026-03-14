@@ -80,6 +80,8 @@ export function spawnCodexAppServerRpc(args?: {
 
   const rl = readline.createInterface({ input: proc.stdout });
   const rlErr = readline.createInterface({ input: proc.stderr });
+  rl.on("error", () => { /* stream errors handled via proc 'exit' event */ });
+  rlErr.on("error", () => { /* stream errors handled via proc 'exit' event */ });
   const forwardStderr = process.env.ECLIA_CODEX_FORWARD_STDERR !== "0";
   rlErr.on("line", (line) => {
     pushStderr(line);
@@ -181,7 +183,11 @@ export function spawnCodexAppServerRpc(args?: {
   });
 
   const sendRaw = (msg: any) => {
-    proc.stdin.write(`${JSON.stringify(msg)}\n`);
+    try {
+      proc.stdin.write(`${JSON.stringify(msg)}\n`);
+    } catch {
+      // stdin destroyed (codex exited) — callers will see the exit rejection.
+    }
   };
 
   const request = async (method: string, params?: any): Promise<any> => {

@@ -166,12 +166,17 @@ export function canSendToChannel(channel: Message["channel"]): channel is Messag
 export function createInteractionSendFn(interaction: ChatInputCommandInteraction): DiscordSendFn {
   let first = true;
   return async (payload) => {
-    if (first) {
-      first = false;
-      await interaction.editReply(payload as any);
-      return;
+    try {
+      if (first) {
+        first = false;
+        await interaction.editReply(payload as any);
+        return;
+      }
+      await interaction.followUp(payload as any);
+    } catch (e) {
+      // Interaction expired, deleted, or permissions changed — log but don't crash.
+      console.warn("[discord] send failed:", (e as any)?.message ?? e);
     }
-    await interaction.followUp(payload as any);
   };
 }
 
@@ -179,16 +184,21 @@ export function createMessageSendFn(message: Message): DiscordSendFn {
   let first = true;
   const channelCanSend = canSendToChannel(message.channel);
   return async (payload) => {
-    if (first) {
-      first = false;
+    try {
+      if (first) {
+        first = false;
+        await message.reply(payload as any);
+        return;
+      }
+      if (channelCanSend) {
+        await message.channel.send(payload as any);
+        return;
+      }
       await message.reply(payload as any);
-      return;
+    } catch (e) {
+      // Message deleted, channel unavailable, or permissions changed — log but don't crash.
+      console.warn("[discord] send failed:", (e as any)?.message ?? e);
     }
-    if (channelCanSend) {
-      await message.channel.send(payload as any);
-      return;
-    }
-    await message.reply(payload as any);
   };
 }
 

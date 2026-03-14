@@ -14,8 +14,7 @@
   "dependencies": {
     "@eclia/config": "workspace:*",
     "@eclia/gateway-client": "workspace:*",
-    "@eclia/utils": "workspace:*",
-    "@libsql/client": "^0.17.0"
+    "@eclia/utils": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.19.31",

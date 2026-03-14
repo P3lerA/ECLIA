@@ -76,5 +76,12 @@ export async function handleArtifacts(req: http.IncomingMessage, res: http.Serve
   }
 
   res.writeHead(200);
-  fs.createReadStream(abs).pipe(res);
+  const stream = fs.createReadStream(abs);
+  stream.on("error", () => {
+    if (!res.writableEnded) try { res.end(); } catch { /* ignore */ }
+  });
+  res.on("error", () => {
+    stream.destroy();
+  });
+  stream.pipe(res);
 }

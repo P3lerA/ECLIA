@@ -398,6 +398,9 @@ export class SessionStore {
     }
 
     const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+    // Prevent unhandled 'error' events from crashing the process.
+    stream.on("error", () => { /* handled by for-await rejection below */ });
+    rl.on("error", () => { /* handled by for-await rejection below */ });
     const out: TranscriptRecordV1[] = [];
 
     try {

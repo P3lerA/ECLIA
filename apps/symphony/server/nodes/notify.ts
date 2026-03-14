@@ -125,7 +125,11 @@ export const factory: NodeFactory = {
         if (dest === "discord") origin.channelId = channelId;
         if (dest === "telegram") origin.chatId = channelId;
 
-        const result = await adapterSend(baseUrl, adapterKey, origin, text, ctx.signal);
+        // Platform message length limits (Discord: 4000, Telegram: 4096).
+        const maxLen = dest === "telegram" ? 4096 : 4000;
+        const content = text.length > maxLen ? text.slice(0, maxLen - 1) + "…" : text;
+
+        const result = await adapterSend(baseUrl, adapterKey, origin, content, ctx.signal);
 
         if (result.ok) {
           ctx.log.info(`notify → ${dest} (${channelId})`);

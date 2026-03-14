@@ -26,6 +26,7 @@ async function start() {
   const toolLogger = createToolSessionLogger({ rootDir, sessionId: "memory-tool" });
 
   const server = http.createServer(async (req, res) => {
+   try {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
     const { pathname } = url;
 
@@ -67,6 +68,18 @@ async function start() {
     }
 
     return json(res, 404, { ok: false, error: "not_found" });
+   } catch (e) {
+    console.error("[memory] unhandled route error:", e);
+    if (!res.headersSent) {
+      json(res, 500, { ok: false, error: "internal_error" });
+    } else if (!res.writableEnded) {
+      try { res.end(); } catch { /* ignore */ }
+    }
+   }
+  });
+
+  server.on("error", (err) => {
+    console.error("[memory] server error:", err);
   });
 
   server.listen(port, host, () => {
@@ -77,6 +90,13 @@ async function start() {
     console.log(`[memory] manage: GET/POST/PATCH/DELETE /memories`);
   });
 }
+
+process.on("uncaughtException", (err) => {
+  console.error("[memory] uncaughtException:", err);
+});
+process.on("unhandledRejection", (err) => {
+  console.error("[memory] unhandledRejection:", err);
+});
 
 start().catch((err) => {
   console.error("[memory] fatal:", err);

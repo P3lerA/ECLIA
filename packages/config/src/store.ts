@@ -402,7 +402,11 @@ export function writeLocalEcliaConfig(
     (toWrite as any).adapters.discord.force_global_commands = Boolean((normalized.adapters.discord as any).force_global_commands ?? false);
   }
 
-  fs.writeFileSync(localPath, TOML.stringify(toWrite), "utf-8");
+  try {
+    fs.writeFileSync(localPath, TOML.stringify(toWrite), "utf-8");
+  } catch (e) {
+    throw new Error(`Failed to write config: ${(e as any)?.message ?? e}`);
+  }
   if (patchSystemInstruction !== undefined) {
     writeSystemInstructionLocal(rootDir, patchSystemInstruction);
   }
@@ -422,5 +426,9 @@ export function patchLocalToml(rootDir: string, mutate: (obj: Record<string, any
   ensureLocalConfig(rootDir);
   const current = tryReadToml(localPath);
   mutate(current);
-  fs.writeFileSync(localPath, TOML.stringify(current), "utf-8");
+  try {
+    fs.writeFileSync(localPath, TOML.stringify(current), "utf-8");
+  } catch (e) {
+    throw new Error(`Failed to write config: ${(e as any)?.message ?? e}`);
+  }
 }

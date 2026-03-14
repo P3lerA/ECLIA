@@ -205,6 +205,7 @@ async function main() {
   const approvals = new ToolApprovalHub();
 
   const server = http.createServer(async (req, res) => {
+   try {
     const url = req.url ?? "/";
 
     const u = new URL(url, "http://localhost");
@@ -302,6 +303,14 @@ async function main() {
     }
 
     json(res, 404, { ok: false, error: "not_found" });
+   } catch (e) {
+    console.error("[gateway] unhandled route error:", e);
+    if (!res.headersSent) {
+      json(res, 500, { ok: false, error: "internal_error" });
+    } else if (!res.writableEnded) {
+      try { res.end(); } catch { /* ignore */ }
+    }
+   }
   });
 
   server.listen(port, "127.0.0.1", () => {
@@ -446,6 +455,13 @@ function serializeCookie(
   if (opts.sameSite) s += `; SameSite=${opts.sameSite}`;
   return s;
 }
+
+process.on("uncaughtException", (err) => {
+  console.error("[gateway] uncaughtException:", err);
+});
+process.on("unhandledRejection", (err) => {
+  console.error("[gateway] unhandledRejection:", err);
+});
 
 main().catch((e) => {
   console.error("[gateway] fatal:", e);

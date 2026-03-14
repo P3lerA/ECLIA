@@ -53,6 +53,7 @@ export class McpStdioClient {
 
     const rl = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
     rl.on("line", (line) => this.onLine(line));
+    rl.on("error", () => { /* stream errors handled via child 'exit'/'error' events */ });
 
     child.stderr.on("data", (buf) => {
       // MCP stdio reserves stderr for logs.
@@ -180,7 +181,15 @@ export class McpStdioClient {
     if (this.closed) throw new Error("MCP client is closed");
     // Per stdio transport, messages are newline-delimited and MUST NOT contain embedded newlines.
     // JSON.stringify without spacing ensures a single-line payload.
-    this.child.stdin.write(JSON.stringify(obj) + "\n");
+    try {
+      this.child.stdin.write(JSON.stringify(obj) + "\n");
+    } catch (e: any) {
+      // stdin destroyed (toolhost exited) — surface as closed.
+      if (!this.closed) {
+        this.closed = true;
+      }
+      throw e;
+    }
   }
 
   private notify(method: string, params?: any) {

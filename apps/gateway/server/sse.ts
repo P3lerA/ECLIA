@@ -28,9 +28,13 @@ export function initSse(res: http.ServerResponse) {
 }
 
 export function send(res: http.ServerResponse, event: string, data: any) {
-  if (res.writableEnded) return;
-  res.write(`event: ${event}\n`);
-  res.write(`data: ${JSON.stringify({ at: Date.now(), ...data })}\n\n`);
+  if (res.writableEnded || res.destroyed) return;
+  try {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify({ at: Date.now(), ...data })}\n\n`);
+  } catch {
+    // Socket destroyed mid-write (client disconnect). Safe to ignore.
+  }
 }
 
 export function startSseKeepAlive(res: http.ServerResponse, intervalMs: number = 15_000) {
@@ -57,5 +61,6 @@ export function startSseKeepAlive(res: http.ServerResponse, intervalMs: number =
 
   res.on("close", stop);
   res.on("finish", stop);
+  res.on("error", stop);
   return stop;
 }
